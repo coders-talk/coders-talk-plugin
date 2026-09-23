@@ -7,7 +7,7 @@ Send the Claude Code session you are in to [Coders Talk](https://coders.talk) as
 1. In Claude Code:
 
    ```
-   /plugin marketplace add coders-talk/cloud-plugin
+   /plugin marketplace add coders-talk/claude-plugin
    /plugin install coders-talk@coders-talk
    ```
 

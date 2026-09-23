@@ -269,7 +269,7 @@ function json(data) {
 }
 
 async function api(method, path, body, authorized = true) {
-    const headers = { Accept: 'application/json', 'User-Agent': `cloud-plugin/${VERSION}` };
+    const headers = { Accept: 'application/json', 'User-Agent': `claude-plugin/${VERSION}` };
     if (authorized) headers.Authorization = `Bearer ${token}`;
     if (body?.json) {
         headers['Content-Type'] = 'application/json';

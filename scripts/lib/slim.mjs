@@ -110,7 +110,7 @@ function slimLine(d) {
 }
 /**
  * The slim JSON lines of a session, or null when the text is not JSON lines: then it goes as it is.
- * Also used by the Claude Code plugin (cloud-plugin, scripts/lib/slim.mjs via `npm run plugin:sync`).
+ * Also used by the Claude Code plugin (claude-plugin, scripts/lib/slim.mjs via `npm run plugin:sync`).
  */
 export function slimJsonl(text) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');

@@ -32,6 +32,7 @@ mkdirSync(join(home, 'ct', 'sessions'), { recursive: true });
 writeFileSync(join(home, 'ct', 'sessions', `${id}.json`), JSON.stringify({ session_id: id, cwd: repo.dir, head: repo.hashes[0] }));
 
 let received = null;
+let importsDown = false;
 let polls = 0;
 let tokenPolls = 0;
 const server = createServer((req, res) => {
@@ -60,6 +61,7 @@ const server = createServer((req, res) => {
         const links = { build_slug: 'draft-x', edit_url: `${base}/b/draft-x/edit`, status_url: `${base}/api/v1/imports/imp1` };
         if (req.method === 'GET' && req.url === '/api/v1/me') return reply(200, { username: 'mara', token: { name: 'laptop' } });
         if (req.method === 'POST' && req.url === '/api/v1/imports') {
+            if (importsDown) return reply(503, { error: { code: 'unavailable', message: 'Coders Talk is down for maintenance.' } });
             received = Buffer.concat(chunks);
             const series = received.includes('name="continues"') ? { slug: 'rate-limits', title: 'Rate limits', url: `${base}/s/rate-limits` } : null;
             return reply(202, { status: 'queued', stage: null, reused: false, series, ...links });
@@ -178,6 +180,25 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.equal(git.head_start, repo.hashes[0]);
     assert.deepEqual(git.commits.subjects, ['Cover the limiter with tests', 'Add a limiter keyed by email']);
     assert.equal(existsSync(prepared), false);
+});
+
+test('when the site is down, send points at the upload page and keeps the prepared file for it', async () => {
+    assert.equal((await cli(['preview', id])).ok, true);
+    const prepared = join(temp, 'coders-talk', `${id}.jsonl.gz`);
+
+    importsDown = true;
+    const down = await cli(['send', id]).finally(() => (importsDown = false));
+    assert.equal(down.ok, false);
+    assert.match(down.out, /down for maintenance\.\nUpload it by hand instead: open http:\/\/127\.0\.0\.1:\d+\/new and drop this file/);
+    assert.ok(down.out.includes(prepared), down.out);
+    assert.equal(existsSync(prepared), true);
+
+    // A refusal about the upload itself is not a reason to try the upload page.
+    const bad = await cli(['send', id], { CODERS_TALK_TOKEN: 'ct_wrong' });
+    assert.match(bad.out, /not accepted/);
+    assert.doesNotMatch(bad.out, /by hand/);
+
+    assert.equal((await cli(['send', id])).ok, true, 'the kept file goes once the site is back');
 });
 
 test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_meta, the skill run cut', async () => {

@@ -183,7 +183,13 @@ async function send(id) {
     if (continues) form.append('continues', continues);
     form.append('file', new Blob([readFileSync(out.file)], { type: 'application/gzip' }), `${id}.jsonl.gz`);
 
-    const started = await api('POST', '/api/v1/imports', form);
+    let started;
+    try {
+        started = await api('POST', '/api/v1/imports', form);
+    } catch (e) {
+        if (!e.unavailable) throw e;
+        throw uploadByHand(out.file, e);
+    }
     rmSync(out.file, { force: true });
     rmSync(out.meta, { force: true });
 
@@ -304,14 +310,37 @@ async function whoami() {
     console.log(`Connected to ${site} as @${me.username} (token "${me.token.name}").`);
 }
 
+/**
+ * The site is down or unreachable: the same prepared file can still go through the upload page.
+ * A browser page cannot be handed a local file, so the page and the file's folder open side by side for a drag.
+ */
+function uploadByHand(file, cause) {
+    openBrowser(`${site}/new`);
+    revealFile(file);
+
+    return new Failure(`${cause.message}\nUpload it by hand instead: open ${site}/new and drop this file on the page (its folder should have opened):\n  ${file}\nThe file is kept for ${PREPARED_TTL_MS / 60000} minutes, so running the send step again also works once the site is back.`);
+}
+
 /** Best effort: if no browser opens, the printed link is there. */
 function openBrowser(url) {
+    if (process.platform === 'win32') launch('rundll32', ['url.dll,FileProtocolHandler', url]);
+    else launch(process.platform === 'darwin' ? 'open' : 'xdg-open', [url]);
+}
+
+/** The file manager with the file selected where it can (only the folder on Linux). */
+function revealFile(file) {
+    // Explorer wants /select,"path" as one argument, quoted its own way.
+    if (process.platform === 'win32') launch('explorer', [`/select,"${file}"`], { windowsVerbatimArguments: true, windowsHide: false });
+    else if (process.platform === 'darwin') launch('open', ['-R', file]);
+    else launch('xdg-open', [dirname(file)]);
+}
+
+function launch(cmd, cmdArgs, options = {}) {
     if (env.CODERS_TALK_NO_BROWSER) return;
-    const [cmd, cmdArgs] = process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]] : [process.platform === 'darwin' ? 'open' : 'xdg-open', [url]];
     try {
-        spawn(cmd, cmdArgs, { detached: true, stdio: 'ignore', windowsHide: true }).on('error', () => {}).unref();
+        spawn(cmd, cmdArgs, { detached: true, stdio: 'ignore', windowsHide: true, ...options }).on('error', () => {}).unref();
     } catch {
-        // The link is printed anyway.
+        // The link and the path are printed anyway.
     }
 }
 
@@ -340,7 +369,7 @@ async function api(method, path, body, authorized = true) {
         if (CODEX && denied(e)) {
             throw new Failure(`Network access to ${site} was denied. Run the same command again with network access (approve the request when Codex asks).`);
         }
-        throw new Failure(`Could not reach ${site}: ${e.cause?.message ?? e.message}`);
+        throw unavailable(`Could not reach ${site}: ${e.cause?.message ?? e.message}`);
     }
 
     const data = await response.json().catch(() => ({}));
@@ -349,5 +378,11 @@ async function api(method, path, body, authorized = true) {
     const error = data.error ?? {};
     const link = error.edit_url ? ` ${error.edit_url}` : '';
     if (response.status === 401) throw new Failure(`The saved token was not accepted (revoked or from another site). Run ${run('login')} to connect again.`);
-    throw new Failure(`${error.message ?? `The site answered ${response.status}.`}${link}`);
+    const message = `${error.message ?? `The site answered ${response.status}.`}${link}`;
+    throw response.status >= 500 ? unavailable(message) : new Failure(message);
+}
+
+/** The request did not go through for reasons on the way or on the server's side, not because of what was sent. */
+function unavailable(message) {
+    return Object.assign(new Failure(message), { unavailable: true });
 }

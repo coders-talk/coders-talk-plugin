@@ -30,3 +30,4 @@ Rules:
 - Do not open the session file or summarise the conversation yourself; the script prepares and sends it.
 - If `node` is not found, tell the user the plugin needs Node.js 20 or newer, and that they can upload the session at https://coders.talk/new instead.
 - If the script says this computer is not connected, or the token was not accepted, tell the user to run $coders-talk:login first (it signs in through the browser). Never ask for a token in the chat.
+- If the script says to upload the session by hand, show the user the upload link and the file path it printed, word for word. It already opened the page and the folder; do not open, copy or read the file yourself.

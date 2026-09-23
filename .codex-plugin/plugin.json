@@ -1,6 +1,6 @@
 {
     "name": "coders-talk",
-    "version": "0.5.3",
+    "version": "0.5.4",
     "description": "Send a Codex session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site.",
     "author": { "name": "Coders Talk", "url": "https://coders.talk" },
     "homepage": "https://coders.talk/plugins",

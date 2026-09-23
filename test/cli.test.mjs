@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 import { makeRepo } from './helpers.mjs';
@@ -113,6 +113,31 @@ test('login opens the approval link, --wait collects the token and saves it for 
     assert.match((await cli(['login'])).out, /Already connected .* as @mara/);
 });
 
+test('Codex login reaches the API despite a stale sandbox network flag', async () => {
+    const r = await cli(['login', '--agent=codex'], { CODERS_TALK_HOME: join(home, 'fresh-codex'), CODEX_SANDBOX_NETWORK_DISABLED: '1' });
+    assert.equal(r.ok, true, r.out);
+    assert.match(r.out, /Opened http:.*WDJB-MJHT/);
+});
+
+test('Codex reports actual permission errors without mislabeling DNS failures', async () => {
+    for (const code of ['EACCES', 'EPERM', 'ENOTFOUND']) {
+        const preload = join(home, `fetch-${code}.mjs`);
+        writeFileSync(preload, `globalThis.fetch = async () => {
+            const cause = Object.assign(new Error('lookup failed'), { code: '${code}' });
+            throw new TypeError('fetch failed', { cause: ${code === 'EACCES' ? 'new AggregateError([cause])' : 'cause'} });
+        };`);
+        const result = await run(process.execPath, ['--import', pathToFileURL(preload).href, script, 'login', '--agent=codex'], {
+            env: { ...env, CODERS_TALK_HOME: join(home, 'failed-codex'), CODEX_SANDBOX_NETWORK_DISABLED: '1' },
+        }).then(() => assert.fail('request should fail'), (e) => e.stdout + e.stderr);
+        if (code === 'ENOTFOUND') {
+            assert.match(result, /Could not reach .*lookup failed/);
+            assert.doesNotMatch(result, /was denied/);
+        } else {
+            assert.match(result, /Network access .* was denied/);
+        }
+    }
+});
+
 test('send refuses without a preview', async () => {
     const r = await cli(['send', id]);
     assert.equal(r.ok, false);
@@ -177,12 +202,8 @@ test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_
     assert.doesNotMatch(sent, /CODEX SKILL BODY|base64/);
     assert.match(sent, /turn_aborted/);
 
-    // Without network in Codex' sandbox the script says what to do instead of a connection error.
-    const offline = await cli(['send', '--agent=codex'], { ...codex, CODEX_SANDBOX_NETWORK_DISABLED: '1' });
-    assert.equal(offline.ok, false);
-    assert.match(offline.out, /without network access/);
-
-    const send = await cli(['send', '--agent=codex'], codex);
+    // Escalated commands can retain this flag even when the network is available.
+    const send = await cli(['send', '--agent=codex'], { ...codex, CODEX_SANDBOX_NETWORK_DISABLED: '1' });
     assert.equal(send.ok, true, send.out);
     const body = received.toString('latin1');
     assert.match(body, /name="agent"\r\n\r\ncodex/);

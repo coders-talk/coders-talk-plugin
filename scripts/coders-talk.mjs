@@ -324,10 +324,7 @@ function json(data) {
 }
 
 async function api(method, path, body, authorized = true) {
-    // Codex runs commands in a sandbox that may have no network: say so instead of a bare connection error.
-    if (CODEX && env.CODEX_SANDBOX_NETWORK_DISABLED === '1') {
-        throw new Failure(`Codex ran this command without network access, so it cannot reach ${site}. Run the same command again with network access (approve the request when Codex asks).`);
-    }
+    // The sandbox flag can survive escalation; only a failed request proves a network error.
     const headers = { Accept: 'application/json', 'User-Agent': `${AGENT.client}/${VERSION}` };
     if (authorized) headers.Authorization = `Bearer ${token}`;
     if (body?.json) {
@@ -339,6 +336,10 @@ async function api(method, path, body, authorized = true) {
     try {
         response = await fetch(site + path, { method, body, headers });
     } catch (e) {
+        const denied = (error) => error && (['EACCES', 'EPERM'].includes(error.code) || denied(error.cause) || error.errors?.some(denied));
+        if (CODEX && denied(e)) {
+            throw new Failure(`Network access to ${site} was denied. Run the same command again with network access (approve the request when Codex asks).`);
+        }
         throw new Failure(`Could not reach ${site}: ${e.cause?.message ?? e.message}`);
     }
 

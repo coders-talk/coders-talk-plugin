@@ -54,8 +54,9 @@ const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : {
 const run = (name) => (CODEX ? `$coders-talk:${name}` : `/coders-talk:${name}`);
 
 // --site for scripts and tests, then the environment, then the plugin's "url" option as Claude Code saved it.
+// That option belongs to the Claude Code plugin: in Codex it would silently point at whatever was set there.
 const isUrl = (value) => typeof value === 'string' && /^https?:\/\/[^\s$]+$/.test(value);
-const site = [option('site'), env.CODERS_TALK_URL, pluginOption('url'), 'https://coders.talk'].find(isUrl).replace(/\/+$/, '');
+const site = [option('site'), env.CODERS_TALK_URL, CODEX ? null : pluginOption('url'), 'https://coders.talk'].find(isUrl).replace(/\/+$/, '');
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
 
 try {

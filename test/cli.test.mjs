@@ -211,6 +211,9 @@ test('whoami reports the account, or explains a bad token', async () => {
     // Without CODERS_TALK_URL the plugin's "url" option is read from Claude Code's settings.json.
     writeFileSync(join(home, 'settings.json'), JSON.stringify({ pluginConfigs: { 'coders-talk@coders-talk': { options: { url: env.CODERS_TALK_URL } } } }));
     assert.match((await cli(['whoami'], { CODERS_TALK_URL: '' })).out, /as @mara/);
+    // Codex does not use the Claude Code plugin's option: only CODERS_TALK_URL or the default.
+    assert.match((await cli(['whoami', '--agent=codex'], { CODERS_TALK_URL: '' })).out, /not connected to https:\/\/coders\.talk yet/);
+    assert.match((await cli(['whoami', '--agent=codex'])).out, /as @mara/);
     writeFileSync(join(home, 'settings.json'), '{}');
     assert.match((await cli(['whoami'], { CODERS_TALK_URL: '' })).out, /not connected to https:\/\/coders\.talk yet/);
 });

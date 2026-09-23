@@ -49,7 +49,7 @@ Sending the same session again updates its draft until you publish it. The comma
 
 | Setting | Where | Default |
 | --- | --- | --- |
-| Site address | plugin option `url` (asked when the plugin is enabled), or `CODERS_TALK_URL` | `https://coders.talk` |
+| Site address | `CODERS_TALK_URL`, or in Claude Code the plugin option `url` (asked when the plugin is enabled). In Codex set the variable in `~/.codex/config.toml`: `[shell_environment_policy]` `set = { CODERS_TALK_URL = "https://…" }` | `https://coders.talk` |
 | Token | `/coders-talk:login` saves one per site; `CODERS_TALK_TOKEN` overrides it (for CI, or a token made in Settings by hand) | none |
 | Data folder | `CODERS_TALK_HOME` | `~/.coders-talk` |
 

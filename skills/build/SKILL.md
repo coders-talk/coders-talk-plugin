@@ -14,7 +14,7 @@ Send the current session to Coders Talk as a draft. Nothing gets published here:
 
 2. Show the user what it printed, word for word. If it printed an error, show the error and stop.
 3. Ask the user whether to send this session to Coders Talk. Continue only if they clearly say yes; otherwise stop.
-4. Run:
+4. Run the command below. If the user wrote something after the command name that points at an earlier Build of theirs (a coders.talk `/b/…` link, or `--continues <slug>`), add ` --continues=<that link or slug>` at the end, in double quotes: this session becomes the next part of that Build's series.
 
    ```
    node "${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs" send ${CLAUDE_SESSION_ID}

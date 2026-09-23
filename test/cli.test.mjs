@@ -61,7 +61,8 @@ const server = createServer((req, res) => {
         if (req.method === 'GET' && req.url === '/api/v1/me') return reply(200, { username: 'mara', token: { name: 'laptop' } });
         if (req.method === 'POST' && req.url === '/api/v1/imports') {
             received = Buffer.concat(chunks);
-            return reply(202, { status: 'queued', stage: null, reused: false, ...links });
+            const series = received.includes('name="continues"') ? { slug: 'rate-limits', title: 'Rate limits', url: `${base}/s/rate-limits` } : null;
+            return reply(202, { status: 'queued', stage: null, reused: false, series, ...links });
         }
         if (req.method === 'GET' && req.url === '/api/v1/imports/imp1') {
             polls++;
@@ -134,9 +135,10 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.doesNotMatch(sentLater, /SKILL BODY MARKER|coders-talk:build/);
     assert.doesNotMatch(sentLater, /file-history-snapshot|iVBORw0KGgoAAAA/);
 
-    const send = await cli(['send', id]);
+    const send = await cli(['send', id, '--continues=https://coders.talk/b/first-part']);
     assert.equal(send.ok, true, send.out);
     assert.match(send.out, /Draft created: http:\/\/127\.0\.0\.1:\d+\/b\/draft-x\/edit/);
+    assert.match(send.out, /Linked as the next part of the series "Rate limits": http:\/\/127\.0\.0\.1:\d+\/s\/rate-limits/);
     assert.match(send.out, /Proposing moments/);
     assert.match(send.out, /Imported 9 turns, with suggested moments/);
     assert.match(send.out, /1 possible secret redacted/);
@@ -145,6 +147,7 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.ok(received.includes(gz));
     assert.match(received.toString('latin1'), /name="session_id"\r\n\r\na1b2c3d4-0000-4000-8000-000000000001/);
     assert.match(received.toString('latin1'), /name="agent"\r\n\r\nclaude-code/);
+    assert.match(received.toString('latin1'), /name="continues"\r\n\r\nhttps:\/\/coders\.talk\/b\/first-part/);
     const git = JSON.parse(received.toString('utf8').match(/name="git"\r\n\r\n(.*)\r\n/)[1]);
     assert.equal(git.remote, 'https://github.com/mara/shop');
     assert.equal(git.head_start, repo.hashes[0]);

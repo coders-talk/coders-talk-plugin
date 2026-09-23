@@ -5,6 +5,7 @@
  *   node coders-talk.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token
  *   node coders-talk.mjs preview [session-id]   trims the session, saves it next to the temp dir, prints what would go
  *   node coders-talk.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
+ *     --continues=<slug or link>                  the draft continues that Build of yours: they become a series
  *   node coders-talk.mjs whoami | logout
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *
@@ -128,6 +129,9 @@ async function send(id) {
     form.append('session_id', id);
     form.append('client_version', VERSION);
     if (meta.git) form.append('git', JSON.stringify(meta.git));
+    // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
+    const continues = option('continues');
+    if (continues) form.append('continues', continues);
     form.append('file', new Blob([readFileSync(out.file)], { type: 'application/gzip' }), `${id}.jsonl.gz`);
 
     const started = await api('POST', '/api/v1/imports', form);
@@ -135,6 +139,8 @@ async function send(id) {
     rmSync(out.meta, { force: true });
 
     console.log(`${started.reused ? 'Updating the draft of this session' : 'Draft created'}: ${started.edit_url}`);
+    if (started.series) console.log(`Linked as the next part of the series "${started.series.title}": ${started.series.url}`);
+    else if (continues) console.log(`Could not link it to "${continues}": use the link or slug of one of your own Builds. You can link it in the draft instead.`);
 
     let state = started;
     let stage = null;

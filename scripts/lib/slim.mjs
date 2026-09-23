@@ -21,10 +21,6 @@ const DROP_TYPES = new Set([
     'summary',
     'system',
     'progress',
-    // Codex
-    'event_msg',
-    'turn_context',
-    'session_meta',
 ]);
 const TOOL_LINES = 60;
 const TOOL_CHARS = 8000;
@@ -38,11 +34,16 @@ function blockText(value) {
     if (!Array.isArray(value))
         return typeof value === 'string' ? value : JSON.stringify(value ?? '');
     return value
-        .map((part) => (part?.type === 'image' ? '[image]' : typeof part?.text === 'string' ? part.text : ''))
+        .map((part) => (part?.type === 'image' || part?.type === 'input_image' ? '[image]' : typeof part?.text === 'string' ? part.text : ''))
         .join('\n');
 }
-/** Codex command output: JSON with metadata.exit_code, or text starting "Exit code: N". */
+/**
+ * Codex command output: JSON with metadata.exit_code, or text starting "Exit code: N". The desktop app runs
+ * tools from a script: "Script failed" counts as 1, otherwise the first non-zero "exit_code" its tools printed.
+ */
 function exitCode(output) {
+    if (Array.isArray(output))
+        output = blockText(output);
     if (typeof output !== 'string')
         return null;
     if (output.trimStart().startsWith('{')) {
@@ -56,7 +57,43 @@ function exitCode(output) {
         }
     }
     const match = output.match(/^Exit code: (-?\d+)/m);
-    return match ? Number(match[1]) : null;
+    if (match)
+        return Number(match[1]);
+    if (/^Script failed$/m.test(output))
+        return 1;
+    const codes = [...output.matchAll(/"exit_code":\s*(-?\d+)/g)].map((m) => Number(m[1]));
+    return codes.length ? (codes.find((c) => c !== 0) ?? 0) : null;
+}
+/** Codex keeps the conversation in response_item lines; of the rest only the person stopping a turn matters. */
+function slimCodexLine(type, timestamp, payload) {
+    if (type === 'event_msg') {
+        return payload.type === 'turn_aborted' ? { type, timestamp, payload: { type: 'turn_aborted', reason: payload.reason } } : null;
+    }
+    // session_meta, turn_context, compacted, world_state, token_usage_record: bookkeeping, some of it huge.
+    if (type !== 'response_item')
+        return null;
+    const p = { ...payload };
+    delete p.internal_chat_message_metadata_passthrough;
+    if (p.type === 'reasoning' || p.type === 'compaction')
+        return null;
+    // Developer messages are the app's instructions to the model, not the conversation.
+    if (p.type === 'message' && (p.role === 'developer' || p.role === 'system'))
+        return null;
+    if (Array.isArray(p.content)) {
+        p.content = p.content.map((b) => (b?.type === 'input_image' ? { type: 'input_text', text: '[image]' } : b));
+    }
+    if ('output' in p) {
+        // The exit code sits inside the output, which is about to be cut: keep it next to it.
+        const code = exitCode(p.output);
+        if (code !== null)
+            p.exit_code = code;
+        p.output = cut(Array.isArray(p.output) ? blockText(p.output) : p.output);
+    }
+    if ('arguments' in p)
+        p.arguments = cut(p.arguments, 40);
+    if ('input' in p)
+        p.input = cut(p.input, 40);
+    return { type, timestamp, payload: p };
 }
 function slimBlock(block) {
     if (!block || typeof block !== 'object')
@@ -77,28 +114,14 @@ function slimBlock(block) {
             return b;
     }
 }
-function slimLine(d) {
+/** One session line, slimmed; null when nothing in it is kept. The plugin streams big files through this. */
+export function slimLine(d) {
     const type = d.type;
     if (type && DROP_TYPES.has(type))
         return null;
     // Codex rollout: {timestamp, type: 'response_item', payload: {...}}
-    if (d.payload && typeof d.payload === 'object') {
-        const p = { ...d.payload };
-        if (p.type === 'reasoning')
-            return null;
-        if ('output' in p) {
-            // The exit code sits inside the output, which is about to be cut: keep it next to it.
-            const code = exitCode(p.output);
-            if (code !== null)
-                p.exit_code = code;
-            p.output = cut(p.output);
-        }
-        if ('arguments' in p)
-            p.arguments = cut(p.arguments, 40);
-        if ('input' in p)
-            p.input = cut(p.input, 40);
-        return { type, timestamp: d.timestamp, payload: p };
-    }
+    if (d.payload && typeof d.payload === 'object' && !Array.isArray(d.payload))
+        return slimCodexLine(type, d.timestamp, d.payload);
     // Claude Code: {type, timestamp, message: {role, content}}, plus big copies like toolUseResult we skip.
     // isMeta marks messages Claude Code wrote in the person's name (skill bodies, caveats): the server skips them.
     if (d.message && typeof d.message === 'object') {
@@ -110,7 +133,7 @@ function slimLine(d) {
 }
 /**
  * The slim JSON lines of a session, or null when the text is not JSON lines: then it goes as it is.
- * Also used by the Claude Code plugin (claude-plugin, scripts/lib/slim.mjs via `npm run plugin:sync`).
+ * Also used by the Claude Code plugin (coders-talk-plugin, scripts/lib/slim.mjs via `npm run plugin:sync`).
  */
 export function slimJsonl(text) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');

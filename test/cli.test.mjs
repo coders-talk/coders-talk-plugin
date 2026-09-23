@@ -155,6 +155,44 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.equal(existsSync(prepared), false);
 });
 
+test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_meta, the skill run cut', async () => {
+    const thread = '01a0b8a6-9f98-7701-8110-1a2556f5b096';
+    const codexHome = join(home, 'codex');
+    const day = join(codexHome, 'sessions', '2026', '09', '01');
+    mkdirSync(day, { recursive: true });
+    const rollout = join(day, `rollout-2026-09-01T10-00-00-${thread}.jsonl`);
+    const fixture = readFileSync(fileURLToPath(new URL('./fixtures/slim/codex.jsonl', import.meta.url)), 'utf8').trim().split('\n').slice(1);
+    const meta = { timestamp: '2026-09-01T10:00:00.000Z', type: 'session_meta', payload: { id: thread, cwd: repo.dir, git: { commit_hash: repo.hashes[0], branch: 'main' } } };
+    const skill = { timestamp: '2026-09-01T10:05:00.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<skill>\n<name>coders-talk:build</name>\n<path>/p/codex/skills/build/SKILL.md</path>\nCODEX SKILL BODY\n</skill>' }] } };
+    writeFileSync(rollout, [JSON.stringify(meta), ...fixture, JSON.stringify(skill)].join('\n') + '\n');
+    const codex = { CODEX_HOME: codexHome, CODEX_THREAD_ID: thread };
+
+    const preview = await cli(['preview', '--agent=codex'], codex);
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, /Prompts: +3, tool calls: 5/);
+    assert.match(preview.out, /2 commits in this session/);
+    assert.doesNotMatch(preview.out, /Claude Code/);
+    const gz = readFileSync(join(temp, 'coders-talk', `${thread}.jsonl.gz`));
+    const sent = gunzipSync(gz).toString('utf8');
+    assert.doesNotMatch(sent, /CODEX SKILL BODY|base64/);
+    assert.match(sent, /turn_aborted/);
+
+    // Without network in Codex' sandbox the script says what to do instead of a connection error.
+    const offline = await cli(['send', '--agent=codex'], { ...codex, CODEX_SANDBOX_NETWORK_DISABLED: '1' });
+    assert.equal(offline.ok, false);
+    assert.match(offline.out, /without network access/);
+
+    const send = await cli(['send', '--agent=codex'], codex);
+    assert.equal(send.ok, true, send.out);
+    const body = received.toString('latin1');
+    assert.match(body, /name="agent"\r\n\r\ncodex/);
+    assert.match(body, new RegExp(`name="session_id"\\r\\n\\r\\n${thread}`));
+    const git = JSON.parse(received.toString('utf8').match(/name="git"\r\n\r\n(.*)\r\n/)[1]);
+    assert.equal(git.head_start, repo.hashes[0]);
+    assert.equal(git.head_start_estimated, undefined);
+    assert.ok(received.includes(gz));
+});
+
 test('whoami reports the account, or explains a bad token', async () => {
     assert.match((await cli(['whoami'])).out, /as @mara \(token "laptop"\)/);
 

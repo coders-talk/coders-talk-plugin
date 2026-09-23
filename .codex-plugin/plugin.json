@@ -1,0 +1,21 @@
+{
+    "name": "coders-talk",
+    "version": "0.5.0",
+    "description": "Send a Codex session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site.",
+    "author": { "name": "Coders Talk", "url": "https://coders.talk" },
+    "homepage": "https://coders.talk/plugins",
+    "keywords": ["coders-talk", "sessions", "sharing", "builds"],
+    "skills": "./codex/skills/",
+    "hooks": { "hooks": {} },
+    "interface": {
+        "displayName": "Coders Talk",
+        "shortDescription": "Send this session to Coders Talk as a draft",
+        "longDescription": "Turns the current Codex session into a draft Build on coders.talk: the prompts, the moments you stepped in and the fails that mattered. Secrets are redacted on the server, and nothing is published until you review the draft on the site.",
+        "developerName": "Coders Talk",
+        "category": "Developer Tools",
+        "capabilities": ["Write"],
+        "websiteURL": "https://coders.talk/plugins",
+        "privacyPolicyURL": "https://coders.talk/privacy",
+        "defaultPrompt": ["$coders-talk:build"]
+    }
+}

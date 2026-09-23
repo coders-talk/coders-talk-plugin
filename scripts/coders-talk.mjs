@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Coders Talk for Claude Code: sends the current session to https://coders.talk as a draft Build.
+ * Coders Talk for Claude Code and Codex: sends the current session to https://coders.talk as a draft Build.
  *
  *   node coders-talk.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token
  *   node coders-talk.mjs preview [session-id]   trims the session, saves it next to the temp dir, prints what would go
@@ -8,6 +8,7 @@
  *     --continues=<slug or link>                  the draft continues that Build of yours: they become a series
  *   node coders-talk.mjs whoami | logout
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
+ *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
  * Two steps to send on purpose: the person sees the summary and says yes before anything leaves the machine,
  * and what is sent is exactly what they saw. Nothing is published: that happens on the site.
@@ -15,25 +16,26 @@
  * Needs Node.js 20 or newer and nothing else.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { pluginOption } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { gitContext } from './lib/git.mjs';
-import { SESSION_ID, cutOwnCommand, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
+import { SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
-import { slimJsonl } from './lib/slim.mjs';
+import { slimLine } from './lib/slim.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const VERSION = JSON.parse(readFileSync(join(ROOT, '.claude-plugin/plugin.json'), 'utf8')).version;
+const VERSION = JSON.parse(readFileSync(join(ROOT, '.coders-talk-plugin/plugin.json'), 'utf8')).version;
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const PREPARED_TTL_MS = 30 * 60 * 1000;
 const POLL_MS = Number(process.env.CODERS_TALK_POLL_MS) || 2000;
 const POLL_FOR_MS = 3 * 60 * 1000;
-// Claude Code stops a command after about two minutes; a login still waiting then picks up again on the next run.
+// Agents stop a command after a couple of minutes; a login still waiting then picks up again on the next run.
 const LOGIN_WAIT_MS = Number(process.env.CODERS_TALK_LOGIN_WAIT_MS) || 100_000;
 const STAGES = { fetching: 'Reading the session', scanning: 'Scanning for secrets', labeling: 'Proposing moments', saving: 'Saving the draft' };
 
@@ -44,6 +46,12 @@ const args = process.argv.slice(2);
 const option = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const [command, argId] = args.filter((a) => !a.startsWith('--'));
 
+// The same script serves both plugins; the Codex skills pass --agent=codex.
+const CODEX = option('agent') === 'codex';
+const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : { id: 'claude-code', name: 'Claude Code', client: 'coders-talk-plugin' };
+/** How the person runs one of the plugin's commands in this agent. */
+const run = (name) => (CODEX ? `$coders-talk:${name}` : `/coders-talk:${name}`);
+
 // --site for scripts and tests, then the environment, then the plugin's "url" option as Claude Code saved it.
 const isUrl = (value) => typeof value === 'string' && /^https?:\/\/[^\s$]+$/.test(value);
 const site = [option('site'), env.CODERS_TALK_URL, pluginOption('url'), 'https://coders.talk'].find(isUrl).replace(/\/+$/, '');
@@ -53,7 +61,7 @@ try {
     if (Number(process.versions.node.split('.')[0]) < 20) {
         throw new Failure(`The Coders Talk plugin needs Node.js 20 or newer (this is ${process.version}). Or upload the session at ${site}/new.`);
     }
-    if (command === 'preview') preview(sessionId());
+    if (command === 'preview') await preview(sessionId());
     else if (command === 'send') await send(sessionId());
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
@@ -65,14 +73,14 @@ try {
 }
 
 function sessionId() {
-    const id = argId || env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID || '';
-    if (!SESSION_ID.test(id)) throw new Failure('Could not tell which session this is. Run the command from inside a Claude Code session.');
+    const id = argId || (CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID) || '';
+    if (!SESSION_ID.test(id)) throw new Failure(`Could not tell which session this is. Run the command from inside a ${AGENT.name} session.`);
 
     return id;
 }
 
 function notConnected() {
-    return new Failure(`This computer is not connected to ${site} yet. Run /coders-talk:login first: it signs you in through the browser.`);
+    return new Failure(`This computer is not connected to ${site} yet. Run ${run('login')} first: it signs you in through the browser.`);
 }
 
 function prepared(id) {
@@ -82,15 +90,18 @@ function prepared(id) {
     return { file: join(dir, `${id}.jsonl.gz`), meta: join(dir, `${id}.json`) };
 }
 
-function preview(id) {
-    const path = findTranscript(id);
-    if (!path) throw new Failure(`Could not find this session's transcript (${id}.jsonl) under the Claude Code config folder.`);
+async function preview(id) {
+    const path = CODEX ? findRollout(id) : findTranscript(id);
+    if (!path) {
+        throw new Failure(CODEX
+            ? `Could not find this session's rollout (rollout-…-${id}.jsonl) under the Codex sessions folder.`
+            : `Could not find this session's transcript (${id}.jsonl) under the Claude Code config folder.`);
+    }
 
-    const raw = readFileSync(path, 'utf8');
-    const { text } = cutOwnCommand(raw);
-    const stats = summarize(text);
-    const slim = slimJsonl(text);
-    if (slim === null) throw new Failure('This session file is not in the format Claude Code writes, so it cannot be sent.');
+    const session = await readSession(path);
+    if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
+    const { text: slim } = cutOwnCommand(session.lines.join('\n'));
+    const stats = summarize(slim, session.cwd);
     if (slim.trim() === '' || stats.prompts === 0) throw new Failure('There is nothing to send yet: the session has no prompts before this command.');
 
     const gz = gzipSync(Buffer.from(slim, 'utf8'));
@@ -98,8 +109,9 @@ function preview(id) {
         throw new Failure(`Even trimmed and compressed this session is ${formatBytes(gz.length)}, over the 20 MB limit. Split the work into shorter sessions, or upload it at ${site}/new.`);
     }
 
-    const sidecar = readSidecar(id);
-    const git = gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? null, stats.startedAt);
+    // HEAD at the start: Claude Code's SessionStart hook remembered it, Codex writes it into the session itself.
+    const sidecar = CODEX ? null : readSidecar(id);
+    const git = gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? session.headStart, stats.startedAt);
 
     const out = prepared(id);
     writeFileSync(out.file, gz);
@@ -109,10 +121,45 @@ function preview(id) {
     console.log(`  Project:    ${stats.project ?? 'unknown'}`);
     console.log(`  Prompts:    ${stats.prompts}, tool calls: ${stats.toolCalls}`);
     console.log(`  Time span:  ${formatDuration(stats.durationSec)}`);
-    console.log(`  Size:       ${formatBytes(Buffer.byteLength(raw))} session → ${formatBytes(Buffer.byteLength(slim))} without images and long tool output → ${formatBytes(gz.length)} compressed`);
+    console.log(`  Size:       ${formatBytes(session.bytes)} session → ${formatBytes(Buffer.byteLength(slim))} without images and long tool output → ${formatBytes(gz.length)} compressed`);
     if (git) console.log(`  Git:        ${describeGit(git)}`);
     console.log('Secrets are replaced with [REDACTED] on the server before a model sees anything, and you check each one before publishing.');
-    if (!token) console.log(`Not connected to ${site} yet: run /coders-talk:login before sending.`);
+    if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
+}
+
+/**
+ * The session slimmed line by line as it is read: Codex rollouts with screenshots run to hundreds of megabytes,
+ * more than fits in one string. Null when the file is not JSON lines. Also keeps what slimming drops: where the
+ * session ran and, for Codex, HEAD at its start (session_meta).
+ */
+async function readSession(path) {
+    const lines = [];
+    let cwd = null;
+    let headStart = null;
+    let total = 0;
+    let parsed = 0;
+    for await (const line of createInterface({ input: createReadStream(path, 'utf8'), crlfDelay: Infinity })) {
+        if (line.trim() === '') continue;
+        total++;
+        let d;
+        try {
+            d = JSON.parse(line);
+        } catch {
+            continue;
+        }
+        parsed++;
+        if (!d || typeof d !== 'object' || Array.isArray(d)) continue;
+
+        if (d.type === 'session_meta') {
+            cwd ??= typeof d.payload?.cwd === 'string' ? d.payload.cwd : null;
+            headStart ??= typeof d.payload?.git?.commit_hash === 'string' ? d.payload.git.commit_hash : null;
+        }
+        cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
+        const slim = slimLine(d);
+        if (slim) lines.push(JSON.stringify(slim));
+    }
+
+    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size };
 }
 
 async function send(id) {
@@ -125,7 +172,7 @@ async function send(id) {
 
     const meta = JSON.parse(readFileSync(out.meta, 'utf8'));
     const form = new FormData();
-    form.append('agent', 'claude-code');
+    form.append('agent', AGENT.id);
     form.append('session_id', id);
     form.append('client_version', VERSION);
     if (meta.git) form.append('git', JSON.stringify(meta.git));
@@ -170,7 +217,7 @@ async function send(id) {
 }
 
 /**
- * Browser sign-in in two steps, because Claude Code shows a command's output only when it ends:
+ * Browser sign-in in two steps, because the agent shows a command's output only when it ends:
  * login opens the approval page and returns at once, login --wait then waits for the click.
  * The page and this output show the same short code, so a link from someone else is easy to spot.
  */
@@ -188,7 +235,7 @@ async function login() {
     if (args.includes('--wait')) return waitForApproval();
 
     // Always a fresh request: continuing an earlier one is what --wait is for.
-    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: `Claude Code on ${hostname()}`.slice(0, 60), client_version: VERSION }), false);
+    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: `${AGENT.name} on ${hostname()}`.slice(0, 60), client_version: VERSION }), false);
     const pending = {
         site,
         device_code: codes.device_code,
@@ -208,7 +255,7 @@ async function waitForApproval() {
     const pending = pendingLogin(site);
     if (!pending) {
         if (token) return console.log(`Connected to ${site}.`);
-        throw new Failure('Nothing to wait for: run /coders-talk:login to start.');
+        throw new Failure(`Nothing to wait for: run ${run('login')} to start.`);
     }
 
     const deadline = Math.min(Date.now() + LOGIN_WAIT_MS, pending.expires_at);
@@ -217,12 +264,12 @@ async function waitForApproval() {
         if (state.status === 'approved') {
             saveToken(site, state.token, state.username);
             clearPendingLogin();
-            console.log(`Connected to ${site} as @${state.username}. /coders-talk:build can send sessions now.`);
+            console.log(`Connected to ${site} as @${state.username}. ${run('build')} can send sessions now.`);
             return;
         }
         if (state.status !== 'pending') {
             clearPendingLogin();
-            throw new Failure(state.status === 'denied' ? 'The connection was cancelled in the browser. Run /coders-talk:login to try again.' : 'The link expired. Run /coders-talk:login for a new one.');
+            throw new Failure(state.status === 'denied' ? `The connection was cancelled in the browser. Run ${run('login')} to try again.` : `The link expired. Run ${run('login')} for a new one.`);
         }
         await sleep(Math.max(POLL_MS, (pending.interval ?? 5) * 1000));
     }
@@ -275,7 +322,11 @@ function json(data) {
 }
 
 async function api(method, path, body, authorized = true) {
-    const headers = { Accept: 'application/json', 'User-Agent': `claude-plugin/${VERSION}` };
+    // Codex runs commands in a sandbox that may have no network: say so instead of a bare connection error.
+    if (CODEX && env.CODEX_SANDBOX_NETWORK_DISABLED === '1') {
+        throw new Failure(`Codex ran this command without network access, so it cannot reach ${site}. Run the same command again with network access (approve the request when Codex asks).`);
+    }
+    const headers = { Accept: 'application/json', 'User-Agent': `${AGENT.client}/${VERSION}` };
     if (authorized) headers.Authorization = `Bearer ${token}`;
     if (body?.json) {
         headers['Content-Type'] = 'application/json';
@@ -294,6 +345,6 @@ async function api(method, path, body, authorized = true) {
 
     const error = data.error ?? {};
     const link = error.edit_url ? ` ${error.edit_url}` : '';
-    if (response.status === 401) throw new Failure(`The saved token was not accepted (revoked or from another site). Run /coders-talk:login to connect again.`);
+    if (response.status === 401) throw new Failure(`The saved token was not accepted (revoked or from another site). Run ${run('login')} to connect again.`);
     throw new Failure(`${error.message ?? `The site answered ${response.status}.`}${link}`);
 }

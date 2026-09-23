@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { cutOwnCommand, findTranscript, summarize } from '../scripts/lib/session.mjs';
+import { cutOwnCommand, findRollout, findTranscript, summarize } from '../scripts/lib/session.mjs';
 
 const line = (d) => JSON.stringify(d);
 const prompt = (text, s) => line({ type: 'user', cwd: '/home/you/code/shop', message: { role: 'user', content: text }, timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:00Z` });
@@ -56,4 +56,51 @@ test('the transcript is found by session id in any project folder', () => {
     assert.equal(findTranscript('00000000-0000-0000-0000-000000000000', config), null);
     // An id is never allowed to walk out of the projects folder.
     assert.equal(findTranscript('../../etc/passwd', config), null);
+});
+
+// Codex rollouts: {timestamp, type, payload}.
+const codex = (payload, s = 0, type = 'response_item') => line({ timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:00Z`, type, payload });
+const said = (text, s) => codex({ type: 'message', role: 'user', content: [{ type: 'input_text', text }] }, s);
+const skill = (name) => said(`<skill>\n<name>${name}</name>\n<path>/p/codex/skills/build/SKILL.md</path>\nbody\n</skill>`);
+
+test('in Codex the skill message and what the person typed to call it are cut', () => {
+    const work = [
+        codex({ id: 't1', cwd: '/home/you/shop', git: { commit_hash: 'abc' } }, 0, 'session_meta'),
+        said('Fix the flaky test', 0),
+        codex({ type: 'function_call', name: 'shell', arguments: '{}' }, 1),
+        codex({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Fixed.' }] }, 2),
+    ];
+    const text = [...work, said('<environment_context>\n<cwd>/home/you/shop</cwd>\n</environment_context>', 3), said('$coders-talk:build', 3), skill('coders-talk:build'), codex({ type: 'function_call', name: 'shell', arguments: '{}' }, 4)].join('\n');
+    assert.deepEqual(cutOwnCommand(text), { text: work.join('\n'), cut: true });
+
+    // Another skill is part of the work.
+    assert.equal(cutOwnCommand([...work, skill('frontend-review')].join('\n')).cut, false);
+
+    assert.deepEqual(summarize(text), {
+        cwd: '/home/you/shop',
+        project: 'shop',
+        prompts: 2,
+        toolCalls: 2,
+        startedAt: Date.parse('2026-09-01T10:00:00Z'),
+        durationSec: 240,
+    });
+});
+
+test('the Codex rollout is found by thread id, a reverted one too', () => {
+    const home = mkdtempSync(join(tmpdir(), 'ct-codex-'));
+    const id = '01a0b8a6-9f98-7701-8110-1a2556f5b096';
+    const day = join(home, 'sessions', '2026', '09', '19');
+    mkdirSync(day, { recursive: true });
+    writeFileSync(join(day, `rollout-2026-09-19T10-52-02-${id}.jsonl`), said('x', 0));
+    writeFileSync(join(day, `rollout-2026-09-19T10-53-00-01a0b8a6-0000-7701-8110-1a2556f5b096.jsonl`), said('other', 0));
+
+    assert.equal(findRollout(id, home), join(day, `rollout-2026-09-19T10-52-02-${id}.jsonl`));
+    assert.equal(findRollout('01a0b8a6-1111-7701-8110-1a2556f5b096', home), null);
+    assert.equal(findRollout('../x', home), null);
+
+    // After a revert Codex writes <thread id>_<rollout id>; the newest file wins.
+    const reverted = join(day, `rollout-2026-09-19T11-00-00-${id}_01a0b8d3-5e84-75d3-90e8-f48386d1883f.jsonl`);
+    writeFileSync(reverted, said('y', 0));
+    utimesSync(reverted, new Date(), new Date(Date.now() + 1000));
+    assert.equal(findRollout(id, home), reverted);
 });

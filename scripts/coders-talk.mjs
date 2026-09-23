@@ -30,7 +30,8 @@ import { readSidecar } from './lib/sidecar.mjs';
 import { slimLine } from './lib/slim.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const VERSION = JSON.parse(readFileSync(join(ROOT, '.coders-talk-plugin/plugin.json'), 'utf8')).version;
+// Both manifests carry the same version; whichever the installed copy has.
+const VERSION = JSON.parse(readFileSync(join(ROOT, ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json'].find((p) => existsSync(join(ROOT, p))) ?? '.claude-plugin/plugin.json'), 'utf8')).version;
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const PREPARED_TTL_MS = 30 * 60 * 1000;
 const POLL_MS = Number(process.env.CODERS_TALK_POLL_MS) || 2000;
@@ -48,7 +49,7 @@ const [command, argId] = args.filter((a) => !a.startsWith('--'));
 
 // The same script serves both plugins; the Codex skills pass --agent=codex.
 const CODEX = option('agent') === 'codex';
-const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : { id: 'claude-code', name: 'Claude Code', client: 'coders-talk-plugin' };
+const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : { id: 'claude-code', name: 'Claude Code', client: 'claude-plugin' };
 /** How the person runs one of the plugin's commands in this agent. */
 const run = (name) => (CODEX ? `$coders-talk:${name}` : `/coders-talk:${name}`);
 

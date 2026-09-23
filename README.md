@@ -24,7 +24,7 @@ codex plugin add coders-talk@coders-talk
 
 Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the same four commands as below, with `$` instead of `/`). Codex asks to run the plugin's command outside its sandbox: it needs the network to reach coders.talk and your home folder for the sign-in. The session is found through `CODEX_THREAD_ID` in `~/.codex/sessions` (or `CODEX_HOME`), and HEAD at its start comes from the rollout's `session_meta`, so Codex gets no hook.
 
-One repository serves both agents: Claude Code reads `.coders-talk-plugin/` and `skills/`, Codex reads `.codex-plugin/`, `.agents/plugins/marketplace.json` and `codex/skills/` (its manifest turns off `hooks/hooks.json`). Codex does not expand `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SESSION_ID}` in skills, so its skills give the script path relative to the skill file and pass `--agent=codex`.
+One repository serves both agents: Claude Code reads `.claude-plugin/` and `skills/`, Codex reads `.codex-plugin/`, `.agents/plugins/marketplace.json` and `codex/skills/` (its manifest turns off `hooks/hooks.json`). Codex does not expand `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SESSION_ID}` in skills, so its skills give the script path relative to the skill file and pass `--agent=codex`.
 
 ## Use
 

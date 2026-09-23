@@ -1,0 +1,4 @@
+User: hi
+{"type":"user"}
+Assistant: hello
+plain text again

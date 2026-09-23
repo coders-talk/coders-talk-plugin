@@ -1,0 +1,16 @@
+{
+    "description": "Remembers the git HEAD at the start of a session, so /coders-talk:build can list the session's commits. Sends nothing.",
+    "hooks": {
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs\"",
+                        "timeout": 10
+                    }
+                ]
+            }
+        ]
+    }
+}

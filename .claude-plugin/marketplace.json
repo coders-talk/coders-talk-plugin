@@ -1,0 +1,12 @@
+{
+    "name": "coders-talk",
+    "description": "Coders Talk plugins: send a coding agent session to coders.talk as a draft Build.",
+    "owner": { "name": "Coders Talk", "url": "https://coders.talk" },
+    "plugins": [
+        {
+            "name": "coders-talk",
+            "source": "./",
+            "description": "Send a Claude Code session to Coders Talk as a draft Build you review and publish on the site."
+        }
+    ]
+}

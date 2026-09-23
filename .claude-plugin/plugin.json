@@ -1,0 +1,17 @@
+{
+    "name": "coders-talk",
+    "version": "0.3.0",
+    "description": "Send a Claude Code session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site.",
+    "author": { "name": "Coders Talk", "url": "https://coders.talk" },
+    "homepage": "https://coders.talk/plugins",
+    "keywords": ["coders-talk", "sessions", "sharing", "builds"],
+    "userConfig": {
+        "url": {
+            "type": "string",
+            "title": "Site address",
+            "description": "Leave as it is unless you run your own copy of Coders Talk.",
+            "default": "https://coders.talk",
+            "required": false
+        }
+    }
+}

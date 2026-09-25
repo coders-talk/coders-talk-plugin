@@ -1,10 +1,10 @@
 ---
 name: build
-description: Send this Claude Code session to Coders Talk as a draft Build that the user reviews and publishes on the site. Runs only when the user types /coders-talk:build.
+description: Send this Claude Code session to Coders Talk as a draft Build that the user reviews on the site, privately or in their team's space. Runs only when the user types /coders-talk:build.
 disable-model-invocation: true
 ---
 
-Send the current session to Coders Talk as a draft. Nothing gets published here: the user reviews the draft and publishes it on the site.
+Send the current session to Coders Talk as a draft. Nothing gets published here: the draft is private to the user, or to their team when the session ran in one of the team's repositories, and the user reviews it on the site.
 
 1. Run this command exactly, and nothing else first:
 
@@ -12,7 +12,9 @@ Send the current session to Coders Talk as a draft. Nothing gets published here:
    node "${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs" preview ${CLAUDE_SESSION_ID}
    ```
 
-2. Show the user what it printed, word for word. If it printed an error, show the error and stop.
+   If the user wrote `--private` after the command name, add ` --private` at the end of this command; if they wrote `--team <name>` or `--team=<name>`, add ` --team=<name>`. Nothing else goes on it.
+
+2. Show the user what it printed, word for word, including where the draft goes. If it printed an error, show the error and stop.
 3. Ask the user whether to send this session to Coders Talk. Continue only if they clearly say yes; otherwise stop.
 4. Run the command below. If the user wrote something after the command name that points at an earlier Build of theirs (a coders.talk `/b/…` link, or `--continues <slug>`), add ` --continues=<that link or slug>` at the end, in double quotes: this session becomes the next part of that Build's series.
 

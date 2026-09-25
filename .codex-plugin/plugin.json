@@ -1,6 +1,6 @@
 {
     "name": "coders-talk",
-    "version": "0.5.4",
+    "version": "0.7.0",
     "description": "Send a Codex session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site.",
     "author": { "name": "Coders Talk", "url": "https://coders.talk" },
     "homepage": "https://coders.talk/plugins",
@@ -10,7 +10,7 @@
     "interface": {
         "displayName": "Coders Talk",
         "shortDescription": "Send this session to Coders Talk as a draft",
-        "longDescription": "Turns the current Codex session into a draft Build on coders.talk: the prompts, the moments you stepped in and the fails that mattered. Secrets are redacted on the server, and nothing is published until you review the draft on the site.",
+        "longDescription": "Turns the current Codex session into a draft Build on coders.talk: the prompts, the moments you stepped in and the fails that mattered. Secrets are redacted on the server. The draft is private to you, or to your team for sessions in its repositories, and nothing is published until you do it on the site.",
         "developerName": "Coders Talk",
         "category": "Developer Tools",
         "capabilities": ["Write"],

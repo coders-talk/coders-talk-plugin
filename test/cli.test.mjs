@@ -33,6 +33,7 @@ writeFileSync(join(home, 'ct', 'sessions', `${id}.json`), JSON.stringify({ sessi
 
 let received = null;
 let importsDown = false;
+let alreadyPublished = false;
 let polls = 0;
 let tokenPolls = 0;
 const server = createServer((req, res) => {
@@ -59,12 +60,20 @@ const server = createServer((req, res) => {
     req.on('end', () => {
         const base = `http://127.0.0.1:${server.address().port}`;
         const links = { build_slug: 'draft-x', edit_url: `${base}/b/draft-x/edit`, status_url: `${base}/api/v1/imports/imp1` };
-        if (req.method === 'GET' && req.url === '/api/v1/me') return reply(200, { username: 'mara', token: { name: 'laptop' } });
+        if (req.method === 'GET' && req.url === '/api/v1/me') {
+            return reply(200, { username: 'mara', token: { name: 'laptop' }, teams: [{ slug: 'acme', name: 'Acme', github_owners: ['acme-inc'], auto_capture: true }] });
+        }
         if (req.method === 'POST' && req.url === '/api/v1/imports') {
             if (importsDown) return reply(503, { error: { code: 'unavailable', message: 'Coders Talk is down for maintenance.' } });
             received = Buffer.concat(chunks);
+            if (alreadyPublished) return reply(200, { status: 'skipped', reason: 'published', build_slug: 'shipped' });
             const series = received.includes('name="continues"') ? { slug: 'rate-limits', title: 'Rate limits', url: `${base}/s/rate-limits` } : null;
-            return reply(202, { status: 'queued', stage: null, reused: false, series, ...links });
+            // The site's routing, in short: a named space, else the team whose repository it is, else private.
+            const body = received.toString('utf8');
+            const named = body.match(/name="space"\r\n\r\n([^\r]+)/)?.[1];
+            const team = named ? named !== 'personal' : /github\.com\/acme-inc\//i.test(body);
+            const space = team ? { type: 'team', slug: 'acme', name: 'Acme' } : { type: 'personal', slug: null, name: 'Private' };
+            return reply(202, { status: 'queued', stage: null, reused: false, series, space, ...links });
         }
         if (req.method === 'GET' && req.url === '/api/v1/imports/imp1') {
             polls++;
@@ -152,6 +161,10 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.match(preview.out, /Project: +shop/);
     assert.match(preview.out, /Prompts: +2, tool calls: 2/);
     assert.match(preview.out, /compressed/);
+    // mara/shop is not one of the team's repositories: the draft stays with its sender.
+    assert.match(preview.out, /Goes to: +your private Builds: only you see the draft/);
+    // Counted before slimming dropped them: only the numbers go.
+    assert.match(preview.out, /Tokens: +10 \(claude-opus-5-5\); only the counts are sent/);
     assert.ok(
         preview.out.includes('Git:        https://github.com/mara/shop (linked on the Build only if the repository is public), branch main; 2 commits in this session, 1 file +2 −0. Commit titles are sent, the diff is not.'),
         preview.out,
@@ -164,7 +177,8 @@ test('preview prints what will go, then send uploads exactly that and waits for 
 
     const send = await cli(['send', id, '--continues=https://coders.talk/b/first-part']);
     assert.equal(send.ok, true, send.out);
-    assert.match(send.out, /Draft created: http:\/\/127\.0\.0\.1:\d+\/b\/draft-x\/edit/);
+    assert.match(send.out, /Draft created \(private: only you see it\): http:\/\/127\.0\.0\.1:\d+\/b\/draft-x\/edit/);
+    assert.match(send.out, /Review and publish: /);
     assert.match(send.out, /Linked as the next part of the series "Rate limits": http:\/\/127\.0\.0\.1:\d+\/s\/rate-limits/);
     assert.match(send.out, /Proposing moments/);
     assert.match(send.out, /Imported 9 turns, with suggested moments/);
@@ -175,11 +189,107 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.match(received.toString('latin1'), /name="session_id"\r\n\r\na1b2c3d4-0000-4000-8000-000000000001/);
     assert.match(received.toString('latin1'), /name="agent"\r\n\r\nclaude-code/);
     assert.match(received.toString('latin1'), /name="continues"\r\n\r\nhttps:\/\/coders\.talk\/b\/first-part/);
+    assert.match(received.toString('latin1'), /name="trigger"\r\n\r\nmanual/);
+    const usage = JSON.parse(received.toString('utf8').match(/name="usage"\r\n\r\n(.*)\r\n/)[1]);
+    assert.deepEqual(usage, { models: { 'claude-opus-5-5': { input: 10, output: 0, cache_read: 0, cache_write: 0 } } });
     const git = JSON.parse(received.toString('utf8').match(/name="git"\r\n\r\n(.*)\r\n/)[1]);
     assert.equal(git.remote, 'https://github.com/mara/shop');
     assert.equal(git.head_start, repo.hashes[0]);
     assert.deepEqual(git.commits.subjects, ['Cover the limiter with tests', 'Add a limiter keyed by email']);
     assert.equal(existsSync(prepared), false);
+});
+
+test('a session in a team repository goes to the team, unless the person keeps it private', async () => {
+    const work = 'a1b2c3d4-0000-4000-8000-000000000002';
+    const acme = makeRepo('git@github.com:Acme-Inc/billing.git');
+    copyFileSync(transcript, join(home, 'projects', 'C--code-shop', `${work}.jsonl`));
+    writeFileSync(join(home, 'ct', 'sessions', `${work}.json`), JSON.stringify({ session_id: work, cwd: acme.dir, head: acme.hashes[0] }));
+
+    const preview = await cli(['preview', work]);
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, /Goes to: +the Acme team, because acme-inc\/\* is the team's: the team sees the draft, nobody else\. Add --private/);
+    const send = await cli(['send', work]);
+    assert.match(send.out, /Draft created in Acme \(the team sees it, nobody else\): /);
+    assert.match(send.out, /Review it: /);
+    assert.doesNotMatch(received.toString('latin1'), /name="space"/, 'the site routes by the repository itself');
+
+    assert.match((await cli(['preview', work, '--private'])).out, /Goes to: +your private Builds/);
+    assert.match((await cli(['send', work])).out, /private: only you see it/);
+    assert.match(received.toString('latin1'), /name="space"\r\n\r\npersonal/);
+
+    assert.match((await cli(['preview', id, '--team=acme'])).out, /Goes to: +the Acme team: the team sees the draft/);
+    assert.equal((await cli(['send', id])).ok, true);
+    assert.match(received.toString('latin1'), /name="space"\r\n\r\nacme/);
+
+    const unknown = await cli(['preview', id, '--team=globex']);
+    assert.equal(unknown.ok, false);
+    assert.match(unknown.out, /not in a team called "globex"\. Your teams: acme\./);
+});
+
+test('auto mode is off until the person turns it on, and then sends a session that ended by itself', async () => {
+    const autoFile = join(home, 'ct', 'auto.json');
+    const logPath = join(home, 'ct', 'auto.log');
+    assert.match((await cli(['auto'])).out, /Auto mode is off for .*: sessions are sent only when you run \/coders-talk:build/);
+    received = null;
+    await cli(['auto-send', id]);
+    assert.equal(received, null, 'off means nothing leaves the machine');
+
+    const on = await cli(['auto', 'on']);
+    assert.equal(on.ok, true, on.out);
+    assert.match(on.out, /Auto mode is on\. When a Claude Code session on this computer ends, it is sent to .* as @mara by itself/);
+    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL].mode, 'all');
+
+    const sent = await cli(['auto-send', id]);
+    assert.equal(sent.out, '', 'auto-send prints nothing: nobody is watching');
+    const body = received.toString('latin1');
+    assert.match(body, /name="trigger"\r\n\r\nauto/);
+    assert.doesNotMatch(body, /name="space"/);
+    // The session ended by itself: nothing is cut off its end.
+    const gz = received.subarray(received.indexOf(Buffer.from([0x1f, 0x8b])), received.lastIndexOf('\r\n--'));
+    assert.match(gunzipSync(gz).toString('utf8'), /SKILL BODY MARKER/);
+    assert.match(readFileSync(logPath, 'utf8'), new RegExp(`${id} sent to your private Builds: http`));
+
+    alreadyPublished = true;
+    await cli(['auto-send', id]).finally(() => (alreadyPublished = false));
+    assert.match(readFileSync(logPath, 'utf8'), new RegExp(`${id} skipped: already published`));
+    assert.match((await cli(['auto'])).out, /Last sessions it looked at/);
+
+    // Team mode sends only what a team asks for.
+    assert.match((await cli(['auto', 'team'])).out, /Sessions in repositories of Acme \(acme-inc\/\*\) are sent to the team when they end\. Everything else stays on this computer\./);
+    received = null;
+    await cli(['auto-send', id]);
+    assert.equal(received, null);
+    assert.match(readFileSync(logPath, 'utf8'), /skipped: not a repository of a team that asks for automatic sending/);
+    await cli(['auto-send', 'a1b2c3d4-0000-4000-8000-000000000002']);
+    assert.match(received.toString('latin1'), /name="space"\r\n\r\nacme/);
+
+    assert.match((await cli(['auto', 'sometimes'])).out, /Use \/coders-talk:auto on/);
+    assert.match((await cli(['auto', 'on', '--agent=codex'])).out, /Codex does not run for plugins/);
+    assert.match((await cli(['auto', 'off'])).out, /Auto mode is off/);
+    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL], undefined);
+});
+
+test('the SessionEnd hook hands the session to auto-send only when auto mode is on', async () => {
+    const hook = fileURLToPath(new URL('../scripts/session-end.mjs', import.meta.url));
+    const fire = () => new Promise((resolve, reject) => {
+        const child = execFile(process.execPath, [hook], { env }, (error) => (error ? reject(error) : resolve()));
+        child.stdin.end(JSON.stringify({ session_id: id, reason: 'prompt_input_exit', hook_event_name: 'SessionEnd' }));
+    });
+    const logPath = join(home, 'ct', 'auto.log');
+    await cli(['auto', 'off']);
+    const lines = () => (existsSync(logPath) ? readFileSync(logPath, 'utf8').split('\n').filter(Boolean).length : 0);
+
+    const before = lines();
+    await fire();
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(lines(), before, 'off: the hook does nothing');
+
+    await cli(['auto', 'on']);
+    await fire();
+    // The upload runs after the hook returned; wait for its line in the log.
+    for (let i = 0; i < 50 && lines() === before; i++) await new Promise((r) => setTimeout(r, 200));
+    assert.equal(lines(), before + 1);
+    await cli(['auto', 'off']);
 });
 
 test('when the site is down, send points at the upload page and keeps the prepared file for it', async () => {

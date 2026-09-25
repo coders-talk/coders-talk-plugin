@@ -7,6 +7,17 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configDir } from './session.mjs';
 
+const isUrl = (value) => typeof value === 'string' && /^https?:\/\/[^\s$]+$/.test(value);
+
+/**
+ * The Coders Talk site: --site for scripts and tests, then the environment, then the plugin's "url" option as
+ * Claude Code saved it. That option belongs to the Claude Code plugin: in Codex it would silently point at whatever
+ * was set there. An unexpanded ${user_config.url} placeholder is not an address.
+ */
+export function siteUrl(explicit = null, codex = false, env = process.env) {
+    return [explicit, env.CODERS_TALK_URL, codex ? null : pluginOption('url'), 'https://coders.talk'].find(isUrl).replace(/\/+$/, '');
+}
+
 export function pluginOption(name, dir = configDir()) {
     let settings;
     try {

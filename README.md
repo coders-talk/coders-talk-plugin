@@ -1,6 +1,6 @@
 # Coders Talk for Claude Code and Codex
 
-Send the Claude Code or Codex session you are in to [Coders Talk](https://coders.talk) as a draft Build: the prompts, interventions and fails that mattered, with the raw log one layer down. The plugin never publishes. You review every moment and publish on the site.
+Send the Claude Code or Codex session you are in to [Coders Talk](https://coders.talk) as a draft Build: the prompts, interventions and fails that mattered, with the raw log one layer down. The plugin never publishes. The draft is private: only you see it, or your team when the session ran in one of the team's repositories. You review every moment on the site and publish it there if you want to.
 
 ## Install
 
@@ -30,19 +30,35 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 
 | Command | What it does |
 | --- | --- |
-| `/coders-talk:build` | Shows what would be sent (project folder, prompts, time span, size), asks, sends, prints the draft link. |
+| `/coders-talk:build` | Shows what would be sent (project folder, prompts, time span, size) and where it goes, asks, sends, prints the draft link. |
+| `/coders-talk:build --private` | The same, and the draft stays yours even in a team's repository. |
+| `/coders-talk:build --team <slug>` | The same, and the draft goes to that team (the part after `/t/` in the team's link). |
 | `/coders-talk:share` | The same. |
+| `/coders-talk:auto on` | Claude Code only: from now on every session on this computer is sent by itself when it ends (see Auto mode). |
+| `/coders-talk:auto team` | The same, only for sessions in repositories of teams that ask for it. |
+| `/coders-talk:auto off` | Stops it. `/coders-talk:auto` alone says whether it is on and what it last sent. |
 | `/coders-talk:login` | Connects this computer through the browser, or says which account it is connected to. |
 | `/coders-talk:logout` | Forgets the token on this computer (revoke it on the site under Settings → Agent plugins). |
 
 Sending the same session again updates its draft until you publish it. The commands run only when you type them: Claude does not invoke them on its own.
 
+### Auto mode
+
+Off until you turn it on, per computer and per site. With `/coders-talk:auto on`, a `SessionEnd` hook hands each Claude Code session that ends to a background process, which sends it the way `/coders-talk:build` would, without asking: to your team's space when the repository is one of your team's, else to your private Builds. With `/coders-talk:auto team`, only sessions in repositories of teams that ask for it (a team setting) are sent, and nothing else leaves the machine. A team can ask; it can never switch this on for you.
+
+Nothing is published by it. A session you already published is left alone. Every session it looked at gets a line in `~/.coders-talk/auto.log`: sent (with the draft link), skipped and why, or failed. `CODERS_TALK_AUTO=0` in the environment turns it off for that shell. Codex runs no hooks for plugins, so there auto mode is not available.
+
+### Private and team drafts
+
+A draft is private: it is in your [My builds](https://coders.talk/library), not in the feed, search engines or your profile. If you are in a team on Coders Talk and the session ran in a repository of one of the GitHub organisations the team named, the draft goes to the team's space instead: the team sees it, nobody else. The preview says where the draft goes before anything is sent; `--private` and `--team <slug>` override it. Publishing to the community is always a separate step on the site, and for a team's draft only if the team allows it.
+
 ## What leaves your machine
 
 - Only the session you run the command in, and only after you confirm.
 - The session `.jsonl` without screenshots, thinking blocks and the agent's bookkeeping lines, with tool output cut to 60 lines, gzipped. The plugin's own run is cut off the end. Big files are read line by line: a 417 MB Codex rollout full of screenshots goes as about 200 KB.
-- If the session ran in a git repository: the `origin` address when it is on GitHub, the branch, and the titles and size (files, +/−) of the commits the session made. Never the diff. In Claude Code a `SessionStart` hook remembers `HEAD` at the start of each session in `~/.coders-talk/sessions/` for this; it sends nothing and prints nothing.
+- If the session ran in a git repository: the `origin` address when it is on GitHub, the branch, and the titles and size (files, +/−) of the commits the session made. Never the diff. The address of a private repository is shown only to the draft's own audience (you, or your team) and is removed when the Build is published. In Claude Code a `SessionStart` hook remembers `HEAD` at the start of each session in `~/.coders-talk/sessions/` for this; it sends nothing and prints nothing.
 - Keys, tokens and connection strings are redacted on the server before any model sees the session; publishing waits until you have checked each finding.
+- The number of tokens the session spent per model (input, output, cache reads and writes), counted from the session file before it is slimmed. Only the counts; they show on the Build and in your team's numbers.
 - The token can only start imports. Revoke it in Settings at any time.
 
 ## Configuration
@@ -63,6 +79,6 @@ claude plugin validate . --strict
 claude --plugin-dir .                 # try it in a real session
 ```
 
-`scripts/lib/slim.mjs` and `test/fixtures/slim` are generated from the site repository (`resources/js/lib/slimSession.ts`), so the plugin trims sessions exactly like the site's upload page and server do. Change them there, then run `npm run plugin:sync` in the site repository.
+`scripts/lib/slim.mjs`, `scripts/lib/usage.mjs` and `test/fixtures/slim` are generated from the site repository (`resources/js/lib/slimSession.ts`, `resources/js/lib/sessionUsage.ts`), so the plugin trims sessions and counts tokens exactly like the site's upload page does. Change them there, then run `npm run plugin:sync` in the site repository.
 
-API used: `POST /api/v1/device/codes` and `POST /api/v1/device/token` (browser sign-in, no token needed), `POST /api/v1/imports` (multipart: `file`, `agent`, `session_id`, `client_version`), `GET /api/v1/imports/{id}`, `GET /api/v1/me`, with `Authorization: Bearer <token>`. Errors come as `{"error": {"code", "message"}}`.
+API used: `POST /api/v1/device/codes` and `POST /api/v1/device/token` (browser sign-in, no token needed), `POST /api/v1/imports` (multipart: `file`, `agent`, `session_id`, `client_version`, optional `git`, `usage`, `continues`, `trigger` (`manual` or `auto`) and `space`: `personal` or a team slug; the response says where the draft went in `space`, and an automatic send of a session already published answers `{"status": "skipped"}`), `GET /api/v1/imports/{id}`, `GET /api/v1/me` (the account and its teams with their GitHub owners and whether each asks for automatic sending), with `Authorization: Bearer <token>`. Errors come as `{"error": {"code", "message"}}`.

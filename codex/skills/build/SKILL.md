@@ -1,9 +1,9 @@
 ---
 name: build
-description: Send this Codex session to Coders Talk as a draft Build that the user reviews and publishes on the site. Use only when the user asks for $coders-talk:build.
+description: Send this Codex session to Coders Talk as a draft Build that the user reviews on the site, privately or in their team's space. Use only when the user asks for $coders-talk:build.
 ---
 
-Send the current session to Coders Talk as a draft. Nothing gets published here: the user reviews the draft and publishes it on the site.
+Send the current session to Coders Talk as a draft. Nothing gets published here: the draft is private to the user, or to their team when the session ran in one of the team's repositories, and the user reviews it on the site.
 
 In the commands below, `<plugin>` is the absolute path of the plugin folder: this file is `<plugin>/codex/skills/build/SKILL.md`. Run every command outside the sandbox (with escalated permissions): the script reads the Codex session and talks to coders.talk. Give "Send this session to Coders Talk" as the reason; the user approves.
 
@@ -13,7 +13,9 @@ In the commands below, `<plugin>` is the absolute path of the plugin folder: thi
    node "<plugin>/scripts/coders-talk.mjs" preview --agent=codex
    ```
 
-2. Show the user what it printed, word for word. If it printed an error, show the error and stop.
+   If the user wrote `--private` after the command name, add ` --private` at the end of this command; if they wrote `--team <name>` or `--team=<name>`, add ` --team=<name>`. Nothing else goes on it.
+
+2. Show the user what it printed, word for word, including where the draft goes. If it printed an error, show the error and stop.
 3. Ask the user whether to send this session to Coders Talk. Continue only if they clearly say yes; otherwise stop.
 4. Run the command below. If the user wrote something with the request that points at an earlier Build of theirs (a coders.talk `/b/…` link, or `--continues <slug>`), add ` --continues=<that link or slug>` at the end, in double quotes: this session becomes the next part of that Build's series.
 

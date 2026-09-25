@@ -1,5 +1,5 @@
 {
-    "description": "Remembers the git HEAD at the start of a session, so /coders-talk:build can list the session's commits. Sends nothing.",
+    "description": "Remembers the git HEAD at the start of a session, so /coders-talk:build can list the session's commits. When auto mode is on for this computer (/coders-talk:auto), sends the session in the background when it ends; otherwise sends nothing.",
     "hooks": {
         "SessionStart": [
             {
@@ -7,6 +7,17 @@
                     {
                         "type": "command",
                         "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs\"",
+                        "timeout": 10
+                    }
+                ]
+            }
+        ],
+        "SessionEnd": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-end.mjs\"",
                         "timeout": 10
                     }
                 ]

@@ -3,15 +3,21 @@
  * Coders Talk for Claude Code and Codex: sends the current session to https://coders.talk as a draft Build.
  *
  *   node coders-talk.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token
- *   node coders-talk.mjs preview [session-id]   trims the session, saves it next to the temp dir, prints what would go
+ *   node coders-talk.mjs preview [session-id]   trims the session, saves it next to the temp dir, prints what would go and where
+ *     --private | --team=<slug>                   only you see the draft / that team does; by default the site decides by the
+ *                                                 repository: a team's repositories go to the team, the rest stays private
  *   node coders-talk.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
  *     --continues=<slug or link>                  the draft continues that Build of yours: they become a series
+ *   node coders-talk.mjs auto [on|team|off]     auto mode for this computer: send Claude Code sessions by themselves when
+ *                                                 they end (all of them, or only those in repositories of teams that ask)
+ *   node coders-talk.mjs auto-send <session-id> what the SessionEnd hook runs in the background when auto mode is on
  *   node coders-talk.mjs whoami | logout
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
  * Two steps to send on purpose: the person sees the summary and says yes before anything leaves the machine,
- * and what is sent is exactly what they saw. Nothing is published: that happens on the site.
+ * and what is sent is exactly what they saw, going where they saw. Nothing is published: that happens on the site,
+ * and a draft is visible only to its sender, or to the team whose repository the session ran in.
  * The token never passes through the model: the browser sign-in hands it straight to this script.
  * Needs Node.js 20 or newer and nothing else.
  */
@@ -22,12 +28,14 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { pluginOption } from './lib/config.mjs';
+import { AUTO_MODES, autoMode, logAuto, logFile, recentAuto, setAutoMode } from './lib/auto.mjs';
+import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { gitContext } from './lib/git.mjs';
 import { SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
 import { slimLine } from './lib/slim.mjs';
+import { UsageCounter } from './lib/usage.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Both manifests carry the same version; whichever the installed copy has.
@@ -47,16 +55,16 @@ const args = process.argv.slice(2);
 const option = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const [command, argId] = args.filter((a) => !a.startsWith('--'));
 
+// Where the draft goes: "personal" (--private), a team's slug (--team=acme), or null to let the site decide by the repository.
+const SPACE = args.includes('--private') ? 'personal' : option('team')?.trim().toLowerCase() || null;
+
 // The same script serves both plugins; the Codex skills pass --agent=codex.
 const CODEX = option('agent') === 'codex';
 const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : { id: 'claude-code', name: 'Claude Code', client: 'claude-plugin' };
 /** How the person runs one of the plugin's commands in this agent. */
 const run = (name) => (CODEX ? `$coders-talk:${name}` : `/coders-talk:${name}`);
 
-// --site for scripts and tests, then the environment, then the plugin's "url" option as Claude Code saved it.
-// That option belongs to the Claude Code plugin: in Codex it would silently point at whatever was set there.
-const isUrl = (value) => typeof value === 'string' && /^https?:\/\/[^\s$]+$/.test(value);
-const site = [option('site'), env.CODERS_TALK_URL, CODEX ? null : pluginOption('url'), 'https://coders.talk'].find(isUrl).replace(/\/+$/, '');
+const site = siteUrl(option('site'), CODEX);
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
 
 try {
@@ -65,10 +73,12 @@ try {
     }
     if (command === 'preview') await preview(sessionId());
     else if (command === 'send') await send(sessionId());
+    else if (command === 'auto') await auto(argId);
+    else if (command === 'auto-send') await autoSend(argId);
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
     else if (command === 'logout') logout();
-    else throw new Failure('Usage: coders-talk.mjs login | preview [session-id] | send [session-id] | whoami | logout [--site=URL]');
+    else throw new Failure('Usage: coders-talk.mjs login | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout [--site=URL]');
 } catch (e) {
     console.error(e instanceof Failure ? e.message : `Unexpected error: ${e?.message ?? e}`);
     process.exit(1);
@@ -92,7 +102,12 @@ function prepared(id) {
     return { file: join(dir, `${id}.jsonl.gz`), meta: join(dir, `${id}.json`) };
 }
 
-async function preview(id) {
+/**
+ * The session read, slimmed and packed, with what goes along with it: the git context and the tokens it spent.
+ * The preview and auto mode send the same thing. A command run cuts itself off the end ($cut); a session that ended
+ * by itself has no command in it to cut, and cutting at an earlier /coders-talk:build would lose the rest.
+ */
+async function prepare(id, cut = true) {
     const path = CODEX ? findRollout(id) : findTranscript(id);
     if (!path) {
         throw new Failure(CODEX
@@ -102,7 +117,7 @@ async function preview(id) {
 
     const session = await readSession(path);
     if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
-    const { text: slim } = cutOwnCommand(session.lines.join('\n'));
+    const slim = cut ? cutOwnCommand(session.lines.join('\n')).text : session.lines.join('\n');
     const stats = summarize(slim, session.cwd);
     if (slim.trim() === '' || stats.prompts === 0) throw new Failure('There is nothing to send yet: the session has no prompts before this command.');
 
@@ -115,9 +130,18 @@ async function preview(id) {
     const sidecar = CODEX ? null : readSidecar(id);
     const git = gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? session.headStart, stats.startedAt);
 
+    return { session, slim, stats, gz, git, usage: session.usage };
+}
+
+async function preview(id) {
+    if (SPACE && !/^[a-z0-9-]{1,40}$/.test(SPACE)) throw new Failure(`"${SPACE}" is not a team address. Use the part after /t/ in the team's link.`);
+    const { session, slim, stats, gz, git, usage } = await prepare(id);
+
+    const goesTo = await destination(git);
+
     const out = prepared(id);
     writeFileSync(out.file, gz);
-    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git }));
+    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, space: SPACE, usage }));
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
     console.log(`  Project:    ${stats.project ?? 'unknown'}`);
@@ -125,6 +149,8 @@ async function preview(id) {
     console.log(`  Time span:  ${formatDuration(stats.durationSec)}`);
     console.log(`  Size:       ${formatBytes(session.bytes)} session → ${formatBytes(Buffer.byteLength(slim))} without images and long tool output → ${formatBytes(gz.length)} compressed`);
     if (git) console.log(`  Git:        ${describeGit(git)}`);
+    if (usage) console.log(`  Tokens:     ${describeUsage(usage)}`);
+    console.log(`  Goes to:    ${goesTo}`);
     console.log('Secrets are replaced with [REDACTED] on the server before a model sees anything, and you check each one before publishing.');
     if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
 }
@@ -136,6 +162,7 @@ async function preview(id) {
  */
 async function readSession(path) {
     const lines = [];
+    const usage = new UsageCounter();
     let cwd = null;
     let headStart = null;
     let total = 0;
@@ -157,11 +184,13 @@ async function readSession(path) {
             headStart ??= typeof d.payload?.git?.commit_hash === 'string' ? d.payload.git.commit_hash : null;
         }
         cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
+        // Counted before slimming drops the lines that carry it; only the counts leave the machine.
+        usage.add(d);
         const slim = slimLine(d);
         if (slim) lines.push(JSON.stringify(slim));
     }
 
-    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size };
+    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result() };
 }
 
 async function send(id) {
@@ -173,15 +202,10 @@ async function send(id) {
     }
 
     const meta = JSON.parse(readFileSync(out.meta, 'utf8'));
-    const form = new FormData();
-    form.append('agent', AGENT.id);
-    form.append('session_id', id);
-    form.append('client_version', VERSION);
-    if (meta.git) form.append('git', JSON.stringify(meta.git));
     // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
     const continues = option('continues');
-    if (continues) form.append('continues', continues);
-    form.append('file', new Blob([readFileSync(out.file)], { type: 'application/gzip' }), `${id}.jsonl.gz`);
+    // Only a space the person chose; otherwise the site routes by the repository, as the preview said.
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, usage: meta.usage, space: meta.space, continues });
 
     let started;
     try {
@@ -193,7 +217,9 @@ async function send(id) {
     rmSync(out.file, { force: true });
     rmSync(out.meta, { force: true });
 
-    console.log(`${started.reused ? 'Updating the draft of this session' : 'Draft created'}: ${started.edit_url}`);
+    const team = started.space?.type === 'team' ? started.space : null;
+    const where = team ? ` in ${team.name} (the team sees it, nobody else)` : started.space ? ' (private: only you see it)' : '';
+    console.log(`${started.reused ? 'Updating the draft of this session' : 'Draft created'}${where}: ${started.edit_url}`);
     if (started.series) console.log(`Linked as the next part of the series "${started.series.title}": ${started.series.url}`);
     else if (continues) console.log(`Could not link it to "${continues}": use the link or slug of one of your own Builds. You can link it in the draft instead.`);
 
@@ -221,7 +247,44 @@ async function send(id) {
     if (r.label_skipped) console.log('The draft already had a timeline, so it was kept as it is; the new turns are waiting in its side rail.');
     if (r.label_error) console.log(`No suggestions this time (${r.label_error}); the timeline can be built by hand.`);
     if (secrets) console.log(`${secrets} possible secret${secrets === 1 ? '' : 's'} redacted: check them on the draft before publishing.`);
-    console.log(`Review and publish: ${started.edit_url}`);
+    console.log(`${team ? 'Review it' : 'Review and publish'}: ${started.edit_url}`);
+}
+
+/**
+ * Where the draft will go, said before anything is sent. The site decides in the end (TeamRouter), by the same rule:
+ * a named team, else the one team whose GitHub owners include the repository's, else the sender's private Builds.
+ * The teams come from /api/v1/me; without them (offline, not connected) the rule is spelled out instead.
+ */
+async function destination(git) {
+    const own = 'your private Builds: only you see the draft';
+    if (SPACE === 'personal') return own;
+
+    let teams = null;
+    if (token) {
+        try {
+            teams = (await api('GET', '/api/v1/me', undefined, true, 5000)).teams ?? [];
+        } catch {
+            // The send step talks to the site anyway; here the rule is enough.
+        }
+    }
+
+    if (SPACE) {
+        const team = teams?.find((t) => t.slug === SPACE);
+        if (teams && !team) throw new Failure(`You are not in a team called "${SPACE}".${teams.length ? ` Your teams: ${teams.map((t) => t.slug).join(', ')}.` : ''}`);
+
+        return `the ${team?.name ?? SPACE} team: the team sees the draft, nobody else`;
+    }
+
+    const owner = git?.remote?.match(/^https:\/\/github\.com\/([^/]+)\//)?.[1]?.toLowerCase();
+    if (teams === null) {
+        return `${own}, or your team's space if ${owner ? `${owner}/* belongs to one of your teams` : 'the site finds the repository belongs to a team'}`;
+    }
+    const matches = owner ? teams.filter((t) => (t.github_owners ?? []).includes(owner)) : [];
+    if (matches.length === 1) {
+        return `the ${matches[0].name} team, because ${owner}/* is the team's: the team sees the draft, nobody else. Add --private to keep it to yourself.`;
+    }
+
+    return own;
 }
 
 /**
@@ -293,6 +356,111 @@ function logout() {
         : `This computer was not signed in to ${site}.`);
 }
 
+/** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
+function importForm(id, gz, { git = null, usage = null, space = null, continues = null, trigger = 'manual' } = {}) {
+    const form = new FormData();
+    form.append('agent', AGENT.id);
+    form.append('session_id', id);
+    form.append('client_version', VERSION);
+    form.append('trigger', trigger);
+    if (git) form.append('git', JSON.stringify(git));
+    if (usage) form.append('usage', JSON.stringify(usage));
+    if (space) form.append('space', space);
+    if (continues) form.append('continues', continues);
+    form.append('file', new Blob([gz], { type: 'application/gzip' }), `${id}.jsonl.gz`);
+
+    return form;
+}
+
+/** "1.2M (claude-opus-4-5, claude-haiku-4-5); only the count is sent". */
+function describeUsage(usage) {
+    const models = Object.keys(usage.models);
+    const total = Object.values(usage.models).reduce((n, u) => n + u.input + u.output + u.cache_read + u.cache_write, 0);
+    const compact = total >= 1_000_000 ? `${(total / 1_000_000).toFixed(1)}M` : total >= 1000 ? `${Math.round(total / 1000)}k` : String(total);
+
+    return `${compact} (${models.join(', ')}); only the counts are sent`;
+}
+
+/**
+ * Auto mode for this computer (lib/auto.mjs). Claude Code only: it is the SessionEnd hook that sends, and Codex runs
+ * no hooks for plugins.
+ */
+async function auto(mode) {
+    if (CODEX) throw new Failure(`Automatic sending needs Claude Code's session-end hook, which Codex does not run for plugins. Send sessions with ${run('build')}.`);
+
+    if (!mode) {
+        const current = autoMode(site);
+        console.log(current === 'all'
+            ? `Auto mode is on for ${site}: every Claude Code session on this computer is sent when it ends.`
+            : current === 'team'
+              ? `Auto mode is on for ${site}, for team repositories: sessions in repositories of teams that ask for it are sent when they end.`
+              : `Auto mode is off for ${site}: sessions are sent only when you run ${run('build')}.`);
+        const recent = recentAuto(5);
+        if (recent.length) console.log(`Last sessions it looked at (${logFile()}):\n${recent.map((l) => `  ${l}`).join('\n')}`);
+        return;
+    }
+
+    const chosen = { on: 'all', all: 'all', team: 'team', off: null }[mode];
+    if (chosen === undefined) throw new Failure(`Use ${run('auto')} on, ${run('auto')} team or ${run('auto')} off.`);
+    if (chosen === null) {
+        setAutoMode(site, null);
+        console.log(`Auto mode is off: nothing is sent unless you run ${run('build')}.`);
+        return;
+    }
+    if (!token) throw notConnected();
+
+    const me = await api('GET', '/api/v1/me');
+    const asking = (me.teams ?? []).filter((t) => t.auto_capture);
+    setAutoMode(site, chosen);
+    if (chosen === 'all') {
+        console.log(`Auto mode is on. When a Claude Code session on this computer ends, it is sent to ${site} as @${me.username} by itself: to your team's space when the repository is one of your team's, else to your private Builds, where only you see it. Nothing is published. Secrets are redacted on the server.`);
+    } else {
+        console.log(asking.length
+            ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team when they end. Everything else stays on this computer.`
+            : `Auto mode is on for team repositories, but none of your teams asks for it yet, so nothing will be sent until one does.`);
+    }
+    console.log(`Turn it off with ${run('auto')} off. What it sent is listed in ${logFile()}.`);
+}
+
+/**
+ * Run by the SessionEnd hook in the background: sends the session that just ended, if auto mode wants it. Never
+ * prints (nobody is watching); every outcome goes to the auto log instead.
+ */
+async function autoSend(id) {
+    const mode = autoMode(site);
+    if (!mode || !SESSION_ID.test(id ?? '')) return;
+    const log = (result) => logAuto(`${id} ${result}`);
+    if (!token) return log('skipped: this computer is not connected');
+
+    let session;
+    try {
+        session = await prepare(id, false);
+    } catch (e) {
+        return log(`skipped: ${e instanceof Failure ? e.message : e}`);
+    }
+
+    let space = null;
+    if (mode === 'team') {
+        let teams;
+        try {
+            teams = (await api('GET', '/api/v1/me', undefined, true, 15000)).teams ?? [];
+        } catch (e) {
+            return log(`failed: ${e.message}`);
+        }
+        const owner = session.git?.remote?.match(/^https:\/\/github\.com\/([^/]+)\//)?.[1]?.toLowerCase();
+        const asking = owner ? teams.filter((t) => t.auto_capture && (t.github_owners ?? []).includes(owner)) : [];
+        if (asking.length !== 1) return log('skipped: not a repository of a team that asks for automatic sending');
+        space = asking[0].slug;
+    }
+
+    try {
+        const r = await api('POST', '/api/v1/imports', importForm(id, session.gz, { git: session.git, usage: session.usage, space, trigger: 'auto' }), true, 60000);
+        log(r.status === 'skipped' ? `skipped: ${r.reason === 'published' ? 'already published' : 'its draft is not yours to change'}` : `sent to ${r.space?.type === 'team' ? r.space.name : 'your private Builds'}: ${r.edit_url}`);
+    } catch (e) {
+        log(`failed: ${e.message}`);
+    }
+}
+
 /** The repository address goes with the session, so the person sees it here; the diff never does. */
 function describeGit(git) {
     const where = git.remote ? `${git.remote} (linked on the Build only if the repository is public)` : 'no GitHub remote, the address is not sent';
@@ -352,7 +520,7 @@ function json(data) {
     return { json: data };
 }
 
-async function api(method, path, body, authorized = true) {
+async function api(method, path, body, authorized = true, timeoutMs = null) {
     // The sandbox flag can survive escalation; only a failed request proves a network error.
     const headers = { Accept: 'application/json', 'User-Agent': `${AGENT.client}/${VERSION}` };
     if (authorized) headers.Authorization = `Bearer ${token}`;
@@ -363,7 +531,7 @@ async function api(method, path, body, authorized = true) {
 
     let response;
     try {
-        response = await fetch(site + path, { method, body, headers });
+        response = await fetch(site + path, { method, body, headers, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
     } catch (e) {
         const denied = (error) => error && (['EACCES', 'EPERM'].includes(error.code) || denied(error.cause) || error.errors?.some(denied));
         if (CODEX && denied(e)) {

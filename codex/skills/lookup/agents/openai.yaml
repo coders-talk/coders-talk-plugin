@@ -1,0 +1,3 @@
+policy:
+  # Codex may use it on its own: it only reads the Coders Talk library, and sends a short task description, never the session.
+  allow_implicit_invocation: true

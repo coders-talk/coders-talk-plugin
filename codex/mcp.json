@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "coders-talk": {
+            "type": "http",
+            "url": "https://coders.talk/mcp"
+        }
+    }
+}

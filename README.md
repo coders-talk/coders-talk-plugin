@@ -2,6 +2,8 @@
 
 Send the Claude Code or Codex session you are in to [Coders Talk](https://coders.talk) as a draft Build: the prompts, interventions and fails that mattered, with the raw log one layer down. The plugin never publishes. The draft is private: only you see it, or your team when the session ran in one of the team's repositories. You review every moment on the site and publish it there if you want to.
 
+The other way round, the plugin gives your agent the Coders Talk library: before a non-trivial task, or after a few failed attempts, it can look up sessions where other developers did something similar, and what went wrong for them (see [The library in your agent](#the-library-in-your-agent)).
+
 ## Install
 
 1. In Claude Code:
@@ -22,7 +24,33 @@ codex plugin marketplace add coders-talk/coders-talk-plugin
 codex plugin add coders-talk@coders-talk
 ```
 
-Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the same four commands as below, with `$` instead of `/`). Codex asks to run the plugin's command outside its sandbox: it needs the network to reach coders.talk and your home folder for the sign-in. The session is found through `CODEX_THREAD_ID` in `~/.codex/sessions` (or `CODEX_HOME`), and HEAD at its start comes from the rollout's `session_meta`, so Codex needs no hook for it. Codex runs the plugin's hooks only for auto mode (see Auto mode), and only once you trust them in `/hooks`.
+Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the same commands as below, with `# Coders Talk for Claude Code and Codex
+
+Send the Claude Code or Codex session you are in to [Coders Talk](https://coders.talk) as a draft Build: the prompts, interventions and fails that mattered, with the raw log one layer down. The plugin never publishes. The draft is private: only you see it, or your team when the session ran in one of the team's repositories. You review every moment on the site and publish it there if you want to.
+
+The other way round, the plugin gives your agent the Coders Talk library: before a non-trivial task, or after a few failed attempts, it can look up sessions where other developers did something similar, and what went wrong for them (see [The library in your agent](#the-library-in-your-agent)).
+
+## Install
+
+1. In Claude Code:
+
+   ```
+   /plugin marketplace add coders-talk/coders-talk-plugin
+   /plugin install coders-talk@coders-talk
+   ```
+
+2. Connect it to your account: `/coders-talk:login`. It opens coders.talk in the browser; check that the page shows the same code as Claude Code and press Connect. The plugin receives its token directly from the site and keeps it in `~/.coders-talk/credentials.json`. There is no token to copy, and it never passes through the chat.
+
+Needs Node.js 20 or newer, nothing else.
+
+### Codex
+
+```
+codex plugin marketplace add coders-talk/coders-talk-plugin
+codex plugin add coders-talk@coders-talk
+```
+
+ instead of `/`). For the library, also run `codex mcp login coders-talk` once in a terminal. Codex asks to run the plugin's command outside its sandbox: it needs the network to reach coders.talk and your home folder for the sign-in. The session is found through `CODEX_THREAD_ID` in `~/.codex/sessions` (or `CODEX_HOME`), and HEAD at its start comes from the rollout's `session_meta`, so Codex needs no hook for it. Codex runs the plugin's hooks only for auto mode (see Auto mode), and only once you trust them in `/hooks`.
 
 One repository serves both agents: Claude Code reads `.claude-plugin/` and `skills/`, Codex reads `.codex-plugin/`, `.agents/plugins/marketplace.json`, `codex/skills/` and `codex/hooks.json` (its manifest points there, so Codex never picks up `hooks/hooks.json`; the same scripts run with `--agent=codex`). Codex does not expand `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SESSION_ID}` in skills, so its skills give the script path relative to the skill file and pass `--agent=codex`.
 
@@ -38,8 +66,14 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 | `/coders-talk:auto off` | Stops it. `/coders-talk:auto` alone says whether it is on and what it last sent. |
 | `/coders-talk:login` | Connects this computer through the browser, or says which account it is connected to. |
 | `/coders-talk:logout` | Forgets the token on this computer (revoke it on the site under Settings → Agent plugins). |
+| `/coders-talk:lookup <task>` | Searches the Coders Talk library for sessions of a similar task and shows what came back. The agent also does this by itself (see below). |
 
-Sending the same session again updates its draft until you publish it. The commands run only when you type them: Claude does not invoke them on its own.
+Sending the same session again updates its draft until you publish it.
+
+Two rules:
+
+- **Commands that send your session** (`build` and `auto`, and `login` and `logout` with them) run only when you type them. The agent never invokes them on its own.
+- **Searching the library** is something the agent does by itself when a task calls for it (the `lookup` skill and the `coders-talk` MCP server). It sends a short description of the task and the stack, never the session. Switch it off in `/mcp` (Claude Code) or in `~/.codex/config.toml` (Codex); see [The library in your agent](#the-library-in-your-agent).
 
 A forked session (`/branch` or `--fork-session` in Claude Code, a fork in Codex) is sent as its own draft, and the plugin tells the site which session it came from and where it left it. The fork's Build then says it is a fork and links to the Build of the original session, and the original's Build links to its forks. Whichever of the two is sent first, the link appears once both are on the site. Claude Code writes the lines the fork inherited with the original's session id and Codex names it in the rollout's `session_meta`, so no hook is needed for it.
 
@@ -67,6 +101,23 @@ In Codex the hooks are `codex/hooks.json`. Codex runs a plugin's hooks only once
 
 A draft is private: it is in your [My builds](https://coders.talk/library), not in the feed, search engines or your profile. If you are in a team on Coders Talk and the session ran in a repository of one of the GitHub organisations the team named, the draft goes to the team's space instead: the team sees it, nobody else. The preview says where the draft goes before anything is sent; `--private` and `--team <slug>` override it. Publishing to the community is always a separate step on the site, and for a team's draft only if the team allows it.
 
+## The library in your agent
+
+The plugin brings an MCP server, `coders-talk` (`https://coders.talk/mcp`), with three read-only tools: `search_coding_agent_sessions` finds published sessions of a similar task, `get_coding_agent_session` reads one of them, `find_coding_agent_failures` finds where agents failed on a similar problem and what the human did. The `lookup` skill tells the agent when to use them (before a non-trivial task on a known stack, after two or three failed attempts, when you ask how others did something), what may go into a query and what may not, and to treat the answers as other people's experience: it never runs a command from them without asking you. When a session helped, it says so with the link.
+
+- **Signing in.** In Claude Code the server uses the sign-in of `/coders-talk:login`: `.mcp.json` asks `scripts/coders-talk.mjs mcp-headers` for the token at each connection (`headersHelper`), so the token is in no config file and never passes through the chat. Not signed in, the server asks you to sign in through the browser in `/mcp`. Codex runs a plugin's header helper from the session's folder with an empty environment, where the plugin cannot find its own script, so in Codex the server signs in on its own: run `codex mcp login coders-talk` once. Both need access to the library: during the closed beta, see [coders.talk/for-agents](https://coders.talk/for-agents).
+- **What a search sends.** The query (a few words about the task, or the symptom of a failure), the stack, and the agent's name. The agent is told never to put code, paths, repository, company or client names, hostnames, URLs or secrets in it. The site keeps the query text, the filters and how many results it found for 180 days, not tied to you or your IP address. The session itself never goes with it.
+- **Switching it off.** Claude Code: `/mcp`, choose `coders-talk`, disable. Codex: in `~/.codex/config.toml`
+
+  ```toml
+  [plugins."coders-talk@coders-talk".mcp_servers.coders-talk]
+  enabled = false
+  ```
+
+- **Another site.** In Claude Code the server follows `CODERS_TALK_URL`. Codex cannot read variables in a plugin's server address: add your own server in `config.toml` (`[mcp_servers.coders-talk-dev]`, `url = "http://…/mcp"`) and switch the plugin's off.
+- **Which Builds your session used.** When you send a session, the plugin counts the agent's calls to these tools in it and collects the Builds their answers linked to (`/b/<slug>?ref=agent`), up to 20; the preview shows them. The site links your draft to those Builds: "Used from the library" on yours, "Helped N published sessions" on theirs, once yours is published. Only the count and the slugs are sent, never the queries.
+- **A suggestion to share.** Once per session, after an answer, when the agent got Builds from the library and the session changed code, the `Stop` hook shows you one line: "Your agent used 2 Builds from coders.talk in this session. Share yours: /coders-talk:build". It sends nothing, and it never shows with auto mode on. To read the session for it, the hook goes on from where it stopped the last time and keeps that place, the count and the slugs in `~/.coders-talk/nudges/`. Turn it off with `CODERS_TALK_NUDGE=0`, or `node <plugin folder>/scripts/coders-talk.mjs nudge off`. In Codex the hook runs only once you trust the plugin's hooks in `/hooks`.
+
 ## What leaves your machine
 
 - By default, only the session you run `/coders-talk:build` in, and only after you confirm.
@@ -77,7 +128,9 @@ A draft is private: it is in your [My builds](https://coders.talk/library), not 
 - Nothing secret: keys, tokens, connection strings, passwords in URLs, email addresses, public IP addresses and internal hostnames are replaced with `[REDACTED:TYPE]` on this computer, before anything is sent, in the session, the branch name and the commit titles alike. A home folder in a path (`C:\Users\you`, `/Users/you`, `/home/you`) becomes `~`. The preview lists each finding by number and kind, never its value; `--keep=<numbers>` sends one as it is, and only a SHA-256 of it goes to the site, so the site's own second check leaves it alone. Kept values are remembered as hashes in `~/.coders-talk/kept.json`. Words to hide in every session, such as client names or internal services, go in `~/.coders-talk/privacy.json` as `{"redact": ["Globex", "billing-core"]}`. The rules are the site's own (`scripts/lib/privacy.mjs`, generated from coders.talk), checked against the same cases in `test/fixtures/privacy`.
 - The number of tokens the session spent per model (input, output, cache reads and writes), counted from the session file before it is slimmed. Only the counts; they show on the Build and in your team's numbers.
 - For a forked session, the id of the session it was forked from and the time of the fork, so the site can link the two Builds.
-- The token can only start imports. Revoke it in Settings at any time.
+- If the agent used the Coders Talk library in the session: how many times it called it, and the slugs of the Builds it got (up to 20).
+- Apart from sessions: the library searches the agent makes by itself (a short task description and the stack; see [The library in your agent](#the-library-in-your-agent)).
+- The token can start imports and read the library. Revoke it in Settings at any time.
 
 ## Configuration
 
@@ -86,6 +139,7 @@ A draft is private: it is in your [My builds](https://coders.talk/library), not 
 | Site address | `CODERS_TALK_URL`, or in Claude Code the plugin option `url` (asked when the plugin is enabled). In Codex set the variable in `~/.codex/config.toml`: `[shell_environment_policy]` `set = { CODERS_TALK_URL = "https://…" }` | `https://coders.talk` |
 | Token | `/coders-talk:login` saves one per site; `CODERS_TALK_TOKEN` overrides it (for CI, or a token made in Settings by hand) | none |
 | Data folder | `CODERS_TALK_HOME` | `~/.coders-talk` |
+| Suggestion to share a session that used the library | `CODERS_TALK_NUDGE=0` turns it off for a shell; `coders-talk.mjs nudge off` for this computer | on |
 | Proxy | `HTTPS_PROXY` (`HTTP_PROXY` for an `http://` site, `ALL_PROXY` for both), `NO_PROXY` for hosts that go direct. Lower-case names work too. An `http://` or `https://` proxy, with `user:password@` if it asks; a `socks://` one is ignored. In Codex, if a variable does not reach the plugin, add it to `set` as above | none: direct |
 
 Node's own `fetch` ignores the proxy variables, so the plugin opens the proxy's `CONNECT` tunnel itself. Some networks reset a direct connection to the site after the first 16 KB, which lets `whoami` through but not an upload; there the proxy is what gets a session out.
@@ -102,4 +156,4 @@ claude --plugin-dir .                 # try it in a real session
 
 `scripts/lib/slim.mjs`, `scripts/lib/usage.mjs` and `test/fixtures/slim` are generated from the site repository (`resources/js/lib/slimSession.ts`, `resources/js/lib/sessionUsage.ts`), so the plugin trims sessions and counts tokens exactly like the site's upload page does. Change them there, then run `npm run plugin:sync` in the site repository.
 
-API used: `POST /api/v1/device/codes` and `POST /api/v1/device/token` (browser sign-in, no token needed), `POST /api/v1/imports` (multipart: `file`, `agent`, `session_id`, `client_version`, optional `git` (with `commits.shas` next to `commits.subjects`), `usage`, `privacy` (what the local check redacted, by type, and SHA-256 hashes of the values kept on purpose, never a value), `continues`, `fork` (`{"session_id", "at"}`: the session this one was forked from, and when; lines up to `at` are the original's), `trigger` (`manual` or `auto`) and `space`: `personal` or a team slug; the response says where the draft went in `space`, the original's Build in `forked_from` (`{slug, title, url}`, or null while it is not on the site), and an automatic send of a session already published answers `{"status": "skipped"}`), `GET /api/v1/imports/{id}`, `GET /api/v1/me` (the account and its teams with their GitHub owners and whether each asks for automatic sending), with `Authorization: Bearer <token>`. Errors come as `{"error": {"code", "message"}}`.
+API used: `POST /api/v1/device/codes` and `POST /api/v1/device/token` (browser sign-in, no token needed), `POST /api/v1/imports` (multipart: `file`, `agent`, `session_id`, `client_version`, optional `git` (with `commits.shas` next to `commits.subjects`), `usage`, `privacy` (what the local check redacted, by type, and SHA-256 hashes of the values kept on purpose, never a value), `continues`, `fork` (`{"session_id", "at"}`: the session this one was forked from, and when; lines up to `at` are the original's), `library` (`{"calls", "slugs"}`: how often the agent called the library, and up to 20 slugs of the Builds it got; unknown slugs are dropped), `trigger` (`manual` or `auto`) and `space`: `personal` or a team slug; the response says where the draft went in `space`, the original's Build in `forked_from` (`{slug, title, url}`, or null while it is not on the site), and an automatic send of a session already published answers `{"status": "skipped"}`), `GET /api/v1/imports/{id}`, `GET /api/v1/me` (the account and its teams with their GitHub owners and whether each asks for automatic sending), with `Authorization: Bearer <token>`. The MCP server is `/mcp` (Streamable HTTP, the same token; `mcp-headers` prints it for Claude Code). Errors come as `{"error": {"code", "message"}}`.

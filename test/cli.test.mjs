@@ -259,6 +259,28 @@ test('a fork says which session it came from, and the site links the two', async
     assert.doesNotMatch(received.toString('latin1'), /name="fork"/);
 });
 
+test('Builds the agent got from the library are shown in the preview and go with the session', async () => {
+    const used = 'a1b2c3d4-0000-4000-8000-0000000000e1';
+    const lines = readFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), 'utf8').trimEnd();
+    const call = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_lib1', name: 'mcp__plugin_coders-talk_coders-talk__search_coding_agent_sessions', input: { query: 'rate limit login', stack: 'laravel' } }] } };
+    const result = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_lib1', content: [{ type: 'text', text: 'Reference data…\n1. https://coders.talk/b/login-throttle-x1?ref=agent\n2. https://coders.talk/b/redis-limiter?ref=agent' }] }] } };
+    writeFileSync(join(home, 'projects', 'C--code-shop', `${used}.jsonl`), [lines, JSON.stringify(call), JSON.stringify(result)].join('\n') + '\n');
+
+    const preview = await cli(['preview', used]);
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, /Library: +1 call; 2 Builds used \(login-throttle-x1, redis-limiter\)/);
+    const send = await cli(['send', used]);
+    assert.equal(send.ok, true, send.out);
+    const sent = JSON.parse(received.toString('utf8').match(/name="library"\r\n\r\n(.*)\r\n/)[1]);
+    assert.deepEqual(sent, { calls: 1, slugs: ['login-throttle-x1', 'redis-limiter'] });
+
+    // No library call in the session: no field, no line.
+    const plain = await cli(['preview', id]);
+    assert.doesNotMatch(plain.out, /Library:/);
+    await cli(['send', id]);
+    assert.doesNotMatch(received.toString('latin1'), /name="library"/);
+});
+
 test('a folder added to the session is named, never shown by its path, and its repository goes with its commits', async () => {
     const api = makeRepo('git@github.com:mara/shop-api.git');
     const session = 'a1b2c3d4-0000-4000-8000-0000000000a1';

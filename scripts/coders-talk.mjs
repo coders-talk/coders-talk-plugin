@@ -18,6 +18,9 @@
  *   node coders-talk.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
  *                                                 they ended (lib/auto.mjs, catchUp), other than the one starting
  *   node coders-talk.mjs whoami | logout
+ *   node coders-talk.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper):
+ *                                                 prints {"Authorization": "Bearer …"} for the saved sign-in, or {}
+ *   node coders-talk.mjs nudge [on|off]         the Stop hook's suggestion to share a session that used the library
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
@@ -40,6 +43,8 @@ import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { folderGitContexts, gitContext } from './lib/git.mjs';
 import { request } from './lib/http.mjs';
+import { describeLibrary, LibraryWatch } from './lib/library.mjs';
+import { nudgeOn, setNudge } from './lib/nudge.mjs';
 import { ForkWatch, SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
 import { PRIVACY_LABELS } from './lib/privacy.mjs';
@@ -83,6 +88,11 @@ const site = siteUrl(option('site'), CODEX);
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
 
 try {
+    // First and alone: it runs at every connection of the MCP server, and must answer with JSON whatever happens.
+    if (command === 'mcp-headers') {
+        mcpHeaders();
+        process.exit(0);
+    }
     if (Number(process.versions.node.split('.')[0]) < 20) {
         throw new Failure(`The Coders Talk plugin needs Node.js 20 or newer (this is ${process.version}). Or upload the session at ${site}/new.`);
     }
@@ -94,7 +104,8 @@ try {
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
     else if (command === 'logout') logout();
-    else throw new Failure('Usage: coders-talk.mjs login | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout [--site=URL]');
+    else if (command === 'nudge') nudge(argId);
+    else throw new Failure('Usage: coders-talk.mjs login | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] [--site=URL]');
 } catch (e) {
     console.error(e instanceof Failure ? e.message : `Unexpected error: ${e?.message ?? e}`);
     process.exit(1);
@@ -157,21 +168,21 @@ async function prepare(id, cut = true) {
     // The name goes through the same check as the session's lines, where it names the folder's files.
     const gitFolders = folderGitContexts(session.folders, sidecar?.cwd ?? stats.cwd, startedAt).map((g) => checkedGit({ ...g, folder: privacy.text(g.folder) }, privacy));
 
-    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork };
+    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library };
 }
 
 async function preview(id) {
     if (SPACE && !/^[a-z0-9-]{1,40}$/.test(SPACE)) throw new Failure(`"${SPACE}" is not a team address. Use the part after /t/ in the team's link.`);
     const out = prepared(id);
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
-    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork } = await prepare(id);
+    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library } = await prepare(id);
 
     const goesTo = await destination(git);
 
     writeFileSync(out.file, gz);
     // Findings by number and hash, for --keep; the values stay in memory only.
     const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
-    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork }));
+    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library }));
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
     console.log(`  Project:    ${stats.project ?? 'unknown'}`);
@@ -185,6 +196,7 @@ async function preview(id) {
     for (const g of gitFolders) console.log(`  Git (${g.folder}): ${describeGit(g)}`);
     if (session.code.files.size) console.log(`  Code:       ${describeCode(session.code)}`);
     if (usage) console.log(`  Tokens:     ${describeUsage(usage)}`);
+    if (library) console.log(`  Library:    ${describeLibrary(library)}`);
     if (fork) console.log(`  Fork of:    session ${fork.session_id}: the draft and that session's Build link to each other once both are on the site`);
     console.log(`  Goes to:    ${goesTo}`);
     console.log(describePrivacy(privacy));
@@ -194,12 +206,14 @@ async function preview(id) {
 /**
  * The session slimmed line by line as it is read: Codex rollouts with screenshots run to hundreds of megabytes,
  * more than fits in one string. Null when the file is not JSON lines. Also keeps what slimming drops: where the
- * session ran, for Codex HEAD at its start (session_meta), and the session it was forked from (lib/session.mjs, ForkWatch).
+ * session ran, for Codex HEAD at its start (session_meta), the session it was forked from (lib/session.mjs, ForkWatch),
+ * and what the agent took from the Coders Talk library (lib/library.mjs).
  */
 async function readSession(path, id) {
     const lines = [];
     const usage = new UsageCounter();
     const fork = new ForkWatch(id);
+    const library = new LibraryWatch();
     // Shared by every line: slimming learns the session folder from it, to make changed paths relative (plan, stage 11.1).
     const ctx = {};
     const code = { files: new Set(), additions: 0, deletions: 0, withheld: new Set() };
@@ -225,8 +239,11 @@ async function readSession(path, id) {
         }
         cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
         // Counted before slimming drops the lines that carry it; only the counts leave the machine. A fork's inherited
-        // lines were counted with the original.
-        if (!fork.add(d)) usage.add(d);
+        // lines were counted with the original, and what the original took from the library is the original's.
+        if (!fork.add(d)) {
+            usage.add(d);
+            library.add(d);
+        }
         const slim = slimLine(d, ctx);
         if (slim) {
             lines.push(JSON.stringify(slim));
@@ -235,7 +252,7 @@ async function readSession(path, id) {
     }
 
     // folders: the ones added to the session, with their paths; only their names leave the machine.
-    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code, fork: fork.result(), folders: addedFolders(ctx) };
+    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code, fork: fork.result(), folders: addedFolders(ctx), library: library.result() };
 }
 
 /** The files a slimmed line says the agent changed: on a Claude Code tool result, or on a Codex call. */
@@ -287,7 +304,7 @@ async function send(id) {
     // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
     const continues = option('continues');
     // Only a space the person chose; otherwise the site routes by the repository, as the preview said.
-    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork });
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork, library: meta.library });
 
     let started;
     try {
@@ -441,7 +458,7 @@ function logout() {
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
-function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null } = {}) {
+function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null } = {}) {
     const form = new FormData();
     form.append('agent', AGENT.id);
     form.append('session_id', id);
@@ -459,6 +476,8 @@ function importForm(id, gz, { git = null, gitFolders = null, usage = null, space
     if (continues) form.append('continues', continues);
     // The session this one was forked from and when: the site links the two Builds both ways.
     if (fork) form.append('fork', JSON.stringify(fork));
+    // How often the agent called the Coders Talk library and the Builds it got: the site links the draft to them.
+    if (library) form.append('library', JSON.stringify(library));
     form.append('file', new Blob([gz], { type: 'application/gzip' }), `${id}.jsonl.gz`);
 
     return form;
@@ -555,7 +574,7 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
         space = asking[0].slug;
     }
 
-    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork });
+    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork, library: session.library });
     // A sync still being imported holds the draft for a moment; the end of the session waits for it rather than get lost.
     for (let attempt = 1; ; attempt++) {
         try {
@@ -645,6 +664,34 @@ function keepFromLastPreview(metaPath, list) {
         return found.hash;
     });
     keep(hashes);
+}
+
+/**
+ * The plugin's MCP server in Claude Code (.mcp.json) gets its token here, at each connection, so the sign-in of
+ * /coders-talk:login serves the library too and the token never appears in a config file or the conversation. The site is
+ * the server's own (Claude Code passes its address), so a token never goes to another site. Not signed in, or anything
+ * odd: {}, and the server asks the person to sign in through the browser (OAuth) instead.
+ */
+function mcpHeaders() {
+    let headers = {};
+    try {
+        const server = env.CLAUDE_CODE_MCP_SERVER_URL?.replace(/\/mcp\/?$/, '').replace(/\/+$/, '');
+        const own = server && /^https?:\/\/\S+$/.test(server) ? server : siteUrl(null, true);
+        const saved = env.CODERS_TALK_TOKEN || savedToken(own);
+        if (saved && /^[\x21-\x7e]+$/.test(saved)) headers = { Authorization: `Bearer ${saved}` };
+    } catch {
+        // No home folder, an unreadable file: no token.
+    }
+    console.log(JSON.stringify(headers));
+}
+
+/** The Stop hook's suggestion to share a session that used the library (lib/nudge.mjs): on by default. */
+function nudge(mode) {
+    if (mode === 'on' || mode === 'off') setNudge(mode === 'on');
+    else if (mode) throw new Failure('Use: nudge on, or nudge off.');
+    console.log(nudgeOn()
+        ? `After an answer that used Builds from the Coders Talk library in a session that changed code, ${AGENT.name} suggests once to share the session with ${run('build')}. It sends nothing. Turn it off with: nudge off`
+        : 'The suggestion to share a session that used the library is off. Turn it on with: nudge on');
 }
 
 async function whoami() {

@@ -1,3 +1,3 @@
 policy:
-  # Runs only when the person asks for it: it sends their session to a website.
+  # Runs only when the person asks for it: it disconnects this computer from their Coders Talk account.
   allow_implicit_invocation: false

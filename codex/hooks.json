@@ -1,5 +1,5 @@
 {
-    "description": "Auto mode for Codex. Does nothing unless you turn it on with $coders-talk:auto. Then it sends the session to Coders Talk in the background while it runs (every ten minutes of work), when it ends or idles for 30 minutes, and at the next start if it never said it ended. Nothing is published by it.",
+    "description": "Auto mode for Codex, and one suggestion to share a session. Sends nothing unless you turn auto mode on with $coders-talk:auto. Then it sends the session to Coders Talk in the background while it runs (every ten minutes of work), when it ends or idles for 30 minutes, and at the next start if it never said it ended. Nothing is published by it. With auto mode off, once per session, when Codex used Builds from the Coders Talk library and the session changed code, the Stop hook shows you a line suggesting to share it (CODERS_TALK_NUDGE=0 turns it off).",
     "hooks": {
         "SessionStart": [
             {

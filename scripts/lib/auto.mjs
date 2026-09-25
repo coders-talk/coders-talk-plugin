@@ -1,6 +1,7 @@
 /**
- * Auto mode (/coders-talk:auto): whether this computer sends Claude Code sessions to a Coders Talk site by itself.
- * Off unless the person turns it on here, per site: a team can ask for it, never switch it on.
+ * Auto mode (/coders-talk:auto, $coders-talk:auto): whether this computer sends Claude Code or Codex sessions to a
+ * Coders Talk site by itself. Off unless the person turns it on here, per site and per agent: turned on in Claude Code
+ * it never sends Codex sessions, and the other way round. A team can ask for it, never switch it on.
  *
  *   all   every session: to the team's space when the repository is one of the person's teams', else to their
  *         private Builds
@@ -9,6 +10,9 @@
  * A session goes while it runs (the Stop hook syncs it every SYNC_EVERY_MS of work), once more when it ends
  * (SessionEnd), and at the next start if it never said it ended: a crash, a closed terminal (SessionStart catches up).
  * The site asks the model for moments once, when the session is over.
+ *
+ * Both agents run the same hooks: hooks/hooks.json for Claude Code, codex/hooks.json for Codex (with --agent=codex).
+ * Codex runs a plugin's hooks only once the person trusted them in /hooks.
  *
  * ~/.coders-talk/auto.json holds the choice; ~/.coders-talk/auto.log says what happened to each session, so the
  * person can always check what left the machine without being asked; ~/.coders-talk/auto-sessions.json remembers,
@@ -21,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { home } from './credentials.mjs';
 
 export const AUTO_MODES = ['all', 'team'];
+export const AGENTS = ['claude-code', 'codex'];
 const LOG_LINES = 500;
 
 /** A session that is still going is sent again at most this often. */
@@ -53,26 +58,35 @@ function write(path, data) {
     renameSync(temp, path);
 }
 
-/** 'all', 'team', or null when auto mode is off for this site (or CODERS_TALK_AUTO=0 turns it off for a shell). */
-export function autoMode(site, dir = home(), env = process.env) {
+/** auto.json per site: Claude Code's choice at the top, as 0.7 wrote it, and Codex's under "codex". */
+const choiceOf = (all, site, agent) => (agent === 'codex' ? all[site]?.codex : all[site]);
+
+/** 'all', 'team', or null when auto mode is off for this site and agent (or CODERS_TALK_AUTO=0 turns it off for a shell). */
+export function autoMode(site, agent = 'claude-code', dir = home(), env = process.env) {
     if (env.CODERS_TALK_AUTO === '0') return null;
-    const mode = read(configFile(dir))[site]?.mode;
+    const mode = choiceOf(read(configFile(dir)), site, agent)?.mode;
 
     return AUTO_MODES.includes(mode) ? mode : null;
 }
 
-/** Turning it off also forgets the sessions it saw: turned on again later, it never sends what grew in between. */
-export function setAutoMode(site, mode, dir = home()) {
+/** Turning it off also forgets the agent's sessions it saw: turned on again later, it never sends what grew in between. */
+export function setAutoMode(site, mode, agent = 'claude-code', dir = home()) {
     const all = read(configFile(dir));
-    if (mode) all[site] = { mode, since: new Date().toISOString() };
+    const choice = mode ? { mode, since: new Date().toISOString() } : null;
+    const { codex, ...claude } = all[site] ?? {};
+    const entry = agent === 'codex' ? { ...claude, ...(choice ? { codex: choice } : {}) } : { ...(choice ?? {}), ...(codex ? { codex } : {}) };
+    if (Object.keys(entry).length) all[site] = entry;
     else delete all[site];
     mkdirSync(dir, { recursive: true });
     writeFileSync(configFile(dir), JSON.stringify(all, null, 2));
 
     if (!mode) {
         const sessions = read(sessionsFile(dir));
-        if (sessions[site]) {
-            delete sessions[site];
+        const seen = Object.entries(sessions[site] ?? {});
+        const kept = Object.fromEntries(seen.filter(([, s]) => (s.agent ?? 'claude-code') !== agent));
+        if (seen.length !== Object.keys(kept).length) {
+            if (Object.keys(kept).length) sessions[site] = kept;
+            else delete sessions[site];
             write(sessionsFile(dir), sessions);
         }
     }
@@ -85,7 +99,8 @@ export function autoSession(site, id, dir = home()) {
 
 /**
  * Remembers a session auto mode has seen (a hook ran for it while auto mode was on) and merges $patch in:
- *   path      the transcript
+ *   path      the transcript (a Codex rollout for Codex)
+ *   agent     claude-code or codex
  *   seen      when auto mode first saw it
  *   tried     when a send last started
  *   sent      {at, size, final} of the last send the site took
@@ -130,11 +145,11 @@ export function syncDue(session, now = Date.now()) {
  *
  * @return {{id: string, final: boolean}[]}
  */
-export function catchUp(site, current, dir = home(), now = Date.now()) {
+export function catchUp(site, current, agent = 'claude-code', dir = home(), now = Date.now()) {
     const sessions = read(sessionsFile(dir))[site] ?? {};
 
     return Object.entries(sessions)
-        .filter(([id, s]) => id !== current && s.path && !s.skip)
+        .filter(([id, s]) => id !== current && s.path && !s.skip && (s.agent ?? 'claude-code') === agent)
         .map(([id, s]) => ({ id, file: fileStat(s.path), sent: s.sent }))
         .filter(({ file, sent }) => file && file.size > (sent?.size ?? 0) && now - file.mtimeMs >= BUSY_MS)
         .sort((a, b) => a.file.mtimeMs - b.file.mtimeMs)
@@ -146,6 +161,21 @@ export function catchUp(site, current, dir = home(), now = Date.now()) {
 export function inBackground(args, env = process.env) {
     const script = join(dirname(fileURLToPath(import.meta.url)), '..', 'coders-talk.mjs');
     spawn(process.execPath, [script, ...args], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
+}
+
+/**
+ * Waits up to $ms for the send started at $since to be taken by the site, or turned down. Codex ends what its hooks
+ * started when it exits (on Windows the whole process tree goes), so its session-end hook gives the upload the time
+ * the hook itself has. What still does not make it goes at the next start (catchUp).
+ */
+export async function waitForSend(site, id, since, ms, dir = home()) {
+    for (const deadline = Date.now() + ms; Date.now() < deadline; ) {
+        const session = autoSession(site, id, dir);
+        if ((session?.sent?.at ?? 0) >= since || session?.skip || (session?.failed ?? 0) >= since) return true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    return false;
 }
 
 /** One line per session auto mode looked at; the file keeps the last few hundred. */

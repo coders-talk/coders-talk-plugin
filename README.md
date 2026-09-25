@@ -22,9 +22,9 @@ codex plugin marketplace add coders-talk/coders-talk-plugin
 codex plugin add coders-talk@coders-talk
 ```
 
-Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the same four commands as below, with `$` instead of `/`). Codex asks to run the plugin's command outside its sandbox: it needs the network to reach coders.talk and your home folder for the sign-in. The session is found through `CODEX_THREAD_ID` in `~/.codex/sessions` (or `CODEX_HOME`), and HEAD at its start comes from the rollout's `session_meta`, so Codex gets no hook.
+Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the same four commands as below, with `$` instead of `/`). Codex asks to run the plugin's command outside its sandbox: it needs the network to reach coders.talk and your home folder for the sign-in. The session is found through `CODEX_THREAD_ID` in `~/.codex/sessions` (or `CODEX_HOME`), and HEAD at its start comes from the rollout's `session_meta`, so Codex needs no hook for it. Codex runs the plugin's hooks only for auto mode (see Auto mode), and only once you trust them in `/hooks`.
 
-One repository serves both agents: Claude Code reads `.claude-plugin/` and `skills/`, Codex reads `.codex-plugin/`, `.agents/plugins/marketplace.json` and `codex/skills/` (its manifest turns off `hooks/hooks.json`). Codex does not expand `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SESSION_ID}` in skills, so its skills give the script path relative to the skill file and pass `--agent=codex`.
+One repository serves both agents: Claude Code reads `.claude-plugin/` and `skills/`, Codex reads `.codex-plugin/`, `.agents/plugins/marketplace.json`, `codex/skills/` and `codex/hooks.json` (its manifest points there, so Codex never picks up `hooks/hooks.json`; the same scripts run with `--agent=codex`). Codex does not expand `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SESSION_ID}` in skills, so its skills give the script path relative to the skill file and pass `--agent=codex`.
 
 ## Use
 
@@ -34,7 +34,7 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 | `/coders-talk:build --private` | The same, and the draft stays yours even in a team's repository. |
 | `/coders-talk:build --team <slug>` | The same, and the draft goes to that team (the part after `/t/` in the team's link). |
 | `/coders-talk:share` | The same. |
-| `/coders-talk:auto on` | Claude Code only: from now on every session on this computer is sent by itself while it runs and when it ends (see Auto mode). |
+| `/coders-talk:auto on` | From now on every session of this agent on this computer is sent by itself while it runs and when it ends (see Auto mode). |
 | `/coders-talk:auto team` | The same, only for sessions in repositories of teams that ask for it. |
 | `/coders-talk:auto off` | Stops it. `/coders-talk:auto` alone says whether it is on and what it last sent. |
 | `/coders-talk:login` | Connects this computer through the browser, or says which account it is connected to. |
@@ -44,17 +44,19 @@ Sending the same session again updates its draft until you publish it. The comma
 
 ### Auto mode
 
-Off until you turn it on, per computer and per site. With `/coders-talk:auto on`, each Claude Code session is sent the way `/coders-talk:build` would send it, without asking: to your team's space when the repository is one of your team's, else to your private Builds. With `/coders-talk:auto team`, only sessions in repositories of teams that ask for it (a team setting) are sent, and nothing else leaves the machine. A team can ask; it can never switch this on for you.
+Off until you turn it on, per computer, per site and per agent: `/coders-talk:auto on` in Claude Code never sends Codex sessions, and `$coders-talk:auto on` in Codex never sends Claude Code ones. With it on, each session is sent the way `/coders-talk:build` would send it, without asking: to your team's space when the repository is one of your team's, else to your private Builds. With `/coders-talk:auto team`, only sessions in repositories of teams that ask for it (a team setting) are sent, and nothing else leaves the machine. A team can ask; it can never switch this on for you.
 
 Three hooks do the sending, each in a background process so the agent never waits for an upload:
 
 - `Stop`, after an answer of the agent: when the session grew and the last send is ten minutes old, it is sent as still going. The draft stays up to date, and a crash loses at most those minutes. A session shorter than ten minutes is only sent at its end.
-- `SessionEnd`: the session is sent once more, as ended.
+- `SessionEnd`: the session is sent once more, as ended. Codex also ends a session after 30 idle minutes, which is what ends one in its desktop app.
 - `SessionStart`: sessions that never said they ended (a crash, a closed terminal) and grew since their last send are sent at the next start, up to three at a time. One quiet for half an hour goes as ended; a fresher one as still going. Only sessions auto mode saw while it was on are considered, never older history.
 
 The site asks the model for moments once per session, when it is over: when the plugin says it ended, or after half an hour without anything new. Sending a session that is still going costs nothing and does not count against the daily limit.
 
-Nothing is published by it. A session you already published is left alone. Every send gets a line in `~/.coders-talk/auto.log`: sent or synced (with the draft link), skipped and why, or failed. `~/.coders-talk/auto-sessions.json` remembers which sessions auto mode saw and how much of each went, never their content; `/coders-talk:auto off` forgets it. `CODERS_TALK_AUTO=0` in the environment turns auto mode off for that shell. Codex runs no hooks for plugins, so there auto mode is not available.
+Nothing is published by it. A session you already published is left alone. Every send gets a line in `~/.coders-talk/auto.log`: sent or synced (with the draft link), skipped and why, or failed. `~/.coders-talk/auto-sessions.json` remembers which sessions auto mode saw and how much of each went, never their content; `/coders-talk:auto off` forgets it. `CODERS_TALK_AUTO=0` in the environment turns auto mode off for that shell.
+
+In Codex the hooks are `codex/hooks.json`. Codex runs a plugin's hooks only once you trust them: type `/hooks` and trust the three Coders Talk hooks (`$coders-talk:auto on` reminds you). On Windows Codex runs them through PowerShell and puts the plugin folder into `${PLUGIN_ROOT}` itself. When the Codex CLI exits it also ends what its hooks started, so the session-end hook waits up to three seconds for the upload; what does not make it goes at the next start, and the site asks for moments after half an hour without anything new anyway.
 
 ### Private and team drafts
 
@@ -64,7 +66,8 @@ A draft is private: it is in your [My builds](https://coders.talk/library), not 
 
 - Only the session you run the command in, and only after you confirm.
 - The session `.jsonl` without screenshots, thinking blocks and the agent's bookkeeping lines, with tool output cut to 60 lines, gzipped. The plugin's own run is cut off the end. Big files are read line by line: a 417 MB Codex rollout full of screenshots goes as about 200 KB.
-- If the session ran in a git repository: the `origin` address when it is on GitHub, the branch, and the titles and size (files, +/−) of the commits the session made. Never the diff. The address of a private repository is shown only to the draft's own audience (you, or your team) and is removed when the Build is published. In Claude Code a `SessionStart` hook remembers `HEAD` at the start of each session in `~/.coders-talk/sessions/` for this; it sends nothing and prints nothing.
+- If the session ran in a git repository: the `origin` address when it is on GitHub, the branch, and the titles and size (files, +/−) of the commits the session made. The address of a private repository is shown only to the draft's own audience (you, or your team) and is removed when the Build is published. In Claude Code a `SessionStart` hook remembers `HEAD` at the start of each session in `~/.coders-talk/sessions/` for this; it sends nothing and prints nothing.
+- The files that changed, as diffs (up to 300 lines a file; env, key and credential files, lock files and builds by name only). In Claude Code `scripts/snapshot.mjs` runs on `SessionStart`, `UserPromptSubmit` and `Stop` and takes a git snapshot of the working tree: a temporary index in `~/.coders-talk/snapshots/`, tracked changes and new files up to 1 MB, a tree chained under `refs/coders-talk/<session>`. Your branch, index and files are not touched, and a plain `git push` does not send that ref. The build step turns neighbouring snapshots into what the agent changed in each turn (Bash and subagents included), what you changed by hand between its answers, and the commits of each turn. A snapshot slower than 3 seconds turns them off for the session. Snapshots and their refs older than 14 days are removed at the next session start in the same repository. Without git, or in Codex, the diffs come from the agent’s own edits in the session.
 - Keys, tokens and connection strings are redacted on the server before any model sees the session; publishing waits until you have checked each finding.
 - The number of tokens the session spent per model (input, output, cache reads and writes), counted from the session file before it is slimmed. Only the counts; they show on the Build and in your team's numbers.
 - The token can only start imports. Revoke it in Settings at any time.

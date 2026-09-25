@@ -1,0 +1,38 @@
+{
+    "description": "Auto mode for Codex. Does nothing unless you turn it on with $coders-talk:auto. Then it sends the session to Coders Talk in the background while it runs (every ten minutes of work), when it ends or idles for 30 minutes, and at the next start if it never said it ended. Nothing is published by it.",
+    "hooks": {
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"${PLUGIN_ROOT}/scripts/session-start.mjs\" --agent=codex",
+                        "timeout": 10
+                    }
+                ]
+            }
+        ],
+        "Stop": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"${PLUGIN_ROOT}/scripts/stop.mjs\" --agent=codex",
+                        "timeout": 10
+                    }
+                ]
+            }
+        ],
+        "SessionEnd": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"${PLUGIN_ROOT}/scripts/session-end.mjs\" --agent=codex",
+                        "timeout": 3
+                    }
+                ]
+            }
+        ]
+    }
+}

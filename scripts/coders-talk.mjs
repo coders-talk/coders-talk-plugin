@@ -8,8 +8,9 @@
  *                                                 repository: a team's repositories go to the team, the rest stays private
  *   node coders-talk.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
  *     --continues=<slug or link>                  the draft continues that Build of yours: they become a series
- *   node coders-talk.mjs auto [on|team|off]     auto mode for this computer: send Claude Code sessions by themselves when
- *                                                 they end (all of them, or only those in repositories of teams that ask)
+ *   node coders-talk.mjs auto [on|team|off]     auto mode for this computer and agent: send sessions by themselves while
+ *                                                 they run and when they end (all of them, or only those in repositories of
+ *                                                 teams that ask); Claude Code and Codex are switched separately
  *   node coders-talk.mjs auto-send <session-id> what the SessionEnd hook runs in the background when auto mode is on
  *     --sync                                      the Stop hook's send of a session that is still going
  *   node coders-talk.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
@@ -37,6 +38,7 @@ import { clearPendingLogin, forgetToken, pendingLogin, savedToken, savePendingLo
 import { gitContext } from './lib/git.mjs';
 import { SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
+import { agentTimes, gitChangeLines, withGitLines } from './lib/snapshots.mjs';
 import { slimLine } from './lib/slim.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
@@ -50,9 +52,10 @@ const POLL_FOR_MS = 3 * 60 * 1000;
 // Agents stop a command after a couple of minutes; a login still waiting then picks up again on the next run.
 const LOGIN_WAIT_MS = Number(process.env.CODERS_TALK_LOGIN_WAIT_MS) || 100_000;
 const STAGES = { fetching: 'Reading the session', scanning: 'Scanning for secrets', labeling: 'Proposing moments', saving: 'Saving the draft' };
-// The end of a session is sent again when the site is busy with its last sync, throttled or unreachable.
+// The end of a session is sent again when the site is busy with its last sync, throttled or unreachable. The first
+// retry comes quickly: a sync takes a second or two to import, and Codex ends a session-end hook's upload when it exits.
+const RETRY_MS = Number(process.env.CODERS_TALK_RETRY_MS) ? [Number(process.env.CODERS_TALK_RETRY_MS)] : [1500, 5000, 15000];
 const AUTO_TRIES = 4;
-const RETRY_MS = Number(process.env.CODERS_TALK_RETRY_MS) || 15_000;
 
 class Failure extends Error {}
 
@@ -124,8 +127,12 @@ async function prepare(id, cut = true) {
 
     const session = await readSession(path);
     if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
-    const slim = cut ? cutOwnCommand(session.lines.join('\n')).text : session.lines.join('\n');
-    const stats = summarize(slim, session.cwd);
+    const kept = cut ? cutOwnCommand(session.lines.join('\n')).text : session.lines.join('\n');
+    // What the git snapshots saw at each turn (Claude Code hooks, lib/snapshots.mjs), put into the session by time.
+    const gitLines = CODEX ? [] : gitChangeLines(id, agentTimes(session.lines));
+    const slim = withGitLines(kept.split('\n'), gitLines).join('\n');
+    if (gitLines.length) session.code = gitCode(gitLines);
+    const stats = summarize(kept, session.cwd);
     if (slim.trim() === '' || stats.prompts === 0) throw new Failure('There is nothing to send yet: the session has no prompts before this command.');
 
     const gz = gzipSync(Buffer.from(slim, 'utf8'));
@@ -156,6 +163,7 @@ async function preview(id) {
     console.log(`  Time span:  ${formatDuration(stats.durationSec)}`);
     console.log(`  Size:       ${formatBytes(session.bytes)} session → ${formatBytes(Buffer.byteLength(slim))} without images and long tool output → ${formatBytes(gz.length)} compressed`);
     if (git) console.log(`  Git:        ${describeGit(git)}`);
+    if (session.code.files.size) console.log(`  Code:       ${describeCode(session.code)}`);
     if (usage) console.log(`  Tokens:     ${describeUsage(usage)}`);
     console.log(`  Goes to:    ${goesTo}`);
     console.log('Secrets are replaced with [REDACTED] on the server before a model sees anything, and you check each one before publishing.');
@@ -170,6 +178,9 @@ async function preview(id) {
 async function readSession(path) {
     const lines = [];
     const usage = new UsageCounter();
+    // Shared by every line: slimming learns the session folder from it, to make changed paths relative (plan, stage 11.1).
+    const ctx = {};
+    const code = { files: new Set(), additions: 0, deletions: 0, withheld: new Set() };
     let cwd = null;
     let headStart = null;
     let total = 0;
@@ -193,11 +204,49 @@ async function readSession(path) {
         cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
         // Counted before slimming drops the lines that carry it; only the counts leave the machine.
         usage.add(d);
-        const slim = slimLine(d);
-        if (slim) lines.push(JSON.stringify(slim));
+        const slim = slimLine(d, ctx);
+        if (slim) {
+            lines.push(JSON.stringify(slim));
+            countChanges(slim, code);
+        }
     }
 
-    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result() };
+    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code };
+}
+
+/** The files a slimmed line says the agent changed: on a Claude Code tool result, or on a Codex call. */
+function countChanges(slim, code) {
+    const blocks = Array.isArray(slim.message?.content) ? slim.message.content : [];
+    const changes = [...blocks.map((b) => b?.change).filter(Boolean), ...(Array.isArray(slim.payload?.changes) ? slim.payload.changes : [])];
+    for (const c of changes) {
+        code.files.add(c.path);
+        code.additions += c.additions ?? 0;
+        code.deletions += c.deletions ?? 0;
+        if (c.withheld) code.withheld.add(c.path);
+    }
+}
+
+/** The code count from git snapshots, which replace the session's own edits on the site. */
+function gitCode(gitLines) {
+    const code = { files: new Set(), additions: 0, deletions: 0, withheld: new Set(), human: new Set(), commits: 0, git: true };
+    for (const line of gitLines) {
+        countChanges({ payload: { changes: line.changes } }, code);
+        if (line.by === 'human') line.changes.forEach((c) => code.human.add(c.path));
+        code.commits += line.commits.length;
+    }
+
+    return code;
+}
+
+/** "3 files (+40 −12), as diffs from git snapshots, 1 changed by hand; .env by name only" */
+function describeCode(code) {
+    const source = code.git ? ' from git snapshots' : '';
+    const hand = code.human?.size ? `, ${code.human.size} changed by hand` : '';
+    const commits = code.commits ? `, ${code.commits} commit${code.commits === 1 ? '' : 's'} with their SHA` : '';
+    const files = `${code.files.size} file${code.files.size === 1 ? '' : 's'} (+${code.additions} −${code.deletions}), as diffs${source}${hand}${commits}`;
+    const names = [...code.withheld].slice(0, 3).join(", ") + (code.withheld.size > 3 ? ", …" : "");
+
+    return code.withheld.size ? `${files}; ${names} by name only` : files;
 }
 
 async function send(id) {
@@ -391,19 +440,22 @@ function describeUsage(usage) {
 }
 
 /**
- * Auto mode for this computer (lib/auto.mjs). Claude Code only: its hooks do the sending, and Codex runs no hooks
- * for plugins.
+ * Auto mode for this computer and this agent (lib/auto.mjs): the plugin's hooks do the sending, hooks/hooks.json in
+ * Claude Code and codex/hooks.json in Codex. Codex runs them only once the person trusted them in /hooks.
  */
 async function auto(mode) {
-    if (CODEX) throw new Failure(`Automatic sending needs Claude Code's session-end hook, which Codex does not run for plugins. Send sessions with ${run('build')}.`);
+    // Codex ends a session after 30 idle minutes too; its desktop app keeps sessions open otherwise.
+    const ends = CODEX ? 'when they end or sit idle for 30 minutes' : 'when they end';
+    const endsOne = CODEX ? 'when it ends or sits idle for 30 minutes' : 'when it ends';
+    const trust = CODEX ? ` Codex runs a plugin's hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks. Until then nothing is sent.` : '';
 
     if (!mode) {
-        const current = autoMode(site);
+        const current = autoMode(site, AGENT.id);
         console.log(current === 'all'
-            ? `Auto mode is on for ${site}: every Claude Code session on this computer is sent while it runs and when it ends.`
+            ? `Auto mode is on for ${site}: every ${AGENT.name} session on this computer is sent while it runs and ${endsOne}.${trust}`
             : current === 'team'
-              ? `Auto mode is on for ${site}, for team repositories: sessions in repositories of teams that ask for it are sent while they run and when they end.`
-              : `Auto mode is off for ${site}: sessions are sent only when you run ${run('build')}.`);
+              ? `Auto mode is on for ${site}, for team repositories: ${AGENT.name} sessions in repositories of teams that ask for it are sent while they run and ${ends}.${trust}`
+              : `Auto mode is off for ${site} in ${AGENT.name}: sessions are sent only when you run ${run('build')}.`);
         const recent = recentAuto(5);
         if (recent.length) console.log(`Last sessions it looked at (${logFile()}):\n${recent.map((l) => `  ${l}`).join('\n')}`);
         return;
@@ -412,21 +464,21 @@ async function auto(mode) {
     const chosen = { on: 'all', all: 'all', team: 'team', off: null }[mode];
     if (chosen === undefined) throw new Failure(`Use ${run('auto')} on, ${run('auto')} team or ${run('auto')} off.`);
     if (chosen === null) {
-        setAutoMode(site, null);
-        console.log(`Auto mode is off: nothing is sent unless you run ${run('build')}.`);
+        setAutoMode(site, null, AGENT.id);
+        console.log(`Auto mode is off in ${AGENT.name}: nothing is sent unless you run ${run('build')}.`);
         return;
     }
     if (!token) throw notConnected();
 
     const me = await api('GET', '/api/v1/me');
     const asking = (me.teams ?? []).filter((t) => t.auto_capture);
-    setAutoMode(site, chosen);
+    setAutoMode(site, chosen, AGENT.id);
     if (chosen === 'all') {
-        console.log(`Auto mode is on. Claude Code sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more when they end: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Secrets are redacted on the server, and moments are suggested once a session is over.`);
+        console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Secrets are redacted on the server, and moments are suggested once a session is over.${trust}`);
     } else {
         console.log(asking.length
-            ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team while they run and when they end. Everything else stays on this computer.`
-            : `Auto mode is on for team repositories, but none of your teams asks for it yet, so nothing will be sent until one does.`);
+            ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team while they run and ${ends}. Everything else stays on this computer.${trust}`
+            : `Auto mode is on for team repositories, but none of your teams asks for it yet, so nothing will be sent until one does.${trust}`);
     }
     console.log(`Turn it off with ${run('auto')} off. What it sent is listed in ${logFile()}.`);
 }
@@ -437,17 +489,19 @@ async function auto(mode) {
  * prints (nobody is watching); every outcome goes to the auto log instead, and what went to auto-sessions.json.
  */
 async function autoSend(id, { final = true, caughtUp = false } = {}) {
-    const mode = autoMode(site);
+    const mode = autoMode(site, AGENT.id);
     if (!mode || !SESSION_ID.test(id ?? '')) return;
-    const log = (result) => logAuto(`${id} ${result}`);
+    const log = (result) => logAuto(`${CODEX ? 'codex ' : ''}${id} ${result}`);
     const remember = (patch) => trackSession(site, id, patch);
-    if (!token) return log('skipped: this computer is not connected');
+    // Nothing went: the session-end hook stops waiting for it (lib/auto.mjs, waitForSend).
+    const giveUp = (result) => (remember({ failed: Date.now() }), log(result));
+    if (!token) return giveUp('skipped: this computer is not connected');
 
     let session;
     try {
         session = await prepare(id, false);
     } catch (e) {
-        return log(`skipped: ${e instanceof Failure ? e.message : e}`);
+        return giveUp(`skipped: ${e instanceof Failure ? e.message : e}`);
     }
 
     let space = null;
@@ -456,7 +510,7 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
         try {
             teams = (await api('GET', '/api/v1/me', undefined, true, 15000)).teams ?? [];
         } catch (e) {
-            return log(`failed: ${e.message}`);
+            return giveUp(`failed: ${e.message}`);
         }
         const owner = session.git?.remote?.match(/^https:\/\/github\.com\/([^/]+)\//)?.[1]?.toLowerCase();
         const asking = owner ? teams.filter((t) => t.auto_capture && (t.github_owners ?? []).includes(owner)) : [];
@@ -481,10 +535,10 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
             return log(`${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : ''}: ${r.edit_url}`);
         } catch (e) {
             if (final && attempt < AUTO_TRIES && (['import_running', 'rate_limited'].includes(e.code) || e.unavailable)) {
-                await sleep(RETRY_MS * attempt);
+                await sleep(RETRY_MS[Math.min(attempt, RETRY_MS.length) - 1]);
                 continue;
             }
-            return log(`failed: ${e.message}`);
+            return giveUp(`failed: ${e.message}`);
         }
     }
 }
@@ -494,8 +548,8 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
  * send and never said they ended (lib/auto.mjs, catchUp). $current is the session starting: its own hooks send it.
  */
 async function autoCatchUp(current) {
-    if (!autoMode(site)) return;
-    for (const { id, final } of catchUp(site, current)) {
+    if (!autoMode(site, AGENT.id)) return;
+    for (const { id, final } of catchUp(site, current, AGENT.id)) {
         trackSession(site, id, { tried: Date.now() });
         await autoSend(id, { final, caughtUp: true });
     }
@@ -509,7 +563,7 @@ function describeGit(git) {
     const files = git.shortstat?.files;
     const size = git.shortstat ? `, ${files} file${files === 1 ? '' : 's'} +${git.shortstat.insertions} −${git.shortstat.deletions}` : '';
 
-    return `${where}${git.branch ? `, branch ${git.branch}` : ''}; ${made}${size}. Commit titles are sent, the diff is not.`;
+    return `${where}${git.branch ? `, branch ${git.branch}` : ''}; ${made}${size}. Commit titles are sent, not the commits.`;
 }
 
 async function whoami() {

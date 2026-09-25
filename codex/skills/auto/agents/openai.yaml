@@ -1,0 +1,3 @@
+policy:
+  # Runs only when the person asks for it: it decides whether their sessions leave the computer by themselves.
+  allow_implicit_invocation: false

@@ -168,14 +168,16 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     const preview = await cli(['preview', id]);
     assert.equal(preview.ok, true, preview.out);
     assert.match(preview.out, /Project: +shop/);
-    assert.match(preview.out, /Prompts: +2, tool calls: 2/);
+    assert.match(preview.out, /Prompts: +2, tool calls: 5/);
     assert.match(preview.out, /compressed/);
     // mara/shop is not one of the team's repositories: the draft stays with its sender.
     assert.match(preview.out, /Goes to: +your private Builds: only you see the draft/);
     // Counted before slimming dropped them: only the numbers go.
     assert.match(preview.out, /Tokens: +10 \(claude-opus-5-5\); only the counts are sent/);
+    // The files the agent changed go as diffs, an env file by its name only (plan, stage 11.1).
+    assert.match(preview.out, /Code: +4 files \(\+323 −2\), as diffs; \.env by name only/);
     assert.ok(
-        preview.out.includes('Git:        https://github.com/mara/shop (linked on the Build only if the repository is public), branch main; 2 commits in this session, 1 file +2 −0. Commit titles are sent, the diff is not.'),
+        preview.out.includes('Git:        https://github.com/mara/shop (linked on the Build only if the repository is public), branch main; 2 commits in this session, 1 file +2 −0. Commit titles are sent, not the commits.'),
         preview.out,
     );
     const prepared = join(temp, 'coders-talk', `${id}.jsonl.gz`);
@@ -274,8 +276,11 @@ test('auto mode is off until the person turns it on, and then sends a session th
     assert.match(received.toString('latin1'), /name="space"\r\n\r\nacme/);
 
     assert.match((await cli(['auto', 'sometimes'])).out, /Use \/coders-talk:auto on/);
-    assert.match((await cli(['auto', 'on', '--agent=codex'])).out, /Codex does not run for plugins/);
-    assert.match((await cli(['auto', 'off'])).out, /Auto mode is off/);
+    // Codex has its own switch: turning Claude Code's off leaves it on, and the other way round.
+    assert.match((await cli(['auto', 'on', '--agent=codex'])).out, /Codex runs a plugin's hooks only once you trust them: type \/hooks/);
+    assert.match((await cli(['auto', 'off'])).out, /Auto mode is off in Claude Code/);
+    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL].codex.mode, 'all');
+    assert.match((await cli(['auto', 'off', '--agent=codex'])).out, /Auto mode is off in Codex/);
     assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL], undefined);
 });
 
@@ -428,7 +433,7 @@ test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_
 
     const preview = await cli(['preview', '--agent=codex'], codex);
     assert.equal(preview.ok, true, preview.out);
-    assert.match(preview.out, /Prompts: +3, tool calls: 5/);
+    assert.match(preview.out, /Prompts: +3, tool calls: 7/);
     assert.match(preview.out, /2 commits in this session/);
     assert.doesNotMatch(preview.out, /Claude Code/);
     const gz = readFileSync(join(temp, 'coders-talk', `${thread}.jsonl.gz`));
@@ -471,6 +476,29 @@ test('whoami reports the account, or explains a bad token', async () => {
     assert.match((await cli(['whoami', '--agent=codex'])).out, /as @mara/);
     writeFileSync(join(home, 'settings.json'), '{}');
     assert.match((await cli(['whoami'], { CODERS_TALK_URL: '' })).out, /not connected to https:\/\/coders\.talk yet/);
+});
+
+test('the git snapshots of a session go with it, in place, instead of its own edits', async () => {
+    const { takeSnapshot } = await import('../scripts/lib/snapshots.mjs');
+    const other = 'a1b2c3d4-0000-4000-8000-000000000011';
+    const repoDir = makeRepo().dir;
+    copyFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), join(home, 'projects', 'C--code-shop', `${other}.jsonl`));
+    // At the fixture's own times: the prompt at 10:00:00, the answer by 10:05:00.
+    const snap = (kind, at) => takeSnapshot({ session_id: other, cwd: repoDir }, kind, { dir: join(home, 'ct', 'snapshots'), now: Date.parse(at) });
+    snap('start', '2026-09-01T09:59:50Z');
+    snap('prompt', '2026-09-01T10:00:00Z');
+    writeFileSync(join(repoDir, 'app.txt'), 'rewritten by a formatter\n');
+    snap('stop', '2026-09-01T10:05:01Z');
+
+    const preview = await cli(['preview', other]);
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, /Code: +1 file \(\+1 −3\), as diffs from git snapshots/);
+    const sent = gunzipSync(readFileSync(join(temp, 'coders-talk', `${other}.jsonl.gz`))).toString('utf8').split('\n').map((l) => JSON.parse(l));
+    const git = sent.findIndex((d) => d.type === 'git-changes');
+    assert.equal(sent[git].by, 'agent');
+    assert.deepEqual(sent[git].changes.map((c) => c.path), ['app.txt']);
+    // After the answer it belongs to, at the end of the session here.
+    assert.equal(git, sent.length - 1);
 });
 
 test('logout forgets the token on this computer', async () => {

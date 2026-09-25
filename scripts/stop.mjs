@@ -1,27 +1,23 @@
 #!/usr/bin/env node
 /**
- * Stop hook, after each answer of the agent. With auto mode off (the default) it does nothing at all. With auto mode
- * on, it sends the session in the background as still going when it grew and the last send is ten minutes old
- * (lib/auto.mjs, syncDue), so a team sees work in progress and a crash loses at most those minutes. The site saves
- * such a send without asking the model; moments come once, when the session is over. Prints nothing; never fails
- * the session.
+ * Stop hook, after each answer of the agent (Claude Code, or Codex with --agent=codex). With auto mode off (the
+ * default) it does nothing at all. With auto mode on, it sends the session in the background as still going when it
+ * grew and the last send is ten minutes old (lib/auto.mjs, syncDue), so a team sees work in progress and a crash loses
+ * at most those minutes. The site saves such a send without asking the model; moments come once, when the session is
+ * over. Prints nothing (Codex takes only JSON from a Stop hook); never fails the session.
  */
 import { autoMode, inBackground, syncDue, trackSession } from './lib/auto.mjs';
-import { siteUrl } from './lib/config.mjs';
-import { SESSION_ID } from './lib/session.mjs';
+import { readHook } from './lib/hook.mjs';
 
 try {
-    let input = '';
-    for await (const chunk of process.stdin) input += chunk;
-    const event = JSON.parse(input);
-    const site = siteUrl();
+    const { event, agent, site, id, agentArgs } = await readHook();
 
     // Auto mode turned on in the middle of a session starts with it from here.
-    if (SESSION_ID.test(event.session_id ?? '') && autoMode(site)) {
-        const session = trackSession(site, event.session_id, { path: event.transcript_path });
+    if (id && autoMode(site, agent)) {
+        const session = trackSession(site, id, { path: event.transcript_path, agent });
         if (syncDue(session)) {
-            trackSession(site, event.session_id, { tried: Date.now() });
-            inBackground(['auto-send', event.session_id, '--sync']);
+            trackSession(site, id, { tried: Date.now() });
+            inBackground(['auto-send', id, '--sync', ...agentArgs]);
         }
     }
 } catch {

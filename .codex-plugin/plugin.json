@@ -6,7 +6,7 @@
     "homepage": "https://coders.talk/plugins",
     "keywords": ["coders-talk", "sessions", "sharing", "builds"],
     "skills": "./codex/skills/",
-    "hooks": { "hooks": {} },
+    "hooks": "./codex/hooks.json",
     "interface": {
         "displayName": "Coders Talk",
         "shortDescription": "Send this session to Coders Talk as a draft",

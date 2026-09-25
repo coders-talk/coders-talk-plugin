@@ -1,5 +1,5 @@
 {
-    "description": "Remembers the git HEAD at the start of a session, so /coders-talk:build can list the session's commits. When auto mode is on for this computer (/coders-talk:auto), sends the session in the background while it runs (every ten minutes of work), when it ends, and at the next start if it never said it ended; otherwise sends nothing.",
+    "description": "Remembers the git HEAD at the start of a session, and takes git snapshots of the working tree at each prompt and answer (a temporary index and refs/coders-talk/<session>; your branch, index and files are not touched), so /coders-talk:build can show which code each turn changed and what you changed by hand. When auto mode is on for this computer (/coders-talk:auto), sends the session in the background while it runs (every ten minutes of work), when it ends, and at the next start if it never said it ended; otherwise sends nothing.",
     "hooks": {
         "SessionStart": [
             {
@@ -7,6 +7,22 @@
                     {
                         "type": "command",
                         "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs\"",
+                        "timeout": 10
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/snapshot.mjs\" start",
+                        "timeout": 10
+                    }
+                ]
+            }
+        ],
+        "UserPromptSubmit": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/snapshot.mjs\" prompt",
                         "timeout": 10
                     }
                 ]
@@ -18,6 +34,11 @@
                     {
                         "type": "command",
                         "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/stop.mjs\"",
+                        "timeout": 10
+                    },
+                    {
+                        "type": "command",
+                        "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/snapshot.mjs\" stop",
                         "timeout": 10
                     }
                 ]

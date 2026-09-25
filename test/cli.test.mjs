@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as forward } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -100,6 +100,11 @@ before(async () => {
     env = { ...process.env, CLAUDE_CONFIG_DIR: home, TMPDIR: temp, TEMP: temp, TMP: temp, CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`, CODERS_TALK_POLL_MS: '10', CODERS_TALK_HOME: join(home, 'ct'), CODERS_TALK_NO_BROWSER: '1', CODERS_TALK_LOGIN_WAIT_MS: '5000' };
     delete env.CODERS_TALK_TOKEN;
     delete env.CLAUDE_PLUGIN_OPTION_TOKEN;
+    // The machine's own proxy stays out of these; the proxy test sets one.
+    for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY']) {
+        delete env[name];
+        delete env[name.toLowerCase()];
+    }
 });
 after(() => server.close());
 
@@ -499,6 +504,26 @@ test('the git snapshots of a session go with it, in place, instead of its own ed
     assert.deepEqual(sent[git].changes.map((c) => c.path), ['app.txt']);
     // After the answer it belongs to, at the end of the session here.
     assert.equal(git, sent.length - 1);
+});
+
+test('with HTTP_PROXY set the requests go through the proxy', async () => {
+    const seen = [];
+    const proxy = createServer((req, res) => {
+        seen.push(`${req.method} ${req.url}`);
+        const target = new URL(req.url);
+        req.pipe(forward({ host: target.hostname, port: target.port, path: target.pathname, method: req.method, headers: req.headers }, (upstream) => {
+            res.writeHead(upstream.statusCode, upstream.headers);
+            upstream.pipe(res);
+        }));
+    });
+    await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    try {
+        const r = await cli(['whoami'], { HTTP_PROXY: `http://127.0.0.1:${proxy.address().port}` });
+        assert.match(r.out, /as @mara/, r.out);
+        assert.deepEqual(seen, [`GET ${env.CODERS_TALK_URL}/api/v1/me`]);
+    } finally {
+        proxy.close();
+    }
 });
 
 test('logout forgets the token on this computer', async () => {

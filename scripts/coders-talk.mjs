@@ -36,6 +36,7 @@ import { AUTO_MODES, autoMode, catchUp, logAuto, logFile, recentAuto, setAutoMod
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { gitContext } from './lib/git.mjs';
+import { request } from './lib/http.mjs';
 import { SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
 import { agentTimes, gitChangeLines, withGitLines } from './lib/snapshots.mjs';
@@ -625,7 +626,7 @@ async function api(method, path, body, authorized = true, timeoutMs = null) {
 
     let response;
     try {
-        response = await fetch(site + path, { method, body, headers, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
+        response = await request(site + path, { method, body, headers, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
     } catch (e) {
         const denied = (error) => error && (['EACCES', 'EPERM'].includes(error.code) || denied(error.cause) || error.errors?.some(denied));
         if (CODEX && denied(e)) {

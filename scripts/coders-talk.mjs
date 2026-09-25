@@ -18,7 +18,7 @@
  *   node coders-talk.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
  *                                                 they ended (lib/auto.mjs, catchUp), other than the one starting
  *   node coders-talk.mjs whoami | logout
- *   node coders-talk.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper):
+ *   node coders-talk.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper; a fixed https://coders.talk/mcp):
  *                                                 prints {"Authorization": "Bearer …"} for the saved sign-in, or {}
  *   node coders-talk.mjs nudge [on|off]         the Stop hook's suggestion to share a session that used the library
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)

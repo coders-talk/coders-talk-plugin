@@ -2,7 +2,7 @@
     "mcpServers": {
         "coders-talk": {
             "type": "http",
-            "url": "${CODERS_TALK_URL:-https://coders.talk}/mcp",
+            "url": "https://coders.talk/mcp",
             "headersHelper": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs\" mcp-headers"
         }
     }

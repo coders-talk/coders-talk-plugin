@@ -62,17 +62,20 @@ export function gitContext(cwd, headStart, startedAt) {
         branch: branch && branch !== 'HEAD' ? branch : null,
         head_start: headStart,
         head_end: headEnd,
-        commits: { count: 0, subjects: [] },
+        commits: { count: 0, subjects: [], shas: [] },
         shortstat: null,
     };
     if (estimated) context.head_start_estimated = true;
 
     if (headStart && headStart !== headEnd) {
         const range = `${headStart}..${headEnd}`;
-        const subjects = git(cwd, ['log', '--format=%s', `--max-count=${MAX_SUBJECTS}`, range]);
+        // Hashes next to the titles: the site links each commit on GitHub (coders.talk plan, stage 12.1).
+        const log = git(cwd, ['log', '--format=%H%x09%s', `--max-count=${MAX_SUBJECTS}`, range]);
+        const entries = log ? log.split('\n').map((l) => l.split('\t')) : [];
         context.commits = {
             count: Number(git(cwd, ['rev-list', '--count', range]) ?? 0),
-            subjects: subjects ? subjects.split('\n').map((s) => s.slice(0, 200)) : [],
+            subjects: entries.map(([, ...s]) => s.join('\t').slice(0, 200)),
+            shas: entries.map(([sha]) => sha),
         };
         context.shortstat = parseShortstat(git(cwd, ['diff', '--shortstat', headStart, headEnd]));
     }

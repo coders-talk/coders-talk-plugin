@@ -3,7 +3,9 @@
  * Coders Talk for Claude Code and Codex: sends the current session to https://coders.talk as a draft Build.
  *
  *   node coders-talk.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token
- *   node coders-talk.mjs preview [session-id]   trims the session, saves it next to the temp dir, prints what would go and where
+ *   node coders-talk.mjs preview [session-id]   trims the session, checks it for secrets, saves it next to the temp dir, prints
+ *                                                 what would go and where
+ *     --keep=<numbers>                            send these findings of the last preview as they are (see lib/privacy-settings.mjs)
  *     --private | --team=<slug>                   only you see the draft / that team does; by default the site decides by the
  *                                                 repository: a team's repositories go to the team, the rest stays private
  *   node coders-talk.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
@@ -20,7 +22,8 @@
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
  * Two steps to send on purpose: the person sees the summary and says yes before anything leaves the machine,
- * and what is sent is exactly what they saw, going where they saw. Nothing is published: that happens on the site,
+ * and what is sent is exactly what they saw, going where they saw. Secrets are redacted here, before anything is
+ * sent (lib/privacy.mjs, the rules the site uses): their values never reach the site, not even for a check. Nothing is published: that happens on the site,
  * and a draft is visible only to its sender, or to the team whose repository the session ran in.
  * The token never passes through the model: the browser sign-in hands it straight to this script.
  * Needs Node.js 20 or newer and nothing else.
@@ -34,11 +37,13 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { AUTO_MODES, autoMode, catchUp, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
-import { clearPendingLogin, forgetToken, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
+import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { gitContext } from './lib/git.mjs';
 import { request } from './lib/http.mjs';
 import { SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
+import { PRIVACY_LABELS } from './lib/privacy.mjs';
+import { keep, privacyScan, privacySummary, sha256 } from './lib/privacy-settings.mjs';
 import { agentTimes, gitChangeLines, withGitLines } from './lib/snapshots.mjs';
 import { slimLine } from './lib/slim.mjs';
 import { UsageCounter } from './lib/usage.mjs';
@@ -131,7 +136,9 @@ async function prepare(id, cut = true) {
     const kept = cut ? cutOwnCommand(session.lines.join('\n')).text : session.lines.join('\n');
     // What the git snapshots saw at each turn (Claude Code hooks, lib/snapshots.mjs), put into the session by time.
     const gitLines = CODEX ? [] : gitChangeLines(id, agentTimes(session.lines));
-    const slim = withGitLines(kept.split('\n'), gitLines).join('\n');
+    // The privacy check, on this computer: what leaves is the checked text, and the values found never do.
+    const privacy = privacyScan();
+    const slim = privacy.jsonl(withGitLines(kept.split('\n'), gitLines).join('\n'));
     if (gitLines.length) session.code = gitCode(gitLines);
     const stats = summarize(kept, session.cwd);
     if (slim.trim() === '' || stats.prompts === 0) throw new Failure('There is nothing to send yet: the session has no prompts before this command.');
@@ -143,20 +150,23 @@ async function prepare(id, cut = true) {
 
     // HEAD at the start: Claude Code's SessionStart hook remembered it, Codex writes it into the session itself.
     const sidecar = CODEX ? null : readSidecar(id);
-    const git = gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? session.headStart, stats.startedAt);
+    const git = checkedGit(gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? session.headStart, stats.startedAt), privacy);
 
-    return { session, slim, stats, gz, git, usage: session.usage };
+    return { session, slim, stats, gz, git, usage: session.usage, privacy };
 }
 
 async function preview(id) {
     if (SPACE && !/^[a-z0-9-]{1,40}$/.test(SPACE)) throw new Failure(`"${SPACE}" is not a team address. Use the part after /t/ in the team's link.`);
-    const { session, slim, stats, gz, git, usage } = await prepare(id);
+    const out = prepared(id);
+    if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
+    const { session, slim, stats, gz, git, usage, privacy } = await prepare(id);
 
     const goesTo = await destination(git);
 
-    const out = prepared(id);
     writeFileSync(out.file, gz);
-    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, space: SPACE, usage }));
+    // Findings by number and hash, for --keep; the values stay in memory only.
+    const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
+    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, space: SPACE, usage, privacy: privacySummary(privacy), findings }));
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
     console.log(`  Project:    ${stats.project ?? 'unknown'}`);
@@ -167,7 +177,7 @@ async function preview(id) {
     if (session.code.files.size) console.log(`  Code:       ${describeCode(session.code)}`);
     if (usage) console.log(`  Tokens:     ${describeUsage(usage)}`);
     console.log(`  Goes to:    ${goesTo}`);
-    console.log('Secrets are replaced with [REDACTED] on the server before a model sees anything, and you check each one before publishing.');
+    console.log(describePrivacy(privacy));
     if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
 }
 
@@ -262,7 +272,7 @@ async function send(id) {
     // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
     const continues = option('continues');
     // Only a space the person chose; otherwise the site routes by the repository, as the preview said.
-    const form = importForm(id, readFileSync(out.file), { git: meta.git, usage: meta.usage, space: meta.space, continues });
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy });
 
     let started;
     try {
@@ -303,7 +313,8 @@ async function send(id) {
     console.log(`Imported ${r.turns ?? 0} turns${r.moments_created ? ', with suggested moments' : ''}.`);
     if (r.label_skipped) console.log('The draft already had a timeline, so it was kept as it is; the new turns are waiting in its side rail.');
     if (r.label_error) console.log(`No suggestions this time (${r.label_error}); the timeline can be built by hand.`);
-    if (secrets) console.log(`${secrets} possible secret${secrets === 1 ? '' : 's'} redacted: check them on the draft before publishing.`);
+    // The site checks again with the same rules; what it finds is what the check here let through.
+    if (secrets) console.log(`The site's own check redacted ${secrets} more possible secret${secrets === 1 ? '' : 's'}; the draft shows where.`);
     console.log(`${team ? 'Review it' : 'Review and publish'}: ${started.edit_url}`);
 }
 
@@ -414,7 +425,7 @@ function logout() {
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
-function importForm(id, gz, { git = null, usage = null, space = null, continues = null, trigger = 'manual', final = true } = {}) {
+function importForm(id, gz, { git = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null } = {}) {
     const form = new FormData();
     form.append('agent', AGENT.id);
     form.append('session_id', id);
@@ -424,6 +435,8 @@ function importForm(id, gz, { git = null, usage = null, space = null, continues 
     if (trigger === 'auto') form.append('final', final ? '1' : '0');
     if (git) form.append('git', JSON.stringify(git));
     if (usage) form.append('usage', JSON.stringify(usage));
+    // What the check here redacted, by type, and hashes of the values kept on purpose: never a value.
+    if (privacy) form.append('privacy', JSON.stringify(privacy));
     if (space) form.append('space', space);
     if (continues) form.append('continues', continues);
     form.append('file', new Blob([gz], { type: 'application/gzip' }), `${id}.jsonl.gz`);
@@ -475,7 +488,7 @@ async function auto(mode) {
     const asking = (me.teams ?? []).filter((t) => t.auto_capture);
     setAutoMode(site, chosen, AGENT.id);
     if (chosen === 'all') {
-        console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Secrets are redacted on the server, and moments are suggested once a session is over.${trust}`);
+        console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Secrets are redacted on this computer before a session is sent, and moments are suggested once a session is over.${trust}`);
     } else {
         console.log(asking.length
             ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team while they run and ${ends}. Everything else stays on this computer.${trust}`
@@ -522,7 +535,7 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
         space = asking[0].slug;
     }
 
-    const form = () => importForm(id, session.gz, { git: session.git, usage: session.usage, space, trigger: 'auto', final });
+    const form = () => importForm(id, session.gz, { git: session.git, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy) });
     // A sync still being imported holds the draft for a moment; the end of the session waits for it rather than get lost.
     for (let attempt = 1; ; attempt++) {
         try {
@@ -565,6 +578,53 @@ function describeGit(git) {
     const size = git.shortstat ? `, ${files} file${files === 1 ? '' : 's'} +${git.shortstat.insertions} −${git.shortstat.deletions}` : '';
 
     return `${where}${git.branch ? `, branch ${git.branch}` : ''}; ${made}${size}. Commit titles are sent, not the commits.`;
+}
+
+/** Commit titles and the branch name go as they are written: a token pasted into one is redacted like the session. */
+function checkedGit(git, privacy) {
+    if (!git) return git;
+
+    return {
+        ...git,
+        branch: git.branch ? privacy.text(git.branch) : git.branch,
+        commits: { ...git.commits, subjects: (git.commits?.subjects ?? []).map((s) => privacy.text(s)) },
+    };
+}
+
+/**
+ * The privacy check's report, safe to print: this output becomes part of the session, so a finding shows as its kind
+ * and a few characters, never the value.
+ */
+function describePrivacy(privacy) {
+    const findings = privacy.findings();
+    const lines = [findings.length ? 'Privacy check, on this computer (nothing has left yet):' : 'Privacy check, on this computer: no keys, tokens or addresses found.'];
+    for (const f of findings) {
+        const where = f.count > 1 ? `, ${f.count} places` : '';
+        lines.push(`  #${f.n} ${PRIVACY_LABELS[f.type] ?? f.type} (${f.preview})${where}: ${f.kept ? 'sent as it is, as you chose' : `goes as [REDACTED:${f.type}]`}`);
+    }
+    if (privacy.paths) lines.push(`  ${privacy.paths} path${privacy.paths === 1 ? '' : 's'} with your user name: ~ instead`);
+    if (findings.some((f) => !f.kept)) lines.push(`To send one as it is, run the preview again with --keep=<numbers>. The values found never reach ${site}.`);
+    lines.push(`Words to hide in every session (client names, internal services) go in ${join(credentialsHome(), 'privacy.json')} as {"redact": [...]}.`);
+
+    return lines.join('\n');
+}
+
+/** --keep=2,3: those findings of the last preview go as they are from now on, remembered by their hash. */
+function keepFromLastPreview(metaPath, list) {
+    let meta = null;
+    try {
+        meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+    } catch {
+        // no preview yet
+    }
+    if (!Array.isArray(meta?.findings)) throw new Failure('Run the preview first; --keep takes the numbers of the findings it listed.');
+    const hashes = list.split(',').map((n) => n.trim()).filter(Boolean).map((n) => {
+        const found = meta.findings.find((f) => String(f.n) === n.replace(/^#/, ''));
+        if (!found) throw new Failure(`The last preview listed no finding #${n}.`);
+
+        return found.hash;
+    });
+    keep(hashes);
 }
 
 async function whoami() {

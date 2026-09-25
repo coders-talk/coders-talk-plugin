@@ -15,15 +15,16 @@ In the commands below, `<plugin>` is the absolute path of the plugin folder: thi
 
    If the user wrote `--private` after the command name, add ` --private` at the end of this command; if they wrote `--team <name>` or `--team=<name>`, add ` --team=<name>`. Nothing else goes on it.
 
-2. Show the user what it printed, word for word, including where the draft goes. If it printed an error, show the error and stop.
-3. Ask the user whether to send this session to Coders Talk. Continue only if they clearly say yes; otherwise stop.
-4. Run the command below. If the user wrote something with the request that points at an earlier Build of theirs (a coders.talk `/b/…` link, or `--continues <slug>`), add ` --continues=<that link or slug>` at the end, in double quotes: this session becomes the next part of that Build's series.
+2. Show the user what it printed, word for word, including where the draft goes and the privacy check. If it printed an error, show the error and stop.
+3. If the privacy check listed findings, everything it found already goes as `[REDACTED]`. Ask the user whether to send the session like that, or to send some findings as they are (by their numbers, only when they know the value is not secret). If they name numbers, run the preview command from step 1 again with ` --keep=<numbers>` added at the end (comma-separated, for example ` --keep=2,3`), show its output word for word, and ask again. Never suggest keeping a finding yourself.
+4. Ask the user whether to send this session to Coders Talk. Continue only if they clearly say yes; otherwise stop.
+5. Run the command below. If the user wrote something with the request that points at an earlier Build of theirs (a coders.talk `/b/…` link, or `--continues <slug>`), add ` --continues=<that link or slug>` at the end, in double quotes: this session becomes the next part of that Build's series.
 
    ```
    node "<plugin>/scripts/coders-talk.mjs" send --agent=codex
    ```
 
-5. Show the user what it printed: the draft link, and anything it says to check before publishing.
+6. Show the user what it printed: the draft link, and anything it says to check before publishing.
 
 Rules:
 

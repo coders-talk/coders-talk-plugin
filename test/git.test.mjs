@@ -31,7 +31,7 @@ test('the commits made since HEAD at the start of the session', () => {
         branch: 'main',
         head_start: hashes[0],
         head_end: hashes[2],
-        commits: { count: 2, subjects: ['Cover the limiter with tests', 'Add a limiter keyed by email'] },
+        commits: { count: 2, subjects: ['Cover the limiter with tests', 'Add a limiter keyed by email'], shas: [hashes[2], hashes[1]] },
         shortstat: { files: 1, insertions: 2, deletions: 0 },
     });
 });

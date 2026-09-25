@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, request as forward } from 'node:http';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -185,6 +186,7 @@ test('preview prints what will go, then send uploads exactly that and waits for 
         preview.out.includes('Git:        https://github.com/mara/shop (linked on the Build only if the repository is public), branch main; 2 commits in this session, 1 file +2 −0. Commit titles are sent, not the commits.'),
         preview.out,
     );
+    assert.match(preview.out, /Privacy check, on this computer: no keys, tokens or addresses found\./);
     const prepared = join(temp, 'coders-talk', `${id}.jsonl.gz`);
     const gz = readFileSync(prepared);
     const sentLater = gunzipSync(gz).toString('utf8');
@@ -198,7 +200,7 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.match(send.out, /Linked as the next part of the series "Rate limits": http:\/\/127\.0\.0\.1:\d+\/s\/rate-limits/);
     assert.match(send.out, /Proposing moments/);
     assert.match(send.out, /Imported 9 turns, with suggested moments/);
-    assert.match(send.out, /1 possible secret redacted/);
+    assert.match(send.out, /The site's own check redacted 1 more possible secret/);
 
     // The multipart body carries the prepared gzip unchanged, and the preview file is gone.
     assert.ok(received.includes(gz));
@@ -212,6 +214,10 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.equal(git.remote, 'https://github.com/mara/shop');
     assert.equal(git.head_start, repo.hashes[0]);
     assert.deepEqual(git.commits.subjects, ['Cover the limiter with tests', 'Add a limiter keyed by email']);
+    // The check ran here: the site is told so, with counts only.
+    const privacy = JSON.parse(received.toString('utf8').match(/name="privacy"\r\n\r\n(.*)\r\n/)[1]);
+    assert.equal(privacy.v, 1);
+    assert.deepEqual(privacy.kept, []);
     assert.equal(existsSync(prepared), false);
 });
 
@@ -524,6 +530,48 @@ test('with HTTP_PROXY set the requests go through the proxy', async () => {
     } finally {
         proxy.close();
     }
+});
+
+test('secrets are redacted before anything leaves, and --keep sends a chosen value as it is, by its hash', async () => {
+    const sid = 'a1b2c3d4-0000-4000-8000-00000000c0de';
+    const token = 'ghp_16C7e42F292c6912E7710c838347Ae178B4a';
+    const file = join(home, 'projects', 'C--code-shop', `${sid}.jsonl`);
+    const line = (type, content, at) => JSON.stringify({ type, timestamp: `2026-09-25T10:0${at}:00Z`, cwd: 'C:\\Users\\mara\\code\\shop', message: { role: type, content } });
+    writeFileSync(file, [
+        line('user', `Deploy with ${token}, mail ops@acme.io when done. Globex is waiting.`, 0),
+        line('assistant', [{ type: 'text', text: 'Deployed from C:\\Users\\mara\\code\\shop and mailed ops@acme.io.' }], 1),
+    ].join('\n') + '\n');
+    // The person's own words to hide, in every session.
+    writeFileSync(join(home, 'ct', 'privacy.json'), JSON.stringify({ redact: ['Globex'] }));
+    const sent = () => gunzipSync(readFileSync(join(temp, 'coders-talk', `${sid}.jsonl.gz`))).toString('utf8');
+
+    const preview = await cli(['preview', sid]);
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, /Privacy check, on this computer \(nothing has left yet\):/);
+    assert.match(preview.out, /#1 GitHub token \(ghp_…\): goes as \[REDACTED:GITHUB_TOKEN\]/);
+    assert.match(preview.out, /#2 email address \(op…\), 2 places: goes as \[REDACTED:EMAIL\]/);
+    assert.match(preview.out, /#3 word from your list \(Gl…\): goes as \[REDACTED:TERM\]/);
+    assert.match(preview.out, /1 path with your user name: ~ instead/);
+    // What is printed becomes part of the session: no value in it.
+    assert.doesNotMatch(preview.out, new RegExp(`${token}|ops@acme\\.io|Globex`));
+    assert.doesNotMatch(sent(), new RegExp(`${token}|ops@acme\\.io|Globex|Users\\\\\\\\mara`));
+    assert.match(sent(), /Deploy with \[REDACTED:GITHUB_TOKEN\], mail \[REDACTED:EMAIL\]/);
+
+    assert.match((await cli(['preview', sid, '--keep=9'])).out, /The last preview listed no finding #9/);
+    const kept = await cli(['preview', sid, '--keep=2']);
+    assert.equal(kept.ok, true, kept.out);
+    assert.match(kept.out, /#2 email address \(op…\), 2 places: sent as it is, as you chose/);
+    assert.match(sent(), /mail ops@acme\.io when done/);
+    assert.doesNotMatch(sent(), new RegExp(token));
+    const hash = createHash('sha256').update('ops@acme.io').digest('hex');
+    assert.deepEqual(JSON.parse(readFileSync(join(home, 'ct', 'kept.json'), 'utf8')), { sha256: [hash] });
+
+    const send = await cli(['send', sid]);
+    assert.equal(send.ok, true, send.out);
+    const body = received.toString('utf8');
+    assert.doesNotMatch(body, new RegExp(token));
+    const privacy = JSON.parse(body.match(/name="privacy"\r\n\r\n(.*)\r\n/)[1]);
+    assert.deepEqual(privacy, { v: 1, found: { GITHUB_TOKEN: 1, TERM: 1 }, paths: 1, kept: [hash] });
 });
 
 test('logout forgets the token on this computer', async () => {

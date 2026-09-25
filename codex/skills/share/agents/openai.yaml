@@ -1,3 +1,0 @@
-policy:
-  # Runs only when the person asks for it: it sends their session to a website.
-  allow_implicit_invocation: false

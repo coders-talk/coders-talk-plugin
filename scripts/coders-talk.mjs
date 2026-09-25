@@ -11,6 +11,9 @@
  *   node coders-talk.mjs auto [on|team|off]     auto mode for this computer: send Claude Code sessions by themselves when
  *                                                 they end (all of them, or only those in repositories of teams that ask)
  *   node coders-talk.mjs auto-send <session-id> what the SessionEnd hook runs in the background when auto mode is on
+ *     --sync                                      the Stop hook's send of a session that is still going
+ *   node coders-talk.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
+ *                                                 they ended (lib/auto.mjs, catchUp), other than the one starting
  *   node coders-talk.mjs whoami | logout
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
@@ -28,7 +31,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { AUTO_MODES, autoMode, logAuto, logFile, recentAuto, setAutoMode } from './lib/auto.mjs';
+import { AUTO_MODES, autoMode, catchUp, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { gitContext } from './lib/git.mjs';
@@ -47,6 +50,9 @@ const POLL_FOR_MS = 3 * 60 * 1000;
 // Agents stop a command after a couple of minutes; a login still waiting then picks up again on the next run.
 const LOGIN_WAIT_MS = Number(process.env.CODERS_TALK_LOGIN_WAIT_MS) || 100_000;
 const STAGES = { fetching: 'Reading the session', scanning: 'Scanning for secrets', labeling: 'Proposing moments', saving: 'Saving the draft' };
+// The end of a session is sent again when the site is busy with its last sync, throttled or unreachable.
+const AUTO_TRIES = 4;
+const RETRY_MS = Number(process.env.CODERS_TALK_RETRY_MS) || 15_000;
 
 class Failure extends Error {}
 
@@ -74,7 +80,8 @@ try {
     if (command === 'preview') await preview(sessionId());
     else if (command === 'send') await send(sessionId());
     else if (command === 'auto') await auto(argId);
-    else if (command === 'auto-send') await autoSend(argId);
+    else if (command === 'auto-send') await autoSend(argId, { final: !args.includes('--sync') });
+    else if (command === 'auto-catch-up') await autoCatchUp(argId);
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
     else if (command === 'logout') logout();
@@ -357,12 +364,14 @@ function logout() {
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
-function importForm(id, gz, { git = null, usage = null, space = null, continues = null, trigger = 'manual' } = {}) {
+function importForm(id, gz, { git = null, usage = null, space = null, continues = null, trigger = 'manual', final = true } = {}) {
     const form = new FormData();
     form.append('agent', AGENT.id);
     form.append('session_id', id);
     form.append('client_version', VERSION);
     form.append('trigger', trigger);
+    // 0: a session still going; the site keeps it up to date and asks for moments once it is over.
+    if (trigger === 'auto') form.append('final', final ? '1' : '0');
     if (git) form.append('git', JSON.stringify(git));
     if (usage) form.append('usage', JSON.stringify(usage));
     if (space) form.append('space', space);
@@ -382,8 +391,8 @@ function describeUsage(usage) {
 }
 
 /**
- * Auto mode for this computer (lib/auto.mjs). Claude Code only: it is the SessionEnd hook that sends, and Codex runs
- * no hooks for plugins.
+ * Auto mode for this computer (lib/auto.mjs). Claude Code only: its hooks do the sending, and Codex runs no hooks
+ * for plugins.
  */
 async function auto(mode) {
     if (CODEX) throw new Failure(`Automatic sending needs Claude Code's session-end hook, which Codex does not run for plugins. Send sessions with ${run('build')}.`);
@@ -391,9 +400,9 @@ async function auto(mode) {
     if (!mode) {
         const current = autoMode(site);
         console.log(current === 'all'
-            ? `Auto mode is on for ${site}: every Claude Code session on this computer is sent when it ends.`
+            ? `Auto mode is on for ${site}: every Claude Code session on this computer is sent while it runs and when it ends.`
             : current === 'team'
-              ? `Auto mode is on for ${site}, for team repositories: sessions in repositories of teams that ask for it are sent when they end.`
+              ? `Auto mode is on for ${site}, for team repositories: sessions in repositories of teams that ask for it are sent while they run and when they end.`
               : `Auto mode is off for ${site}: sessions are sent only when you run ${run('build')}.`);
         const recent = recentAuto(5);
         if (recent.length) console.log(`Last sessions it looked at (${logFile()}):\n${recent.map((l) => `  ${l}`).join('\n')}`);
@@ -413,23 +422,25 @@ async function auto(mode) {
     const asking = (me.teams ?? []).filter((t) => t.auto_capture);
     setAutoMode(site, chosen);
     if (chosen === 'all') {
-        console.log(`Auto mode is on. When a Claude Code session on this computer ends, it is sent to ${site} as @${me.username} by itself: to your team's space when the repository is one of your team's, else to your private Builds, where only you see it. Nothing is published. Secrets are redacted on the server.`);
+        console.log(`Auto mode is on. Claude Code sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more when they end: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Secrets are redacted on the server, and moments are suggested once a session is over.`);
     } else {
         console.log(asking.length
-            ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team when they end. Everything else stays on this computer.`
+            ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team while they run and when they end. Everything else stays on this computer.`
             : `Auto mode is on for team repositories, but none of your teams asks for it yet, so nothing will be sent until one does.`);
     }
     console.log(`Turn it off with ${run('auto')} off. What it sent is listed in ${logFile()}.`);
 }
 
 /**
- * Run by the SessionEnd hook in the background: sends the session that just ended, if auto mode wants it. Never
- * prints (nobody is watching); every outcome goes to the auto log instead.
+ * Run by the hooks in the background, if auto mode wants the session: SessionEnd sends one that ended ($final), Stop
+ * syncs one that is still going, SessionStart catches up on those that never said they ended ($caughtUp). Never
+ * prints (nobody is watching); every outcome goes to the auto log instead, and what went to auto-sessions.json.
  */
-async function autoSend(id) {
+async function autoSend(id, { final = true, caughtUp = false } = {}) {
     const mode = autoMode(site);
     if (!mode || !SESSION_ID.test(id ?? '')) return;
     const log = (result) => logAuto(`${id} ${result}`);
+    const remember = (patch) => trackSession(site, id, patch);
     if (!token) return log('skipped: this computer is not connected');
 
     let session;
@@ -449,15 +460,44 @@ async function autoSend(id) {
         }
         const owner = session.git?.remote?.match(/^https:\/\/github\.com\/([^/]+)\//)?.[1]?.toLowerCase();
         const asking = owner ? teams.filter((t) => t.auto_capture && (t.github_owners ?? []).includes(owner)) : [];
-        if (asking.length !== 1) return log('skipped: not a repository of a team that asks for automatic sending');
+        if (asking.length !== 1) {
+            remember({ skip: 'not a team repository' });
+            return log('skipped: not a repository of a team that asks for automatic sending');
+        }
         space = asking[0].slug;
     }
 
-    try {
-        const r = await api('POST', '/api/v1/imports', importForm(id, session.gz, { git: session.git, usage: session.usage, space, trigger: 'auto' }), true, 60000);
-        log(r.status === 'skipped' ? `skipped: ${r.reason === 'published' ? 'already published' : 'its draft is not yours to change'}` : `sent to ${r.space?.type === 'team' ? r.space.name : 'your private Builds'}: ${r.edit_url}`);
-    } catch (e) {
-        log(`failed: ${e.message}`);
+    const form = () => importForm(id, session.gz, { git: session.git, usage: session.usage, space, trigger: 'auto', final });
+    // A sync still being imported holds the draft for a moment; the end of the session waits for it rather than get lost.
+    for (let attempt = 1; ; attempt++) {
+        try {
+            const r = await api('POST', '/api/v1/imports', form(), true, 60000);
+            if (r.status === 'skipped') {
+                remember({ skip: r.reason });
+                return log(`skipped: ${r.reason === 'published' ? 'already published' : 'its draft is not yours to change'}`);
+            }
+            remember({ sent: { at: Date.now(), size: session.session.bytes, final } });
+            const where = r.space?.type === 'team' ? r.space.name : 'your private Builds';
+            return log(`${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : ''}: ${r.edit_url}`);
+        } catch (e) {
+            if (final && attempt < AUTO_TRIES && (['import_running', 'rate_limited'].includes(e.code) || e.unavailable)) {
+                await sleep(RETRY_MS * attempt);
+                continue;
+            }
+            return log(`failed: ${e.message}`);
+        }
+    }
+}
+
+/**
+ * Run by the SessionStart hook in the background: sends, one after another, the sessions that grew since their last
+ * send and never said they ended (lib/auto.mjs, catchUp). $current is the session starting: its own hooks send it.
+ */
+async function autoCatchUp(current) {
+    if (!autoMode(site)) return;
+    for (const { id, final } of catchUp(site, current)) {
+        trackSession(site, id, { tried: Date.now() });
+        await autoSend(id, { final, caughtUp: true });
     }
 }
 
@@ -547,7 +587,8 @@ async function api(method, path, body, authorized = true, timeoutMs = null) {
     const link = error.edit_url ? ` ${error.edit_url}` : '';
     if (response.status === 401) throw new Failure(`The saved token was not accepted (revoked or from another site). Run ${run('login')} to connect again.`);
     const message = `${error.message ?? `The site answered ${response.status}.`}${link}`;
-    throw response.status >= 500 ? unavailable(message) : new Failure(message);
+    // The status and code say whether trying again later can help (auto mode does).
+    throw Object.assign(response.status >= 500 ? unavailable(message) : new Failure(message), { status: response.status, code: error.code });
 }
 
 /** The request did not go through for reasons on the way or on the server's side, not because of what was sent. */

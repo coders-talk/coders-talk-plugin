@@ -34,7 +34,7 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 | `/coders-talk:build --private` | The same, and the draft stays yours even in a team's repository. |
 | `/coders-talk:build --team <slug>` | The same, and the draft goes to that team (the part after `/t/` in the team's link). |
 | `/coders-talk:share` | The same. |
-| `/coders-talk:auto on` | Claude Code only: from now on every session on this computer is sent by itself when it ends (see Auto mode). |
+| `/coders-talk:auto on` | Claude Code only: from now on every session on this computer is sent by itself while it runs and when it ends (see Auto mode). |
 | `/coders-talk:auto team` | The same, only for sessions in repositories of teams that ask for it. |
 | `/coders-talk:auto off` | Stops it. `/coders-talk:auto` alone says whether it is on and what it last sent. |
 | `/coders-talk:login` | Connects this computer through the browser, or says which account it is connected to. |
@@ -44,9 +44,17 @@ Sending the same session again updates its draft until you publish it. The comma
 
 ### Auto mode
 
-Off until you turn it on, per computer and per site. With `/coders-talk:auto on`, a `SessionEnd` hook hands each Claude Code session that ends to a background process, which sends it the way `/coders-talk:build` would, without asking: to your team's space when the repository is one of your team's, else to your private Builds. With `/coders-talk:auto team`, only sessions in repositories of teams that ask for it (a team setting) are sent, and nothing else leaves the machine. A team can ask; it can never switch this on for you.
+Off until you turn it on, per computer and per site. With `/coders-talk:auto on`, each Claude Code session is sent the way `/coders-talk:build` would send it, without asking: to your team's space when the repository is one of your team's, else to your private Builds. With `/coders-talk:auto team`, only sessions in repositories of teams that ask for it (a team setting) are sent, and nothing else leaves the machine. A team can ask; it can never switch this on for you.
 
-Nothing is published by it. A session you already published is left alone. Every session it looked at gets a line in `~/.coders-talk/auto.log`: sent (with the draft link), skipped and why, or failed. `CODERS_TALK_AUTO=0` in the environment turns it off for that shell. Codex runs no hooks for plugins, so there auto mode is not available.
+Three hooks do the sending, each in a background process so the agent never waits for an upload:
+
+- `Stop`, after an answer of the agent: when the session grew and the last send is ten minutes old, it is sent as still going. The draft stays up to date, and a crash loses at most those minutes. A session shorter than ten minutes is only sent at its end.
+- `SessionEnd`: the session is sent once more, as ended.
+- `SessionStart`: sessions that never said they ended (a crash, a closed terminal) and grew since their last send are sent at the next start, up to three at a time. One quiet for half an hour goes as ended; a fresher one as still going. Only sessions auto mode saw while it was on are considered, never older history.
+
+The site asks the model for moments once per session, when it is over: when the plugin says it ended, or after half an hour without anything new. Sending a session that is still going costs nothing and does not count against the daily limit.
+
+Nothing is published by it. A session you already published is left alone. Every send gets a line in `~/.coders-talk/auto.log`: sent or synced (with the draft link), skipped and why, or failed. `~/.coders-talk/auto-sessions.json` remembers which sessions auto mode saw and how much of each went, never their content; `/coders-talk:auto off` forgets it. `CODERS_TALK_AUTO=0` in the environment turns auto mode off for that shell. Codex runs no hooks for plugins, so there auto mode is not available.
 
 ### Private and team drafts
 

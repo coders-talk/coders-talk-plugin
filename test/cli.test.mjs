@@ -1,7 +1,7 @@
 // preview → send → whoami against a stand-in for the Coders Talk API, with a throwaway Claude Code config folder.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,8 +32,12 @@ mkdirSync(join(home, 'ct', 'sessions'), { recursive: true });
 writeFileSync(join(home, 'ct', 'sessions', `${id}.json`), JSON.stringify({ session_id: id, cwd: repo.dir, head: repo.hashes[0] }));
 
 let received = null;
+// Every import request's body, for tests that send more than one.
+const bodies = [];
 let importsDown = false;
 let alreadyPublished = false;
+// The next import request finds the session's last sync still being imported.
+let busyOnce = false;
 let polls = 0;
 let tokenPolls = 0;
 const server = createServer((req, res) => {
@@ -65,7 +69,12 @@ const server = createServer((req, res) => {
         }
         if (req.method === 'POST' && req.url === '/api/v1/imports') {
             if (importsDown) return reply(503, { error: { code: 'unavailable', message: 'Coders Talk is down for maintenance.' } });
+            if (busyOnce) {
+                busyOnce = false;
+                return reply(409, { error: { code: 'import_running', message: 'This session is still being imported. Wait for it to finish.' } });
+            }
             received = Buffer.concat(chunks);
+            bodies.push(received.toString('latin1'));
             if (alreadyPublished) return reply(200, { status: 'skipped', reason: 'published', build_slug: 'shipped' });
             const series = received.includes('name="continues"') ? { slug: 'rate-limits', title: 'Rate limits', url: `${base}/s/rate-limits` } : null;
             // The site's routing, in short: a named space, else the team whose repository it is, else private.
@@ -236,13 +245,14 @@ test('auto mode is off until the person turns it on, and then sends a session th
 
     const on = await cli(['auto', 'on']);
     assert.equal(on.ok, true, on.out);
-    assert.match(on.out, /Auto mode is on\. When a Claude Code session on this computer ends, it is sent to .* as @mara by itself/);
+    assert.match(on.out, /Auto mode is on\. Claude Code sessions on this computer are sent to .* as @mara by themselves, every ten minutes while they run and once more when they end/);
     assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL].mode, 'all');
 
     const sent = await cli(['auto-send', id]);
     assert.equal(sent.out, '', 'auto-send prints nothing: nobody is watching');
     const body = received.toString('latin1');
     assert.match(body, /name="trigger"\r\n\r\nauto/);
+    assert.match(body, /name="final"\r\n\r\n1/);
     assert.doesNotMatch(body, /name="space"/);
     // The session ended by itself: nothing is cut off its end.
     const gz = received.subarray(received.indexOf(Buffer.from([0x1f, 0x8b])), received.lastIndexOf('\r\n--'));
@@ -255,7 +265,7 @@ test('auto mode is off until the person turns it on, and then sends a session th
     assert.match((await cli(['auto'])).out, /Last sessions it looked at/);
 
     // Team mode sends only what a team asks for.
-    assert.match((await cli(['auto', 'team'])).out, /Sessions in repositories of Acme \(acme-inc\/\*\) are sent to the team when they end\. Everything else stays on this computer\./);
+    assert.match((await cli(['auto', 'team'])).out, /Sessions in repositories of Acme \(acme-inc\/\*\) are sent to the team while they run and when they end\. Everything else stays on this computer\./);
     received = null;
     await cli(['auto-send', id]);
     assert.equal(received, null);
@@ -289,6 +299,99 @@ test('the SessionEnd hook hands the session to auto-send only when auto mode is 
     // The upload runs after the hook returned; wait for its line in the log.
     for (let i = 0; i < 50 && lines() === before; i++) await new Promise((r) => setTimeout(r, 200));
     assert.equal(lines(), before + 1);
+    await cli(['auto', 'off']);
+});
+
+const hookRun = (name, event) => new Promise((resolve, reject) => {
+    const hook = fileURLToPath(new URL(`../scripts/${name}.mjs`, import.meta.url));
+    const child = execFile(process.execPath, [hook], { env: { ...env, CODERS_TALK_RETRY_MS: '10' } }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+    child.stdin.end(JSON.stringify(event));
+});
+const autoLog = () => (existsSync(join(home, 'ct', 'auto.log')) ? readFileSync(join(home, 'ct', 'auto.log'), 'utf8') : '');
+const sessionsState = () => JSON.parse(readFileSync(join(home, 'ct', 'auto-sessions.json'), 'utf8'))[env.CODERS_TALK_URL] ?? {};
+/** Waits for the background upload the hook started, by its line in the log. */
+async function logged(pattern) {
+    for (let i = 0; i < 50 && !pattern.test(autoLog()); i++) await new Promise((r) => setTimeout(r, 200));
+    assert.match(autoLog(), pattern);
+}
+/** Pretends auto mode saw the session a while ago, as the hooks would have written it. */
+function sawSession(sessionId, path, agoMs) {
+    const file = join(home, 'ct', 'auto-sessions.json');
+    const all = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+    all[env.CODERS_TALK_URL] = { ...all[env.CODERS_TALK_URL], [sessionId]: { path, seen: Date.now() - agoMs } };
+    writeFileSync(file, JSON.stringify(all));
+}
+
+test('the Stop hook syncs a running session every ten minutes of work, as still going', async () => {
+    await cli(['auto', 'on']);
+    const event = { session_id: id, transcript_path: transcript, hook_event_name: 'Stop' };
+
+    bodies.length = 0;
+    assert.equal(await hookRun('stop', event), '', 'hooks print nothing');
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(bodies.length, 0, 'a session that just started is not synced: its end sends it');
+    assert.equal(sessionsState()[id].path, transcript);
+
+    sawSession(id, transcript, 11 * 60_000);
+    await hookRun('stop', event);
+    await logged(new RegExp(`${id} synced, still going, to your private Builds: http`));
+    assert.match(bodies.at(-1), /name="final"\r\n\r\n0/);
+    const sent = sessionsState()[id].sent;
+    assert.equal(sent.final, false);
+    assert.equal(sent.size, statSync(transcript).size);
+
+    // Nothing new since: the next answer sends nothing.
+    await hookRun('stop', event);
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(bodies.length, 1);
+
+    // The end of the session waits for the last sync to be imported.
+    busyOnce = true;
+    await cli(['auto-send', id], { CODERS_TALK_RETRY_MS: '10' });
+    assert.equal(busyOnce, false);
+    assert.equal(bodies.length, 2);
+    assert.match(bodies.at(-1), /name="final"\r\n\r\n1/);
+    assert.equal(sessionsState()[id].sent.final, true);
+
+    // Turned off, it forgets the sessions it saw: turned on later, it never sends what grew in between.
+    await cli(['auto', 'off']);
+    assert.deepEqual(sessionsState(), {});
+});
+
+test('the next start catches up on sessions that never said they ended', async () => {
+    await cli(['auto', 'on']);
+    const fixture = fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url));
+    const ids = { quiet: 'a1b2c3d4-0000-4000-8000-0000000000c1', recent: 'a1b2c3d4-0000-4000-8000-0000000000c2', busy: 'a1b2c3d4-0000-4000-8000-0000000000c3' };
+    const ages = { quiet: 40, recent: 5, busy: 0 };
+    for (const [key, sessionId] of Object.entries(ids)) {
+        const path = join(home, 'projects', 'C--code-shop', `${sessionId}.jsonl`);
+        copyFileSync(fixture, path);
+        const at = new Date(Date.now() - ages[key] * 60_000);
+        utimesSync(path, at, at);
+        sawSession(sessionId, path, 60 * 60_000);
+    }
+    // Never seen by auto mode: stays on this computer whatever its age.
+    const unseen = join(home, 'projects', 'C--code-shop', 'a1b2c3d4-0000-4000-8000-0000000000c4.jsonl');
+    copyFileSync(fixture, unseen);
+    utimesSync(unseen, new Date(Date.now() - 3_600_000), new Date(Date.now() - 3_600_000));
+
+    bodies.length = 0;
+    const start = { session_id: id, transcript_path: transcript, source: 'startup', hook_event_name: 'SessionStart' };
+    assert.equal(await hookRun('session-start', start), '', 'a SessionStart hook prints nothing: it would reach the model');
+    await logged(new RegExp(`${ids.recent} synced, still going, to your private Builds at the next start: http`));
+    assert.match(autoLog(), new RegExp(`${ids.quiet} sent to your private Builds at the next start: http`));
+
+    assert.equal(bodies.length, 2, 'the busy one is open somewhere else and its own hooks send it; the current one is just starting');
+    assert.match(bodies[0], new RegExp(`name="session_id"\r\n\r\n${ids.quiet}`));
+    assert.match(bodies[0], /name="final"\r\n\r\n1/);
+    assert.match(bodies[1], new RegExp(`name="session_id"\r\n\r\n${ids.recent}`));
+    assert.match(bodies[1], /name="final"\r\n\r\n0/);
+    assert.doesNotMatch(bodies.join('\n'), /0000000000c4/);
+
+    // Caught up: the next start has nothing to send.
+    await hookRun('session-start', start);
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(bodies.length, 2);
     await cli(['auto', 'off']);
 });
 

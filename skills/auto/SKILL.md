@@ -4,7 +4,7 @@ description: Turn automatic sending of Claude Code sessions to Coders Talk on or
 disable-model-invocation: true
 ---
 
-Auto mode sends each Claude Code session on this computer to Coders Talk by itself when the session ends: `on` sends every session (to the user's team space when the repository is one of their team's, else to their private Builds), `team` sends only sessions in repositories of teams that ask for it, `off` stops it. Nothing is ever published by it.
+Auto mode sends each Claude Code session on this computer to Coders Talk by itself, every ten minutes while it runs and once more when it ends: `on` sends every session (to the user's team space when the repository is one of their team's, else to their private Builds), `team` sends only sessions in repositories of teams that ask for it, `off` stops it. Nothing is ever published by it.
 
 1. Run this command exactly, with `<mode>` replaced by what the user wrote after the command name (`on`, `team` or `off`), or with nothing after `auto` if they wrote nothing:
 

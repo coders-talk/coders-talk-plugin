@@ -83,7 +83,9 @@ const server = createServer((req, res) => {
             const named = body.match(/name="space"\r\n\r\n([^\r]+)/)?.[1];
             const team = named ? named !== 'personal' : /github\.com\/acme-inc\//i.test(body);
             const space = team ? { type: 'team', slug: 'acme', name: 'Acme' } : { type: 'personal', slug: null, name: 'Private' };
-            return reply(202, { status: 'queued', stage: null, reused: false, series, space, ...links });
+            const forked = body.match(/name="fork"\r\n\r\n(.*)\r\n/)?.[1];
+            const forkedFrom = forked && JSON.parse(forked).session_id === id ? { slug: 'parent-x', title: 'Rate limits', url: `${base}/b/parent-x` } : null;
+            return reply(202, { status: 'queued', stage: null, reused: false, series, space, forked_from: forkedFrom, ...links });
         }
         if (req.method === 'GET' && req.url === '/api/v1/imports/imp1') {
             polls++;
@@ -219,6 +221,70 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.equal(privacy.v, 1);
     assert.deepEqual(privacy.kept, []);
     assert.equal(existsSync(prepared), false);
+});
+
+test('a fork says which session it came from, and the site links the two', async () => {
+    const lines = readFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), 'utf8').split('\n').filter(Boolean);
+    // Claude Code copies the parent's lines into the fork with the parent's sessionId; the fork's own ones carry its id.
+    const withId = (sessionId) => (l) => (l.startsWith('{') ? JSON.stringify({ ...JSON.parse(l), sessionId }) : l);
+    const write = (forkId, parentId) => {
+        const own = [JSON.stringify({ type: 'user', sessionId: forkId, timestamp: '2026-09-02T09:00:00.000Z', message: { role: 'user', content: 'Try it with a token bucket instead' } })];
+        writeFileSync(join(home, 'projects', 'C--code-shop', `${forkId}.jsonl`), [...lines.map(withId(parentId)), ...own].join('\n') + '\n');
+    };
+
+    const fork = 'a1b2c3d4-0000-4000-8000-0000000000f1';
+    write(fork, id);
+    const preview = await cli(['preview', fork]);
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, new RegExp(`Fork of: +session ${id}: the draft and that session's Build link to each other`));
+    // Every token in it was spent before the fork, and counts with the original.
+    assert.doesNotMatch(preview.out, /Tokens:/);
+    const send = await cli(['send', fork]);
+    assert.equal(send.ok, true, send.out);
+    assert.match(send.out, /A fork of "Rate limits": http:\/\/127\.0\.0\.1:\d+\/b\/parent-x\. Both Builds link to each other\./);
+    const sent = JSON.parse(received.toString('utf8').match(/name="fork"\r\n\r\n(.*)\r\n/)[1]);
+    assert.equal(sent.session_id, id);
+    assert.ok(Date.parse(sent.at) < Date.parse('2026-09-02T09:00:00.000Z'), 'the fork point is the last line of the parent');
+
+    // The parent is not on the site yet: the link comes when it is.
+    const orphan = 'a1b2c3d4-0000-4000-8000-0000000000f2';
+    write(orphan, 'a1b2c3d4-0000-4000-8000-0000000000f9');
+    await cli(['preview', orphan]);
+    assert.match((await cli(['send', orphan])).out, /A fork of a session that is not on the site yet/);
+
+    // Not a fork: no field, no line.
+    await cli(['preview', id]);
+    const plain = await cli(['send', id]);
+    assert.doesNotMatch(plain.out, /fork/i);
+    assert.doesNotMatch(received.toString('latin1'), /name="fork"/);
+});
+
+test('a folder added to the session is named, never shown by its path, and its repository goes with its commits', async () => {
+    const api = makeRepo('git@github.com:mara/shop-api.git');
+    const session = 'a1b2c3d4-0000-4000-8000-0000000000a1';
+    const at = (s) => `2026-09-01T10:0${s}:00.000Z`;
+    const lines = [
+        { type: 'user', cwd: repo.dir, message: { role: 'user', content: 'Share the limit with the API.' }, timestamp: at(0) },
+        { type: 'attachment', cwd: repo.dir, attachment: { type: 'environment', snapshot: { workingDirectory: repo.dir, additionalWorkingDirectories: [api.dir] } }, timestamp: at(1) },
+        { type: 'user', cwd: repo.dir, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] }, timestamp: at(2),
+          toolUseResult: { filePath: join(api.dir, 'src', 'limits.ts'), structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-limit = 5', '+limit = 10'] }] } },
+        { type: 'assistant', cwd: repo.dir, message: { role: 'assistant', content: [{ type: 'text', text: 'Done in both.' }] }, timestamp: at(3) },
+    ];
+    writeFileSync(join(home, 'projects', 'C--code-shop', `${session}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const folder = api.dir.replace(/\\/g, '/').split('/').pop();
+
+    const preview = await cli(['preview', session]);
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, new RegExp(`Folders: +${folder} added to the session: files there go under the folder's name, never its path`));
+    assert.match(preview.out, new RegExp(`Git \\(${folder}\\): https://github.com/mara/shop-api .*2 commits in this session`));
+    assert.match(preview.out, /Code: +1 file \(\+1 −1\)/);
+    const slim = gunzipSync(readFileSync(join(temp, 'coders-talk', `${session}.jsonl.gz`))).toString('utf8');
+
+    assert.equal((await cli(['send', session])).ok, true);
+    const sent = JSON.parse(received.toString('utf8').match(/name="git_folders"\r\n\r\n(.*)\r\n/)[1]);
+    assert.deepEqual(sent.map((g) => [g.folder, g.remote, g.commits.count, g.head_start_estimated]), [[folder, 'https://github.com/mara/shop-api', 2, true]]);
+    assert.match(slim, new RegExp(`"root":"${folder}"`));
+    assert.doesNotMatch(slim, new RegExp(folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\\\/]src'), 'the folder goes by its name, not its path');
 });
 
 test('a session in a team repository goes to the team, unless the person keeps it private', async () => {

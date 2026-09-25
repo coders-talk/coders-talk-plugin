@@ -8,7 +8,7 @@ const dir = new URL('./fixtures/slim/', import.meta.url);
 const read = (name) => readFileSync(new URL(name, dir), 'utf8');
 const parse = (text) => text.split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
 
-for (const name of ['claude-code', 'codex']) {
+for (const name of ['claude-code', 'codex', 'claude-code-folders', 'codex-folders']) {
     test(`${name}.jsonl slims like the site does`, () => {
         assert.deepEqual(parse(slimJsonl(read(`${name}.jsonl`))), parse(read(`${name}.slim.jsonl`)));
     });

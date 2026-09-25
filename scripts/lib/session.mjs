@@ -163,6 +163,56 @@ function isPrompt(content) {
     return trimmed !== '' && !WRAPPER.test(trimmed) && !trimmed.startsWith('[Request interrupted');
 }
 
+/**
+ * Which session this one was forked from, learned from its lines as they are read: {session_id, at} or null.
+ * Claude Code copies the parent's lines into the fork with the parent's sessionId, and the fork's own lines carry its
+ * own; the last foreign id before the first own line is the parent (a fork of a fork copies the grandparent's lines
+ * too), and the last of its timestamps is where the fork left it. Codex names the parent in the first session_meta:
+ * forked_from_id, or a history_base in another thread. $at is when the fork happened: lines up to it are the parent's.
+ */
+export class ForkWatch {
+    constructor(id) {
+        this.id = id;
+        this.parent = null;
+        this.at = null;
+        this.done = false;
+    }
+
+    /** True when the line is one a Claude Code fork inherited: its tokens were spent, and counted, in the original. */
+    add(d) {
+        if (this.done || !d || typeof d !== 'object') return false;
+
+        if (d.type === 'session_meta') {
+            this.done = true;
+            const p = d.payload ?? {};
+            const own = typeof p.id === 'string' ? p.id : this.id;
+            const parent = [p.forked_from_id, p.history_base?.thread_id].find((t) => typeof t === 'string' && t !== own && SESSION_ID.test(t));
+            if (parent) {
+                this.parent = parent;
+                this.at = d.timestamp ?? p.timestamp ?? null;
+            }
+            return false;
+        }
+
+        if (typeof d.sessionId !== 'string') return false;
+        if (d.sessionId === this.id) {
+            this.done = true;
+            return false;
+        }
+        if (!SESSION_ID.test(d.sessionId)) return false;
+        if (d.sessionId !== this.parent) this.at = null;
+        this.parent = d.sessionId;
+        const at = Date.parse(d.timestamp ?? '');
+        if (!Number.isNaN(at) && at > (Date.parse(this.at ?? '') || 0)) this.at = new Date(at).toISOString();
+
+        return true;
+    }
+
+    result() {
+        return this.parent ? { session_id: this.parent, at: this.at } : null;
+    }
+}
+
 export function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;

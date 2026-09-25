@@ -39,6 +39,29 @@ export function parseShortstat(line) {
 }
 
 /**
+ * The git context of each folder added to the session (Claude Code's /add-dir, Codex's workspace roots) that is a
+ * repository other than the session's own, named as the session names the folder (slim.mjs, addedFolders). HEAD at
+ * the start is estimated: the SessionStart hook sees only the session's own folder. At most five.
+ *
+ * @param folders    [{dir, label}] from addedFolders
+ * @param cwd        the session's own folder, whose repository the main context already covers
+ */
+export function folderGitContexts(folders, cwd, startedAt) {
+    const own = cwd ? git(cwd, ['rev-parse', '--show-toplevel']) : null;
+    const seen = new Set(own ? [own] : []);
+    const contexts = [];
+    for (const { dir, label } of folders) {
+        const top = git(dir, ['rev-parse', '--show-toplevel']);
+        if (!top || seen.has(top) || contexts.length >= 5) continue;
+        seen.add(top);
+        const context = gitContext(dir, null, startedAt);
+        if (context) contexts.push({ folder: label, ...context });
+    }
+
+    return contexts;
+}
+
+/**
  * @param cwd        the session's working folder
  * @param headStart  HEAD when the session started (the SessionStart hook), or null
  * @param startedAt  the session's first timestamp in ms, to estimate headStart when the hook did not run

@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { gitContext, normalizeRemote, parseShortstat } from '../scripts/lib/git.mjs';
+import { folderGitContexts, gitContext, normalizeRemote, parseShortstat } from '../scripts/lib/git.mjs';
 import { readSidecar } from '../scripts/lib/sidecar.mjs';
 import { makeRepo } from './helpers.mjs';
 
@@ -44,6 +44,28 @@ test('without the hook, HEAD at the start is estimated from the session start ti
     assert.equal(context.head_start_estimated, true);
     assert.equal(context.remote, null);
     assert.equal(context.commits.count, 2);
+});
+
+test('folders added to the session get their own git context, when they are a repository of their own', () => {
+    const own = makeRepo();
+    const api = makeRepo('git@github.com:mara/shop-api.git');
+    const inside = join(own.dir, 'packages');
+    mkdirSync(inside);
+    const folders = [
+        { dir: inside, label: 'packages' },
+        { dir: mkdtempSync(join(tmpdir(), 'ct-plain-')), label: 'notes' },
+        { dir: api.dir, label: 'shop-api' },
+    ];
+
+    const contexts = folderGitContexts(folders, own.dir, Date.parse('2026-09-01T10:00:00Z'));
+
+    assert.equal(contexts.length, 1);
+    assert.equal(contexts[0].folder, 'shop-api');
+    assert.equal(contexts[0].remote, 'https://github.com/mara/shop-api');
+    // Only the session's own folder has a hook that saw HEAD at the start.
+    assert.equal(contexts[0].head_start, api.hashes[0]);
+    assert.equal(contexts[0].head_start_estimated, true);
+    assert.deepEqual(contexts[0].commits.shas, [api.hashes[2], api.hashes[1]]);
 });
 
 test('outside a repository there is no git context', () => {

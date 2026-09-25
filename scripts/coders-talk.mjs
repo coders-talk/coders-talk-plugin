@@ -38,14 +38,14 @@ import { gzipSync } from 'node:zlib';
 import { AUTO_MODES, autoMode, catchUp, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
-import { gitContext } from './lib/git.mjs';
+import { folderGitContexts, gitContext } from './lib/git.mjs';
 import { request } from './lib/http.mjs';
-import { SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
+import { ForkWatch, SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
 import { PRIVACY_LABELS } from './lib/privacy.mjs';
 import { keep, privacyScan, privacySummary, sha256 } from './lib/privacy-settings.mjs';
 import { agentTimes, gitChangeLines, withGitLines } from './lib/snapshots.mjs';
-import { slimLine } from './lib/slim.mjs';
+import { addedFolders, slimLine } from './lib/slim.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -131,7 +131,7 @@ async function prepare(id, cut = true) {
             : `Could not find this session's transcript (${id}.jsonl) under the Claude Code config folder.`);
     }
 
-    const session = await readSession(path);
+    const session = await readSession(path, id);
     if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
     const kept = cut ? cutOwnCommand(session.lines.join('\n')).text : session.lines.join('\n');
     // What the git snapshots saw at each turn (Claude Code hooks, lib/snapshots.mjs), put into the session by time.
@@ -149,33 +149,43 @@ async function prepare(id, cut = true) {
     }
 
     // HEAD at the start: Claude Code's SessionStart hook remembered it, Codex writes it into the session itself.
+    // A fork starts where it left the original: the original's commits are not the fork's.
     const sidecar = CODEX ? null : readSidecar(id);
-    const git = checkedGit(gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? session.headStart, stats.startedAt), privacy);
+    const startedAt = Date.parse(session.fork?.at ?? '') || stats.startedAt;
+    const git = checkedGit(gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? session.headStart, startedAt), privacy);
+    // The folders added to the session that are repositories of their own: their commits, under the folder's name.
+    // The name goes through the same check as the session's lines, where it names the folder's files.
+    const gitFolders = folderGitContexts(session.folders, sidecar?.cwd ?? stats.cwd, startedAt).map((g) => checkedGit({ ...g, folder: privacy.text(g.folder) }, privacy));
 
-    return { session, slim, stats, gz, git, usage: session.usage, privacy };
+    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork };
 }
 
 async function preview(id) {
     if (SPACE && !/^[a-z0-9-]{1,40}$/.test(SPACE)) throw new Failure(`"${SPACE}" is not a team address. Use the part after /t/ in the team's link.`);
     const out = prepared(id);
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
-    const { session, slim, stats, gz, git, usage, privacy } = await prepare(id);
+    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork } = await prepare(id);
 
     const goesTo = await destination(git);
 
     writeFileSync(out.file, gz);
     // Findings by number and hash, for --keep; the values stay in memory only.
     const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
-    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, space: SPACE, usage, privacy: privacySummary(privacy), findings }));
+    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork }));
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
     console.log(`  Project:    ${stats.project ?? 'unknown'}`);
+    if (session.folders.length) {
+        console.log(`  Folders:    ${session.folders.map((f) => f.label).join(', ')} added to the session: files there go under the folder's name, never its path. Rename or hide the names in the draft.`);
+    }
     console.log(`  Prompts:    ${stats.prompts}, tool calls: ${stats.toolCalls}`);
     console.log(`  Time span:  ${formatDuration(stats.durationSec)}`);
     console.log(`  Size:       ${formatBytes(session.bytes)} session → ${formatBytes(Buffer.byteLength(slim))} without images and long tool output → ${formatBytes(gz.length)} compressed`);
     if (git) console.log(`  Git:        ${describeGit(git)}`);
+    for (const g of gitFolders) console.log(`  Git (${g.folder}): ${describeGit(g)}`);
     if (session.code.files.size) console.log(`  Code:       ${describeCode(session.code)}`);
     if (usage) console.log(`  Tokens:     ${describeUsage(usage)}`);
+    if (fork) console.log(`  Fork of:    session ${fork.session_id}: the draft and that session's Build link to each other once both are on the site`);
     console.log(`  Goes to:    ${goesTo}`);
     console.log(describePrivacy(privacy));
     if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
@@ -184,11 +194,12 @@ async function preview(id) {
 /**
  * The session slimmed line by line as it is read: Codex rollouts with screenshots run to hundreds of megabytes,
  * more than fits in one string. Null when the file is not JSON lines. Also keeps what slimming drops: where the
- * session ran and, for Codex, HEAD at its start (session_meta).
+ * session ran, for Codex HEAD at its start (session_meta), and the session it was forked from (lib/session.mjs, ForkWatch).
  */
-async function readSession(path) {
+async function readSession(path, id) {
     const lines = [];
     const usage = new UsageCounter();
+    const fork = new ForkWatch(id);
     // Shared by every line: slimming learns the session folder from it, to make changed paths relative (plan, stage 11.1).
     const ctx = {};
     const code = { files: new Set(), additions: 0, deletions: 0, withheld: new Set() };
@@ -213,8 +224,9 @@ async function readSession(path) {
             headStart ??= typeof d.payload?.git?.commit_hash === 'string' ? d.payload.git.commit_hash : null;
         }
         cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
-        // Counted before slimming drops the lines that carry it; only the counts leave the machine.
-        usage.add(d);
+        // Counted before slimming drops the lines that carry it; only the counts leave the machine. A fork's inherited
+        // lines were counted with the original.
+        if (!fork.add(d)) usage.add(d);
         const slim = slimLine(d, ctx);
         if (slim) {
             lines.push(JSON.stringify(slim));
@@ -222,7 +234,8 @@ async function readSession(path) {
         }
     }
 
-    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code };
+    // folders: the ones added to the session, with their paths; only their names leave the machine.
+    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code, fork: fork.result(), folders: addedFolders(ctx) };
 }
 
 /** The files a slimmed line says the agent changed: on a Claude Code tool result, or on a Codex call. */
@@ -230,10 +243,12 @@ function countChanges(slim, code) {
     const blocks = Array.isArray(slim.message?.content) ? slim.message.content : [];
     const changes = [...blocks.map((b) => b?.change).filter(Boolean), ...(Array.isArray(slim.payload?.changes) ? slim.payload.changes : [])];
     for (const c of changes) {
-        code.files.add(c.path);
+        // A file in an added folder goes by that folder's name first: two folders may hold the same path.
+        const path = c.root ? `${c.root}/${c.path}` : c.path;
+        code.files.add(path);
         code.additions += c.additions ?? 0;
         code.deletions += c.deletions ?? 0;
-        if (c.withheld) code.withheld.add(c.path);
+        if (c.withheld) code.withheld.add(path);
     }
 }
 
@@ -272,7 +287,7 @@ async function send(id) {
     // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
     const continues = option('continues');
     // Only a space the person chose; otherwise the site routes by the repository, as the preview said.
-    const form = importForm(id, readFileSync(out.file), { git: meta.git, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy });
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork });
 
     let started;
     try {
@@ -289,6 +304,7 @@ async function send(id) {
     console.log(`${started.reused ? 'Updating the draft of this session' : 'Draft created'}${where}: ${started.edit_url}`);
     if (started.series) console.log(`Linked as the next part of the series "${started.series.title}": ${started.series.url}`);
     else if (continues) console.log(`Could not link it to "${continues}": use the link or slug of one of your own Builds. You can link it in the draft instead.`);
+    if (meta.fork) console.log(started.forked_from?.url ? `A fork of "${started.forked_from.title}": ${started.forked_from.url}. Both Builds link to each other.` : 'A fork of a session that is not on the site yet: the two link to each other once it is sent too.');
 
     let state = started;
     let stage = null;
@@ -425,7 +441,7 @@ function logout() {
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
-function importForm(id, gz, { git = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null } = {}) {
+function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null } = {}) {
     const form = new FormData();
     form.append('agent', AGENT.id);
     form.append('session_id', id);
@@ -434,11 +450,15 @@ function importForm(id, gz, { git = null, usage = null, space = null, continues 
     // 0: a session still going; the site keeps it up to date and asks for moments once it is over.
     if (trigger === 'auto') form.append('final', final ? '1' : '0');
     if (git) form.append('git', JSON.stringify(git));
+    // The same for the repositories of folders added to the session, each with the folder's name.
+    if (gitFolders?.length) form.append('git_folders', JSON.stringify(gitFolders));
     if (usage) form.append('usage', JSON.stringify(usage));
     // What the check here redacted, by type, and hashes of the values kept on purpose: never a value.
     if (privacy) form.append('privacy', JSON.stringify(privacy));
     if (space) form.append('space', space);
     if (continues) form.append('continues', continues);
+    // The session this one was forked from and when: the site links the two Builds both ways.
+    if (fork) form.append('fork', JSON.stringify(fork));
     form.append('file', new Blob([gz], { type: 'application/gzip' }), `${id}.jsonl.gz`);
 
     return form;
@@ -535,7 +555,7 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
         space = asking[0].slug;
     }
 
-    const form = () => importForm(id, session.gz, { git: session.git, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy) });
+    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork });
     // A sync still being imported holds the draft for a moment; the end of the session waits for it rather than get lost.
     for (let attempt = 1; ; attempt++) {
         try {

@@ -86,25 +86,58 @@ export function withheldReason(path) {
         return 'generated';
     return null;
 }
-/** The path inside the session's folder; a file elsewhere keeps only its last two parts, since the rest names the person. */
-function changedPath(file, cwd) {
-    const norm = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+const norm = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+const within = (path, dir) => path.toLowerCase().startsWith(`${dir.toLowerCase()}/`);
+const lastParts = (path, n) => path.split('/').filter(Boolean).slice(-n).join('/');
+/** A drive, the file system's root or a home folder: its name says nothing, or names the person. */
+const bare = (dir) => /^([a-z]:)?(\/(users|home)\/[^/]+)?$/i.test(dir) || dir === '/root';
+/**
+ * The folders added to a session besides the one it started in (Claude Code's /add-dir, Codex's workspace roots), each
+ * with the name it is shown by: its own, numbered when an earlier one has it (the parent's name could be the person's).
+ * Not a folder around the session's own or inside it, the agents' own (Codex keeps its canvases under ~/.codex), a
+ * home folder or a drive: files there count as the session's own or as outside, like before.
+ */
+export function addedFolders(ctx) {
+    const main = ctx.cwd ? norm(ctx.cwd) : '';
+    const used = [main && !bare(main) ? lastParts(main, 1).toLowerCase() : ''];
+    return (ctx.roots ?? [])
+        .map(norm)
+        .filter((dir) => !bare(dir) && !/(^|\/)\.(claude|codex)(\/|$)/i.test(dir))
+        .filter((dir) => !main || (dir.toLowerCase() !== main.toLowerCase() && !within(main, dir) && !within(dir, main)))
+        .map((dir) => {
+        const name = lastParts(dir, 1);
+        let label = name;
+        for (let n = 2; used.includes(label.toLowerCase()); n++)
+            label = `${name} ${n}`;
+        used.push(label.toLowerCase());
+        return { dir, label };
+    });
+}
+/**
+ * The path inside the session's folder, or inside the added folder that holds it (the deepest one); a file elsewhere
+ * keeps only its last two parts, since the rest names the person.
+ */
+function changedPath(file, ctx) {
     const path = norm(file);
-    if (cwd) {
-        const base = norm(cwd);
-        if (base && path.toLowerCase().startsWith(`${base.toLowerCase()}/`))
-            return { path: path.slice(base.length + 1) };
-    }
+    const base = ctx.cwd ? norm(ctx.cwd) : '';
+    if (base && within(path, base))
+        return { path: path.slice(base.length + 1) };
+    const folder = addedFolders(ctx)
+        .filter((f) => within(path, f.dir))
+        .sort((a, b) => b.dir.length - a.dir.length)[0];
+    if (folder)
+        return { path: path.slice(folder.dir.length + 1), root: folder.label };
     if (!/^([a-z]:)?\//i.test(path))
         return { path: path.replace(/^\.\//, '') };
-    return { path: `…/${path.split('/').filter(Boolean).slice(-2).join('/')}`, outside: true };
+    return { path: `…/${lastParts(path, 2)}`, outside: true };
 }
 function fileChange(file, op, lines, ctx, from) {
-    const where = changedPath(file, ctx.cwd);
+    const where = changedPath(file, ctx);
     const body = (l) => !l.startsWith('@@');
     const change = {
         path: where.path,
-        ...(from ? { from: changedPath(from, ctx.cwd).path } : {}),
+        ...(where.root ? { root: where.root } : {}),
+        ...(from ? { from: changedPath(from, ctx).path } : {}),
         op,
         additions: lines.filter((l) => body(l) && l.startsWith('+')).length,
         deletions: lines.filter((l) => body(l) && l.startsWith('-')).length,
@@ -283,8 +316,9 @@ function slimCodexLine(type, timestamp, payload, ctx = {}) {
             p.exit_code = code;
         p.output = cut(Array.isArray(p.output) ? blockText(p.output) : p.output);
     }
-    if (p.type === 'function_call' || p.type === 'custom_tool_call') {
-        // Taken before the input is cut: a patch is usually longer than 40 lines.
+    // Taken before the input is cut: a patch is usually longer than 40 lines. A line slimmed before (the plugin's, which
+    // the server slims again) has them already, and its input is cut.
+    if ((p.type === 'function_call' || p.type === 'custom_tool_call') && !Array.isArray(p.changes)) {
         const changes = codexChanges(p, ctx);
         if (changes.length)
             p.changes = changes;
@@ -306,8 +340,14 @@ function slimBlock(block) {
         case 'redacted_thinking':
             return null;
         case 'tool_result':
-            // is_error marks a failed tool call: the server offers it to the labeller as a possible Fail.
-            return { type: 'tool_result', content: cut(blockText(b.content)), ...(b.is_error === true ? { is_error: true } : {}) };
+            // is_error marks a failed tool call: the server offers it to the labeller as a possible Fail. A result slimmed
+            // before (the plugin's, which the server slims again) keeps the change it carries.
+            return {
+                type: 'tool_result',
+                content: cut(blockText(b.content)),
+                ...(b.is_error === true ? { is_error: true } : {}),
+                ...(b.change && typeof b.change === 'object' ? { change: b.change } : {}),
+            };
         case 'tool_use': {
             // An edit of a key or env file carries the old and new values in its input: only the path goes.
             const input = b.input;
@@ -321,16 +361,42 @@ function slimBlock(block) {
     }
 }
 /**
+ * Learns the session's folders from the lines that carry them: the one it started in (Claude Code's environment and
+ * every line of it, Codex's session_meta and turn_context), and the ones added to it (the environment's
+ * additionalWorkingDirectories, Codex's workspace_roots). When the added ones change, the bookkeeping line that said so
+ * becomes a folders line with their names and the session's own folder's: never a path.
+ */
+function learnFolders(d, type, payload, ctx) {
+    const attachment = type === 'attachment' ? d.attachment : undefined;
+    const env = attachment?.type === 'environment' ? attachment.snapshot : undefined;
+    const started = [env?.workingDirectory, d.cwd, type === 'session_meta' || type === 'turn_context' ? payload?.cwd : null].find((c) => typeof c === 'string' && c !== '');
+    if (typeof started === 'string')
+        ctx.cwd ??= started;
+    const added = env ? env.additionalWorkingDirectories : type === 'turn_context' ? payload?.workspace_roots : undefined;
+    if (!Array.isArray(added))
+        return null;
+    const roots = (ctx.roots ??= []);
+    for (const dir of added) {
+        if (typeof dir === 'string' && dir !== '' && !roots.some((r) => norm(r).toLowerCase() === norm(dir).toLowerCase()))
+            roots.push(dir);
+    }
+    const labels = addedFolders(ctx).map((f) => f.label);
+    if (!labels.length || labels.join('\n') === ctx.announced)
+        return null;
+    ctx.announced = labels.join('\n');
+    const main = ctx.cwd ? norm(ctx.cwd) : '';
+    return { type: 'folders', ...('timestamp' in d ? { timestamp: d.timestamp } : {}), main: main && !bare(main) ? lastParts(main, 1) : null, added: labels };
+}
+/**
  * One session line, slimmed; null when nothing in it is kept. The plugin streams big files through this, passing the
- * same ctx for every line of a session: it learns the session's folder from the lines that carry it.
+ * same ctx for every line of a session: it learns the session's folders from the lines that carry them.
  */
 export function slimLine(d, ctx = {}) {
     const type = d.type;
     const payload = d.payload && typeof d.payload === 'object' && !Array.isArray(d.payload) ? d.payload : null;
-    if (typeof d.cwd === 'string' && d.cwd)
-        ctx.cwd = d.cwd;
-    if (payload && (type === 'session_meta' || type === 'turn_context') && typeof payload.cwd === 'string' && payload.cwd)
-        ctx.cwd = payload.cwd;
+    const folders = learnFolders(d, type, payload, ctx);
+    if (folders)
+        return folders;
     if (type && DROP_TYPES.has(type))
         return null;
     // Codex rollout: {timestamp, type: 'response_item', payload: {...}}

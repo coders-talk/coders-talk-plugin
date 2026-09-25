@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { cutOwnCommand, findRollout, findTranscript, summarize } from '../scripts/lib/session.mjs';
+import { ForkWatch, cutOwnCommand, findRollout, findTranscript, summarize } from '../scripts/lib/session.mjs';
 
 const line = (d) => JSON.stringify(d);
 const prompt = (text, s) => line({ type: 'user', cwd: '/home/you/code/shop', message: { role: 'user', content: text }, timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:00Z` });
@@ -103,4 +103,43 @@ test('the Codex rollout is found by thread id, a reverted one too', () => {
     writeFileSync(reverted, said('y', 0));
     utimesSync(reverted, new Date(), new Date(Date.now() + 1000));
     assert.equal(findRollout(id, home), reverted);
+});
+
+test('a fork names the session it came from and where it left it', () => {
+    const parent = 'be07beba-08a9-4093-8e7e-5c6ffaeec829';
+    const grandparent = '998683c8-5b0c-4478-a503-a7b2440a016f';
+    const fork = 'efe74b91-d624-41d8-902f-494e98e34bfc';
+    const watch = (id, lines) => {
+        const w = new ForkWatch(id);
+        lines.forEach((d) => w.add(d));
+
+        return w.result();
+    };
+
+    // Claude Code: the parent's lines keep its sessionId, the fork's own lines carry the fork's.
+    const claude = [
+        { type: 'user', sessionId: grandparent, timestamp: '2026-09-23T19:00:00.000Z' },
+        { type: 'queue-operation', sessionId: parent, timestamp: '2026-09-23T19:43:26.934Z' },
+        { type: 'file-history-snapshot' },
+        { type: 'assistant', sessionId: parent, timestamp: '2026-09-23T20:02:05.062Z' },
+        { type: 'cost-state', sessionId: parent },
+        { type: 'custom-title', sessionId: fork },
+        { type: 'user', sessionId: parent, timestamp: '2026-09-25T12:00:00.000Z' },
+        { type: 'user', sessionId: fork, timestamp: '2026-09-25T12:29:38.511Z' },
+    ];
+    assert.deepEqual(watch(fork, claude), { session_id: parent, at: '2026-09-23T20:02:05.062Z' });
+    const w = new ForkWatch(fork);
+    assert.deepEqual(claude.map((d) => w.add(d)), [true, true, false, true, true, false, false, false], 'only the lines before the fork are inherited');
+    assert.equal(watch(parent, claude.slice(1, 5)), null, 'the parent itself is no fork');
+    assert.equal(watch(fork, [{ type: 'user', sessionId: fork }, { type: 'user', sessionId: parent }]), null);
+    assert.equal(watch(fork, [{ type: 'user', message: {} }]), null, 'lines without ids say nothing');
+
+    // Codex: the first session_meta names the parent.
+    const meta = (payload) => ({ timestamp: '2026-09-24T04:51:22.900Z', type: 'session_meta', payload: { id: fork, ...payload } });
+    assert.deepEqual(watch(fork, [meta({ forked_from_id: parent })]), { session_id: parent, at: '2026-09-24T04:51:22.900Z' });
+    assert.deepEqual(watch(fork, [meta({ history_base: { thread_id: parent, end_ordinal_exclusive: 108 } })]), { session_id: parent, at: '2026-09-24T04:51:22.900Z' });
+    // A rollout that carries on its own thread's history, and a subagent's, are not forks.
+    assert.equal(watch(fork, [meta({ history_base: { thread_id: fork, end_ordinal_exclusive: 108 } })]), null);
+    assert.equal(watch(fork, [meta({ parent_thread_id: parent, source: { subagent: { other: 'guardian' } } })]), null);
+    assert.equal(watch(fork, [meta({}), { type: 'session_meta', payload: { id: parent, forked_from_id: grandparent } }]), null, 'only the first session_meta is this session');
 });

@@ -10,7 +10,7 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
-import { BINARY, coders, hookCommand, makeRepo } from './helpers.mjs';
+import { BINARY, coders, hookCommand, makeRepo, waitFor } from './helpers.mjs';
 
 const run = promisify(execFile);
 const script = fileURLToPath(new URL('../scripts/coders-talk.mjs', import.meta.url));
@@ -401,7 +401,7 @@ test('the SessionEnd hook hands the session to auto-send only when auto mode is 
     await cli(['auto', 'on']);
     await fire();
     // The upload runs after the hook returned; wait for its line in the log.
-    for (let i = 0; i < 50 && lines() === before; i++) await new Promise((r) => setTimeout(r, 200));
+    await waitFor(() => lines() !== before);
     assert.equal(lines(), before + 1);
     await cli(['auto', 'off']);
 });
@@ -414,7 +414,7 @@ const autoLog = () => (existsSync(join(home, 'ct', 'auto.log')) ? readFileSync(j
 const sessionsState = () => JSON.parse(readFileSync(join(home, 'ct', 'auto-sessions.json'), 'utf8'))[env.CODERS_TALK_URL] ?? {};
 /** Waits for the background upload the hook started, by its line in the log. */
 async function logged(pattern) {
-    for (let i = 0; i < 50 && !pattern.test(autoLog()); i++) await new Promise((r) => setTimeout(r, 200));
+    await waitFor(() => pattern.test(autoLog()));
     assert.match(autoLog(), pattern);
 }
 /** Pretends auto mode saw the session a while ago, as the hooks would have written it. */

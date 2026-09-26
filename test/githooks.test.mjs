@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { hookBlock, hooksOf, installedHooks, installHooks, removeHooks, sessionsBehindCommit } from '../scripts/lib/githooks.mjs';
 import { takeSnapshot } from '../scripts/lib/snapshots.mjs';
-import { coders, makeRepo } from './helpers.mjs';
+import { coders, makeRepo, waitFor } from './helpers.mjs';
 
 const run = promisify(execFile);
 const TOKEN = 'ct_' + 'g'.repeat(48);
@@ -57,6 +57,7 @@ after(() => server.close());
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const gitErr = (cwd, ...args) => run('git', args, { cwd, env }).then(({ stderr }) => stderr);
 const message = (cwd) => git(cwd, 'log', '-1', '--format=%B');
+const autoLog = () => (existsSync(join(home, 'ct', 'auto.log')) ? readFileSync(join(home, 'ct', 'auto.log'), 'utf8') : '');
 
 /** A repository whose session $id changed app.txt, as the snapshots of its answers saw it. */
 function repoWithSession(id) {
@@ -141,12 +142,13 @@ test('a push finds the sessions behind it: a line without auto mode, a send in p
     git(repo.dir, 'commit', '-q', '-am', 'Tests for the limiter');
     const quiet = await gitErr(repo.dir, 'push', 'origin', 'main');
     assert.doesNotMatch(quiet, /Coders Talk/);
-    for (let i = 0; i < 100 && !imports.length; i++) await new Promise((r) => setTimeout(r, 100));
+    await waitFor(() => imports.length > 0);
     assert.equal(imports.length, 1);
     assert.match(imports[0], new RegExp(`name="session_id"\\r\\n\\r\\n${id}`));
     assert.match(imports[0], /name="trigger"\r\n\r\nauto/);
-    for (let i = 0; i < 50 && !readFileSync(join(home, 'ct', 'auto.log'), 'utf8').includes('at a push'); i++) await new Promise((r) => setTimeout(r, 100));
-    assert.match(readFileSync(join(home, 'ct', 'auto.log'), 'utf8'), /sent to your private Builds at a push/);
+    // The log line comes after the site answered, so the upload can be here before the log file is.
+    await waitFor(() => autoLog().includes('at a push'));
+    assert.match(autoLog(), /sent to your private Builds at a push/);
 
     // In push mode the agent's own hooks send nothing.
     const stop = await new Promise((resolve) => {

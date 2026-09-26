@@ -23,8 +23,8 @@ jobs:
           - { target: darwin-arm64, os: macos-latest }
           - { target: windows-x64, os: windows-latest }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2
@@ -54,7 +54,7 @@ jobs:
       contents: write
     steps:
       # For the tag's message: what changed goes in its body, under the "coders-talk X.Y.Z" line.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: dist

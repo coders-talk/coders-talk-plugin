@@ -22,6 +22,15 @@ export function hookCommand(name, args = []) {
     return [BINARY, ['hook', args.includes('--agent=codex') ? 'codex' : 'claude-code', name]];
 }
 
+/**
+ * Waits until check() is true, for something a hook left running in the background: an upload, a line in a log.
+ * A deadline, not a number of tries: a loaded CI runner is slow, and its slowness is not a failure.
+ */
+export async function waitFor(check, ms = 30_000) {
+    const until = Date.now() + ms;
+    while (!check() && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+}
+
 /** A throwaway repository with commits at fixed dates; returns the hashes in order. */
 export function makeRepo(remote = 'git@github.com:mara/shop.git') {
     const dir = mkdtempSync(join(tmpdir(), 'ct-repo-'));

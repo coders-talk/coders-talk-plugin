@@ -53,6 +53,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      # For the tag's message: what changed goes in its body, under the "coders-talk X.Y.Z" line.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -65,5 +67,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#coders-talk--v}"
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "coders-talk $version" \
-            --notes "Install: \`curl -fsSL https://coders.talk/install.sh | sh\` (Windows: \`irm https://coders.talk/install.ps1 | iex\`), or \`coders-talk update\`."
+          # checkout leaves an annotated tag as a plain ref to the commit: fetch the tag itself for its message.
+          git fetch --force --depth=1 origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          {
+            git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents:body)'
+            echo
+            echo '### Install'
+            echo
+            echo '```'
+            echo 'curl -fsSL https://coders.talk/install.sh | sh     # macOS, Linux'
+            echo 'irm https://coders.talk/install.ps1 | iex          # Windows, in PowerShell'
+            echo '```'
+            echo
+            echo 'Then `coders-talk login` and `coders-talk enable`. Already installed: `coders-talk update`. From inside the agent: https://coders.talk/plugins#from-the-agent'
+          } > notes.md
+          cat notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "coders-talk $version" --notes-file notes.md

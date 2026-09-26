@@ -17,6 +17,6 @@ if (!existsSync(file)) {
     process.exit(1);
 }
 
-const tests = ['cli', 'codex-auto', 'enable', 'git', 'library', 'update'].map((name) => join(root, 'test', `${name}.test.mjs`));
+const tests = ['cli', 'codex-auto', 'enable', 'git', 'library', 'terminal', 'update'].map((name) => join(root, 'test', `${name}.test.mjs`));
 const result = spawnSync(process.execPath, ['--test', ...tests], { stdio: 'inherit', env: { ...process.env, CODERS_TALK_BIN: file } });
 process.exit(result.status ?? 1);

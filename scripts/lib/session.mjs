@@ -148,7 +148,7 @@ export function summarize(text, cwd = null) {
 const CODEX_CALLS = new Set(['function_call', 'custom_tool_call', 'local_shell_call']);
 
 /** Typed by the person in Codex: some text that is not one of the blocks Codex adds (<environment_context>, <skill>, <image …>). */
-function isCodexPrompt(content) {
+export function isCodexPrompt(content) {
     return Array.isArray(content) && content.some((b) => typeof b?.text === 'string' && b.text.trim() !== '' && b.text.trim() !== '[image]' && !b.text.trimStart().startsWith('<'));
 }
 
@@ -156,7 +156,7 @@ function isCodexPrompt(content) {
 const WRAPPER = /^<(?:command-(?:name|message|args)|local-command-[a-z]+|task-notification|system-reminder|bash-(?:stdout|stderr))>/;
 
 /** Typed by the person: not a tool result, not a wrapper Claude Code added, not an interruption notice. */
-function isPrompt(content) {
+export function isPrompt(content) {
     const text = typeof content === 'string' ? content : Array.isArray(content) && !content.some((b) => b?.type === 'tool_result') ? content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : '';
     const trimmed = text.trim();
 

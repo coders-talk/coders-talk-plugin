@@ -26,6 +26,8 @@ Then `coders-talk enable` connects Claude Code and Codex to it. It says what it 
 
 `coders-talk enable --yes` goes ahead without asking, with `--agent=claude-code,codex`, `--auto=off|on|team` and `--mcp=remove|keep` for the answers. `coders-talk status` shows the file, the sign-in, each agent's Coders Talk plugins and auto mode. `coders-talk disable` uninstalls the plugin and its marketplace from both agents; the sign-in, your settings and the file stay. `coders-talk update` lays the plugin out again in the new version and updates it in the agents, so the plugin's version is always the file's.
 
+To send a session without going back into it, run `coders-talk sessions` in the folder it ran in: it lists that folder's Claude Code and Codex sessions (also those run at the top of its repository), newest first, with how many prompts each has, the start of the first one and whether it was sent already. `coders-talk build 2` then shows the same summary and privacy check as `/coders-talk:build`, asks `[y/N]` and sends; `coders-talk build` alone takes the newest session, and a session id works too. It takes the same options (`--private`, `--team=<slug>`, `--keep=<numbers>`, `--continues=<link>`). It runs only in a terminal: neither an agent nor a script can answer its question, and there is no `--yes`. From a script, `coders-talk preview <id>` and `coders-talk send <id>` (with `--agent=codex` for Codex) do the two steps.
+
 A Coders Talk connector your organisation added in claude.ai is not visible on your computer, so `enable` cannot find it. If the agent then lists the library's tools twice, turn one of the two servers off in `/mcp`.
 
 ### From the agent

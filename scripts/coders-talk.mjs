@@ -27,6 +27,10 @@
  *   node coders-talk.mjs hook <agent> <event>   the plugin's hooks in one command (lib/hooks.mjs): claude-code or codex,
  *                                                 session-start, prompt, stop or session-end
  *   coders-talk update [version]                the single file only: replaces itself with the latest release (lib/update.mjs)
+ *   coders-talk sessions [--limit=N]            the Claude Code and Codex sessions of this folder, newest first (lib/sessions.mjs)
+ *   coders-talk build [number|session-id]       in a terminal: preview, a yes or no, send. The number is one from
+ *                                                 `sessions`; without one, the newest session. Takes preview's and
+ *                                                 send's options. Not without a terminal: nothing may skip the question
  *   coders-talk enable | disable | status       connects Claude Code and Codex to this coders-talk through their plugin
  *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
  *     --yes  --agent=claude-code,codex  --auto=off|on|team  --mcp=remove|keep
@@ -41,11 +45,12 @@
  * The token never passes through the model: the browser sign-in hands it straight to this script.
  * As a script it needs Node.js 20 or newer and nothing else.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { createInterface as createPrompt } from 'node:readline/promises';
 import { gzipSync } from 'node:zlib';
 import { AUTO_MODES, autoMode, catchUp, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
@@ -63,7 +68,8 @@ import { PRIVACY_LABELS } from './lib/privacy.mjs';
 import { keep, privacyScan, privacySummary, sha256 } from './lib/privacy-settings.mjs';
 import { agentTimes, gitChangeLines, withGitLines } from './lib/snapshots.mjs';
 import { addedFolders, slimLine } from './lib/slim.mjs';
-import { BINARY_VERSION, version } from './lib/runtime.mjs';
+import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
+import { describeSession, folderSessions, markSent, sentAt } from './lib/sessions.mjs';
 import { removeLeftover, update, updateNotice } from './lib/update.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
@@ -127,12 +133,14 @@ try {
     else if (command === 'nudge') nudge(argId);
     else if (command === 'version' || args.includes('--version')) console.log(`coders-talk ${VERSION}`);
     else if (command === 'update') await update(argId, { check: args.includes('--check') });
+    else if (command === 'sessions') await sessions();
+    else if (command === 'build') await build(argId);
     else if (command === 'enable') await enable({ site, version: VERSION, interactive: TERMINAL, flags: setupFlags() });
     else if (command === 'disable') await disable({ interactive: TERMINAL, flags: setupFlags() });
     else if (command === 'status') status({ site, version: VERSION });
     // What `update` runs with the new file: the plugin laid out again, in the new version.
     else if (command === 'refresh-plugin') refresh({ site, version: VERSION });
-    else throw new Failure('Usage: coders-talk login | enable | disable | status | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
+    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
     // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
     if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
@@ -209,7 +217,8 @@ async function preview(id) {
     if (SPACE && !/^[a-z0-9-]{1,40}$/.test(SPACE)) throw new Failure(`"${SPACE}" is not a team address. Use the part after /t/ in the team's link.`);
     const out = prepared(id);
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
-    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library } = await prepare(id);
+    // --whole: `build` from a terminal, where the session holds no run of the command to cut off (only earlier ones).
+    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library } = await prepare(id, !args.includes('--whole'));
 
     const goesTo = await destination(git);
 
@@ -348,6 +357,7 @@ async function send(id) {
         throw uploadByHand(out.file, e);
     }
     rmSync(out.file, { force: true });
+    markSent(site, id, started.edit_url);
     rmSync(out.meta, { force: true });
 
     const team = started.space?.type === 'team' ? started.space : null;
@@ -500,6 +510,82 @@ function logout() {
     console.log(forgot
         ? `Signed out of ${site} on this computer. The token still exists on the site: remove it under Settings → Agent plugins.`
         : `This computer was not signed in to ${site}.`);
+}
+
+/** `coders-talk sessions`: this folder's sessions, numbered for `coders-talk build <number>`. */
+async function sessions() {
+    const list = await folderList(Number(option('limit')) || 10);
+    if (!list.length) return console.log(`No Claude Code or Codex sessions with prompts in ${process.cwd()}.`);
+
+    console.log(`Sessions in ${process.cwd()}, newest first:`);
+    console.log(`  #   ${'Last active'.padEnd(17)} ${'Agent'.padEnd(12)} Prompts  Sent  First prompt`);
+    list.forEach((s, i) => {
+        const first = s.firstPrompt.length > 60 ? `${s.firstPrompt.slice(0, 59)}…` : s.firstPrompt;
+        console.log(`  ${String(i + 1).padEnd(3)} ${when(s.mtimeMs).padEnd(17)} ${(s.agent === 'codex' ? 'Codex' : 'Claude Code').padEnd(12)} ${String(s.prompts).padEnd(8)} ${(s.sent ? 'yes' : '-').padEnd(5)} ${first}`);
+    });
+    console.log('Send one: coders-talk build <#>');
+}
+
+/** The sessions with prompts, described; $limit of them. */
+async function folderList(limit) {
+    const described = [];
+    for (const s of folderSessions(process.cwd())) {
+        if (described.length >= limit) break;
+        const about = await describeSession(s);
+        if (about.prompts) described.push({ ...s, ...about, sent: sentAt(site, s.id) });
+    }
+
+    return described;
+}
+
+/** "today 08:12", "yesterday 17:40", "2026-09-20 11:05", in local time. */
+function when(ms) {
+    const at = new Date(ms);
+    const pad = (n) => String(n).padStart(2, '0');
+    const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+    const day = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (day(at) === day(new Date())) return `today ${time}`;
+    if (day(at) === day(new Date(Date.now() - 86_400_000))) return `yesterday ${time}`;
+
+    return `${day(at)} ${time}`;
+}
+
+/**
+ * `coders-talk build [number|id]` in a terminal: the same preview and send the agent runs, as this same program, with
+ * the person's yes in between. The session is whole: a terminal run is not part of it.
+ */
+async function build(which) {
+    if (!TERMINAL) {
+        throw new Failure('coders-talk build asks before it sends, so it runs only in a terminal. From a script: coders-talk preview <session-id> [--agent=codex], then coders-talk send <session-id> [--agent=codex].');
+    }
+
+    let chosen;
+    if (!which || /^\d{1,3}$/.test(which)) {
+        const list = await folderList(Math.max(10, Number(which) || 1));
+        chosen = list[(Number(which) || 1) - 1];
+        if (!chosen) throw new Failure(list.length ? `There is no session #${which} here: coders-talk sessions lists them.` : `No Claude Code or Codex sessions with prompts in ${process.cwd()}. Run it in the folder the session ran in, or give its id.`);
+        console.log(`Session #${Number(which) || 1}: ${chosen.agent === 'codex' ? 'Codex' : 'Claude Code'}, ${when(chosen.mtimeMs)}, "${chosen.firstPrompt.slice(0, 60)}"`);
+    } else if (findTranscript(which)) chosen = { agent: 'claude-code', id: which };
+    else if (findRollout(which)) chosen = { agent: 'codex', id: which };
+    else throw new Failure(`No Claude Code or Codex session ${which} on this computer.`);
+
+    const agentArgs = chosen.agent === 'codex' ? ['--agent=codex'] : [];
+    const pass = (names) => args.filter((a) => names.some((n) => a === `--${n}` || a.startsWith(`--${n}=`)));
+    const self = (more) => {
+        const [program, programArgs] = selfCommand(more);
+        return spawnSync(program, programArgs, { stdio: 'inherit' }).status ?? 1;
+    };
+
+    const previewed = self(['preview', chosen.id, '--whole', ...agentArgs, ...pass(['private', 'team', 'keep', 'site'])]);
+    if (previewed !== 0) process.exit(previewed);
+
+    const prompt = createPrompt({ input: process.stdin, output: process.stdout });
+    const answer = (await prompt.question(`Send this session to ${site}? [y/N] `)).trim().toLowerCase();
+    prompt.close();
+    if (!['y', 'yes'].includes(answer)) return console.log('Nothing was sent. The prepared file is deleted within 30 minutes.');
+
+    const sent = self(['send', chosen.id, ...agentArgs, ...pass(['continues', 'site'])]);
+    if (sent !== 0) process.exit(sent);
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
@@ -687,7 +773,7 @@ function describePrivacy(privacy) {
         lines.push(`  #${f.n} ${PRIVACY_LABELS[f.type] ?? f.type} (${f.preview})${where}: ${f.kept ? 'sent as it is, as you chose' : `goes as [REDACTED:${f.type}]`}`);
     }
     if (privacy.paths) lines.push(`  ${privacy.paths} path${privacy.paths === 1 ? '' : 's'} with your user name: ~ instead`);
-    if (findings.some((f) => !f.kept)) lines.push(`To send one as it is, run the preview again with --keep=<numbers>. The values found never reach ${site}.`);
+    if (findings.some((f) => !f.kept)) lines.push(`To send one as it is, run ${TERMINAL ? 'the same command' : 'the preview'} again with --keep=<numbers>. The values found never reach ${site}.`);
     lines.push(`Words to hide in every session (client names, internal services) go in ${join(credentialsHome(), 'privacy.json')} as {"redact": [...]}.`);
 
     return lines.join('\n');

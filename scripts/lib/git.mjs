@@ -19,6 +19,11 @@ export function currentHead(cwd) {
     return cwd ? git(cwd, ['rev-parse', 'HEAD']) : null;
 }
 
+/** The top folder of the repository $cwd is in, or null. */
+export function repositoryRoot(cwd) {
+    return cwd ? git(cwd, ['rev-parse', '--show-toplevel']) : null;
+}
+
 /**
  * https://github.com/{owner}/{repo} for any GitHub form of the origin address (https, ssh, scp-like, with or without
  * .git or credentials); null for every other host, which the site does not link to.

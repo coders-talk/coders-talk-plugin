@@ -22,7 +22,14 @@ export function version() {
     return JSON.parse(readFileSync(join(root, manifest), 'utf8')).version;
 }
 
-/** The program and arguments that run `coders-talk <args>`: the file itself, or Node with the script. */
+/** What runs coders-talk, by absolute path: the file itself, or Node and the script. */
+export function selfProgram() {
+    return BINARY_VERSION ? [process.execPath] : [process.execPath, join(SCRIPTS, 'coders-talk.mjs')];
+}
+
+/** The program and arguments that run `coders-talk <args>`. */
 export function selfCommand(args) {
-    return BINARY_VERSION ? [process.execPath, args] : [process.execPath, [join(SCRIPTS, 'coders-talk.mjs'), ...args]];
+    const [program, ...fixed] = selfProgram();
+
+    return [program, [...fixed, ...args]];
 }

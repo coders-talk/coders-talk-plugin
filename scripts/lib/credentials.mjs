@@ -35,6 +35,11 @@ export function savedToken(site, dir = home()) {
     return read(credentialsFile(dir))[site]?.token ?? null;
 }
 
+/** The account the saved sign-in belongs to, as the site named it then, or null. */
+export function savedUsername(site, dir = home()) {
+    return read(credentialsFile(dir))[site]?.username ?? null;
+}
+
 export function saveToken(site, token, username, dir = home()) {
     const all = read(credentialsFile(dir));
     all[site] = { token, username, saved_at: new Date().toISOString() };

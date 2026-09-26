@@ -27,6 +27,9 @@
  *   node coders-talk.mjs hook <agent> <event>   the plugin's hooks in one command (lib/hooks.mjs): claude-code or codex,
  *                                                 session-start, prompt, stop or session-end
  *   coders-talk update [version]                the single file only: replaces itself with the latest release (lib/update.mjs)
+ *   coders-talk enable | disable | status       connects Claude Code and Codex to this coders-talk through their plugin
+ *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
+ *     --yes  --agent=claude-code,codex  --auto=off|on|team  --mcp=remove|keep
  *   coders-talk version
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
@@ -49,6 +52,7 @@ import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { Failure } from './lib/failure.mjs';
 import { folderGitContexts, gitContext } from './lib/git.mjs';
+import { disable, enable, refresh, status } from './lib/enable.mjs';
 import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
@@ -123,12 +127,22 @@ try {
     else if (command === 'nudge') nudge(argId);
     else if (command === 'version' || args.includes('--version')) console.log(`coders-talk ${VERSION}`);
     else if (command === 'update') await update(argId, { check: args.includes('--check') });
-    else throw new Failure('Usage: coders-talk login | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
+    else if (command === 'enable') await enable({ site, version: VERSION, interactive: TERMINAL, flags: setupFlags() });
+    else if (command === 'disable') await disable({ interactive: TERMINAL, flags: setupFlags() });
+    else if (command === 'status') status({ site, version: VERSION });
+    // What `update` runs with the new file: the plugin laid out again, in the new version.
+    else if (command === 'refresh-plugin') refresh({ site, version: VERSION });
+    else throw new Failure('Usage: coders-talk login | enable | disable | status | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
     // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
     if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
     console.error(e instanceof Failure ? e.message : `Unexpected error: ${e?.message ?? e}`);
     process.exit(1);
+}
+
+/** The options of enable and disable. */
+function setupFlags() {
+    return { yes: args.includes('--yes') || args.includes('-y'), agents: option('agent')?.split(',').map((a) => a.trim()).filter(Boolean), auto: option('auto'), mcp: option('mcp') };
 }
 
 function sessionId() {

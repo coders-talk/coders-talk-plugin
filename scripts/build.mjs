@@ -7,7 +7,8 @@
  *   node scripts/build.mjs linux-x64 darwin-arm64 …   those, or "all"
  *
  * Writes dist/coders-talk-<platform>-<arch>[.exe] (the release file names, lib/update.mjs assetName) and, with more
- * than one, dist/SHA256SUMS. The version comes from .claude-plugin/plugin.json.
+ * than one, dist/SHA256SUMS. The version comes from .claude-plugin/plugin.json. The plugin's skills, manifests and hooks go
+ * in as CODERS_TALK_PLUGIN_SOURCES: `coders-talk enable` lays the plugin out from them (lib/plugin.mjs).
  *
  * x64 builds use Bun's baseline runtime, which runs on CPUs without AVX2. A standalone Bun file would read .env and
  * bunfig.toml from the folder it runs in, which is the person's repository here: both are turned off. macOS files must
@@ -18,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readSources } from './lib/plugin.mjs';
 import { assetName } from './lib/update.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -30,6 +32,7 @@ const TARGETS = {
 };
 
 const version = JSON.parse(readFileSync(join(ROOT, '.claude-plugin/plugin.json'), 'utf8')).version;
+const sources = JSON.stringify(readSources(ROOT));
 const here = `${process.platform === 'win32' ? 'windows' : process.platform}-${process.arch}`;
 const asked = process.argv.slice(2);
 const targets = asked.includes('all') ? Object.keys(TARGETS) : asked.length ? asked : [here];
@@ -49,6 +52,7 @@ for (const target of targets) {
         'build', join(ROOT, 'scripts/coders-talk.mjs'),
         '--compile', `--target=${TARGETS[target]}`, `--outfile=${join(out, name)}`,
         `--define=CODERS_TALK_VERSION=${JSON.stringify(version)}`,
+        `--define=CODERS_TALK_PLUGIN_SOURCES=${sources}`,
         '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig',
     ];
     // Bun sets these only when it builds on Windows; they name the file in Task Manager and the file's properties.

@@ -8,6 +8,7 @@
  * background `update --check` found: they never wait for the network, and hooks never look.
  * CODERS_TALK_NO_UPDATE_CHECK=1 turns that off. The plugin installed from an agent's marketplace is updated there.
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -66,6 +67,8 @@ export async function update(requested = null, { check = false, current = BINARY
 
     replaceExecutable(executable, body);
     console.log(`Updated coders-talk ${current} → ${release.version}.`);
+    // The new file lays its own plugin out, so the agents run the version they call (lib/enable.mjs, refresh).
+    spawnSync(executable, ['refresh-plugin'], { stdio: 'inherit', windowsHide: true });
 }
 
 /** The new file next to the running one, then moved over it; on Windows the running one steps aside first. */

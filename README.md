@@ -18,7 +18,15 @@ This installs `coders-talk`, one file with no Node.js needed, into `~/.coders-ta
 
 `coders-talk login` waits in the terminal until you press Connect in the browser; over SSH it prints the link and the code to open elsewhere. `coders-talk update` replaces the file with the latest release after checking its SHA256. A command you type mentions a newer release in one line, at most once a day; it never waits for the network to do so, and hooks never check. `CODERS_TALK_NO_UPDATE_CHECK=1` turns that off.
 
-`coders-talk enable`, which connects Claude Code and Codex to the installed file, is coming in the next release. Until then, install the plugin from the agent as below.
+Then `coders-talk enable` connects Claude Code and Codex to it. It says what it found and what it will do, asks, and then installs the plugin through each agent's own plugin system: it lays the plugin out in `~/.coders-talk/plugin` and adds that folder as the local marketplace `coders-talk-local` (`claude plugin marketplace add`, `claude plugin install coders-talk@coders-talk-local`; `codex plugin marketplace add`, `codex plugin add`). It is the same plugin as the one below, but its hooks and skills call `coders-talk` by its absolute path, so no Node.js is needed and desktop apps find it without your shell's PATH. On the way it:
+
+- replaces the plugin from the GitHub marketplace (`coders-talk@coders-talk`), whose hooks would otherwise run twice;
+- finds a Coders Talk MCP server you added by hand (`claude mcp add`, `mcp_servers` in Codex's `config.toml`) and removes it, or keeps it and installs the plugin without its own server for that agent;
+- asks once about auto mode for every agent it found (off unless you say otherwise). Codex runs the hooks only after you trust them in `/hooks`; `enable` does not do that for you.
+
+`coders-talk enable --yes` goes ahead without asking, with `--agent=claude-code,codex`, `--auto=off|on|team` and `--mcp=remove|keep` for the answers. `coders-talk status` shows the file, the sign-in, each agent's Coders Talk plugins and auto mode. `coders-talk disable` uninstalls the plugin and its marketplace from both agents; the sign-in, your settings and the file stay. `coders-talk update` lays the plugin out again in the new version and updates it in the agents, so the plugin's version is always the file's.
+
+A Coders Talk connector your organisation added in claude.ai is not visible on your computer, so `enable` cannot find it. If the agent then lists the library's tools twice, turn one of the two servers off in `/mcp`.
 
 ### From the agent
 
@@ -146,7 +154,7 @@ npm run build                         # dist/coders-talk-<platform>-<arch>, need
 npm run test:binary                   # the command and hook tests again, on that file
 ```
 
-The single file is the same scripts compiled with `bun build --compile` (`scripts/build.mjs`): `coders-talk.mjs` is its entry, and the hooks run as `coders-talk hook <claude-code|codex> <session-start|prompt|stop|session-end>` (`scripts/lib/hooks.mjs`; the scripts in `hooks/hooks.json` call the same code). `node scripts/build.mjs all` builds every platform: Linux x64 and arm64, macOS x64 and arm64, Windows x64. The file does not read `.env` or `bunfig.toml` from the folder it runs in. A tag `coders-talk--vX.Y.Z` builds, tests and signs the files on each platform and publishes them with `SHA256SUMS` as a release (`.github/workflows/release.yml`).
+The single file is the same scripts compiled with `bun build --compile` (`scripts/build.mjs`): `coders-talk.mjs` is its entry, and the hooks run as `coders-talk hook <claude-code|codex> <session-start|prompt|stop|session-end>` (`scripts/lib/hooks.mjs`; the scripts in `hooks/hooks.json` call the same code). The plugin `enable` lays out is made from this repository's skills and manifests, built into the file (`scripts/lib/plugin.mjs`): Claude Code's hooks in exec form (`command` and `args`, no shell), Codex's hooks and skills for PowerShell on Windows (`& '…'`) and sh elsewhere, the MCP `headersHelper` for `cmd.exe` on Windows. `node scripts/build.mjs all` builds every platform: Linux x64 and arm64, macOS x64 and arm64, Windows x64. The file does not read `.env` or `bunfig.toml` from the folder it runs in. A tag `coders-talk--vX.Y.Z` builds, tests and signs the files on each platform and publishes them with `SHA256SUMS` as a release (`.github/workflows/release.yml`).
 
 `scripts/lib/slim.mjs`, `scripts/lib/usage.mjs` and `test/fixtures/slim` are generated from the site repository (`resources/js/lib/slimSession.ts`, `resources/js/lib/sessionUsage.ts`), so the plugin trims sessions and counts tokens exactly like the site's upload page does. Change them there, then run `npm run plugin:sync` in the site repository.
 

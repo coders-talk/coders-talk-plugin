@@ -19,6 +19,8 @@ const TOKEN = 'ct_' + 'g'.repeat(48);
 const ids = { commit: 'a1b2c3d4-0000-4000-8000-0000000000d1', push: 'a1b2c3d4-0000-4000-8000-0000000000d2' };
 const home = mkdtempSync(join(tmpdir(), 'ct-hooks-'));
 const program = [coders([])[0], ...coders([])[1]];
+// Snapshots slower than their budget turn themselves off; a slow CI runner must not do that here.
+const SLOW_OK = 60_000;
 
 const imports = [];
 const server = createServer((req, res) => {
@@ -60,10 +62,10 @@ const message = (cwd) => git(cwd, 'log', '-1', '--format=%B');
 function repoWithSession(id) {
     const repo = makeRepo();
     const dir = join(home, 'ct', 'snapshots');
-    takeSnapshot({ session_id: id, cwd: repo.dir }, 'start', { dir, now: Date.now() - 60_000 });
-    takeSnapshot({ session_id: id, cwd: repo.dir }, 'prompt', { dir, now: Date.now() - 50_000 });
+    takeSnapshot({ session_id: id, cwd: repo.dir }, 'start', { dir, now: Date.now() - 60_000, budgetMs: SLOW_OK });
+    takeSnapshot({ session_id: id, cwd: repo.dir }, 'prompt', { dir, now: Date.now() - 50_000, budgetMs: SLOW_OK });
     writeFileSync(join(repo.dir, 'app.txt'), 'changed by the agent\n');
-    takeSnapshot({ session_id: id, cwd: repo.dir }, 'stop', { dir, now: Date.now() - 40_000 });
+    takeSnapshot({ session_id: id, cwd: repo.dir }, 'stop', { dir, now: Date.now() - 40_000, budgetMs: SLOW_OK });
 
     return repo;
 }
@@ -135,7 +137,7 @@ test('a push finds the sessions behind it: a line without auto mode, a send in p
     writeFileSync(join(home, 'ct', 'auto.json'), JSON.stringify({ [site]: { mode: 'push' } }));
     writeFileSync(join(repo.dir, 'app.txt'), 'changed again\n');
     // The agent's next answer, then the commit.
-    takeSnapshot({ session_id: id, cwd: repo.dir }, 'stop', { dir: join(home, 'ct', 'snapshots') });
+    takeSnapshot({ session_id: id, cwd: repo.dir }, 'stop', { dir: join(home, 'ct', 'snapshots'), budgetMs: SLOW_OK });
     git(repo.dir, 'commit', '-q', '-am', 'Tests for the limiter');
     const quiet = await gitErr(repo.dir, 'push', 'origin', 'main');
     assert.doesNotMatch(quiet, /Coders Talk/);

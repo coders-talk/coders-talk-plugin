@@ -14,7 +14,7 @@ function setup() {
     const { dir } = makeRepo();
     const store = mkdtempSync(join(tmpdir(), 'ct-snap-'));
     const at = (s) => Date.UTC(2026, 8, 1, 12, 0, s);
-    const snap = (kind, s, id = ID) => takeSnapshot({ session_id: id, cwd: dir }, kind, { dir: store, now: at(s) });
+    const snap = (kind, s, id = ID) => takeSnapshot({ session_id: id, cwd: dir }, kind, { dir: store, now: at(s), budgetMs: 60_000 });
 
     return { dir, store, at, snap };
 }

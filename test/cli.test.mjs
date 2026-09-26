@@ -582,7 +582,7 @@ test('the git snapshots of a session go with it, in place, instead of its own ed
     const repoDir = makeRepo().dir;
     copyFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), join(home, 'projects', 'C--code-shop', `${other}.jsonl`));
     // At the fixture's own times: the prompt at 10:00:00, the answer by 10:05:00.
-    const snap = (kind, at) => takeSnapshot({ session_id: other, cwd: repoDir }, kind, { dir: join(home, 'ct', 'snapshots'), now: Date.parse(at) });
+    const snap = (kind, at) => takeSnapshot({ session_id: other, cwd: repoDir }, kind, { dir: join(home, 'ct', 'snapshots'), now: Date.parse(at), budgetMs: 60_000 });
     snap('start', '2026-09-01T09:59:50Z');
     snap('prompt', '2026-09-01T10:00:00Z');
     writeFileSync(join(repoDir, 'app.txt'), 'rewritten by a formatter\n');

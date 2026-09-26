@@ -77,8 +77,8 @@ export function takeSnapshot(event, kind, { dir = snapshotDir(), now = Date.now(
     if (state.disabled) return null;
 
     const began = Date.now();
-    const root = git(event.cwd, ['rev-parse', '--show-toplevel']);
-    const gitDir = root && git(event.cwd, ['rev-parse', '--absolute-git-dir']);
+    const root = git(event.cwd, ['rev-parse', '--show-toplevel'], { timeout: budgetMs });
+    const gitDir = root && git(event.cwd, ['rev-parse', '--absolute-git-dir'], { timeout: budgetMs });
     // Not a repository, or the session moved into another one: its snapshots would not compare.
     if (!root || !gitDir || (state.root && state.root !== root)) return null;
 
@@ -103,11 +103,11 @@ export function takeSnapshot(event, kind, { dir = snapshotDir(), now = Date.now(
 
     const last = state.snapshots[state.snapshots.length - 1];
     if (!last || last.tree !== tree) {
-        const commit = git(root, ['commit-tree', tree, '-m', `coders-talk snapshot ${id}`, ...(state.commit ? ['-p', state.commit] : [])], { env });
-        if (commit && git(root, ['update-ref', `${REF}${id}`, commit], { env }) !== null) state.commit = commit;
+        const commit = git(root, ['commit-tree', tree, '-m', `coders-talk snapshot ${id}`, ...(state.commit ? ['-p', state.commit] : [])], { env, timeout: budgetMs });
+        if (commit && git(root, ['update-ref', `${REF}${id}`, commit], { env, timeout: budgetMs }) !== null) state.commit = commit;
     }
 
-    const entry = { kind, at: new Date(now).toISOString(), tree, head: git(root, ['rev-parse', '--verify', '-q', 'HEAD']) };
+    const entry = { kind, at: new Date(now).toISOString(), tree, head: git(root, ['rev-parse', '--verify', '-q', 'HEAD'], { timeout: budgetMs }) };
     state.root = root;
     state.snapshots.push(entry);
     if (Date.now() - began > budgetMs) state.disabled = 'slow';

@@ -3,7 +3,7 @@
 // .cmd files, the way npm installs claude.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, test } from 'node:test';
@@ -117,7 +117,8 @@ test('the plugin from GitHub is replaced, and a server added by hand removed or 
     assert.deepEqual(agentState().claude.mcp, []);
     assert.deepEqual(agentState().codex.mcp, []);
     const local = calls().find((c) => c.args.join(' ') === 'mcp remove lib2 --scope local');
-    assert.equal(local.cwd.toLowerCase(), dir.toLowerCase(), 'a local-scope server is removed in its project');
+    // Real paths: a temporary folder can be a symlink (/var -> /private/var on macOS), and the process sees the real one.
+    assert.equal(realpathSync(local.cwd).toLowerCase(), realpathSync(dir).toLowerCase(), 'a local-scope server is removed in its project');
     assert.ok(existsSync(join(plugin(), '.mcp.json')), 'the plugin brings its own now');
 });
 

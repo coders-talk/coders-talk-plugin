@@ -1,6 +1,6 @@
 {
     "name": "coders-talk",
-    "version": "0.11.0",
+    "version": "0.11.1",
     "description": "Send a Claude Code session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site. Your agent can also look up how other developers did a similar task in the Coders Talk library.",
     "author": { "name": "Coders Talk", "url": "https://coders.talk" },
     "homepage": "https://coders.talk/plugins",

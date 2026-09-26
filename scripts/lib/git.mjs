@@ -6,6 +6,8 @@
 import { execFileSync } from 'node:child_process';
 
 export const MAX_SUBJECTS = 20;
+// More hashes than titles: the site matches a team repository's commits to the session by them (coders.talk plan, stage 12.1).
+export const MAX_SHAS = 50;
 
 function git(cwd, args) {
     try {
@@ -98,11 +100,12 @@ export function gitContext(cwd, headStart, startedAt) {
     if (headStart && headStart !== headEnd) {
         const range = `${headStart}..${headEnd}`;
         // Hashes next to the titles: the site links each commit on GitHub (coders.talk plan, stage 12.1).
-        const log = git(cwd, ['log', '--format=%H%x09%s', `--max-count=${MAX_SUBJECTS}`, range]);
+        const log = git(cwd, ['log', '--format=%H%x09%s', `--max-count=${MAX_SHAS}`, range]);
         const entries = log ? log.split('\n').map((l) => l.split('\t')) : [];
         context.commits = {
             count: Number(git(cwd, ['rev-list', '--count', range]) ?? 0),
-            subjects: entries.map(([, ...s]) => s.join('\t').slice(0, 200)),
+            subjects: entries.slice(0, MAX_SUBJECTS).map(([, ...s]) => s.join('\t').slice(0, 200)),
+            // The first ones in the order of the titles.
             shas: entries.map(([sha]) => sha),
         };
         context.shortstat = parseShortstat(git(cwd, ['diff', '--shortstat', headStart, headEnd]));

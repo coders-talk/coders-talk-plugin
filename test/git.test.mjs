@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { folderGitContexts, gitContext, normalizeRemote, parseShortstat } from '../scripts/lib/git.mjs';
+import { folderGitContexts, gitContext, MAX_SHAS, MAX_SUBJECTS, normalizeRemote, parseShortstat } from '../scripts/lib/git.mjs';
 import { readSidecar } from '../scripts/lib/sidecar.mjs';
 import { hookCommand, makeRepo } from './helpers.mjs';
 
@@ -34,6 +34,22 @@ test('the commits made since HEAD at the start of the session', () => {
         commits: { count: 2, subjects: ['Cover the limiter with tests', 'Add a limiter keyed by email'], shas: [hashes[2], hashes[1]] },
         shortstat: { files: 1, insertions: 2, deletions: 0 },
     });
+});
+
+test('a long session sends 20 titles and up to 50 hashes, the first ones in the order of the titles', () => {
+    const { dir, hashes } = makeRepo();
+    for (let i = 1; i <= 30; i++) {
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', `Step ${i}`], { cwd: dir });
+    }
+
+    const { commits } = gitContext(dir, hashes[2], null);
+
+    assert.equal(commits.count, 30);
+    assert.equal(commits.subjects.length, MAX_SUBJECTS);
+    assert.equal(commits.subjects[0], 'Step 30');
+    assert.equal(commits.shas.length, 30);
+    assert.equal(commits.shas[0], execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim());
+    assert.equal(MAX_SHAS, 50);
 });
 
 test('without the hook, HEAD at the start is estimated from the session start time', () => {

@@ -6,6 +6,22 @@ The other way round, the plugin gives your agent the Coders Talk library: before
 
 ## Install
 
+### From a terminal
+
+```
+curl -fsSL https://coders.talk/install.sh | sh        # macOS and Linux
+irm https://coders.talk/install.ps1 | iex              # Windows, in PowerShell
+coders-talk login
+```
+
+This installs `coders-talk`, one file with no Node.js needed, into `~/.coders-talk/bin` and adds that folder to your PATH (the rc file of your shell; on Windows the user PATH). The installer takes the file for your platform from this repository's [releases](https://github.com/coders-talk/coders-talk-plugin/releases) and checks it against the release's `SHA256SUMS`. No sudo or administrator rights. `CODERS_TALK_VERSION=0.11.0` installs that version, `CODERS_TALK_NO_MODIFY_PATH=1` leaves PATH alone.
+
+`coders-talk login` waits in the terminal until you press Connect in the browser; over SSH it prints the link and the code to open elsewhere. `coders-talk update` replaces the file with the latest release after checking its SHA256. A command you type mentions a newer release in one line, at most once a day; it never waits for the network to do so, and hooks never check. `CODERS_TALK_NO_UPDATE_CHECK=1` turns that off.
+
+`coders-talk enable`, which connects Claude Code and Codex to the installed file, is coming in the next release. Until then, install the plugin from the agent as below.
+
+### From the agent
+
 1. In Claude Code:
 
    ```
@@ -17,40 +33,14 @@ The other way round, the plugin gives your agent the Coders Talk library: before
 
 Needs Node.js 20 or newer, nothing else.
 
-### Codex
+#### Codex
 
 ```
 codex plugin marketplace add coders-talk/coders-talk-plugin
 codex plugin add coders-talk@coders-talk
 ```
 
-Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the same commands as below, with `# Coders Talk for Claude Code and Codex
-
-Send the Claude Code or Codex session you are in to [Coders Talk](https://coders.talk) as a draft Build: the prompts, interventions and fails that mattered, with the raw log one layer down. The plugin never publishes. The draft is private: only you see it, or your team when the session ran in one of the team's repositories. You review every moment on the site and publish it there if you want to.
-
-The other way round, the plugin gives your agent the Coders Talk library: before a non-trivial task, or after a few failed attempts, it can look up sessions where other developers did something similar, and what went wrong for them (see [The library in your agent](#the-library-in-your-agent)).
-
-## Install
-
-1. In Claude Code:
-
-   ```
-   /plugin marketplace add coders-talk/coders-talk-plugin
-   /plugin install coders-talk@coders-talk
-   ```
-
-2. Connect it to your account: `/coders-talk:login`. It opens coders.talk in the browser; check that the page shows the same code as Claude Code and press Connect. The plugin receives its token directly from the site and keeps it in `~/.coders-talk/credentials.json`. There is no token to copy, and it never passes through the chat.
-
-Needs Node.js 20 or newer, nothing else.
-
-### Codex
-
-```
-codex plugin marketplace add coders-talk/coders-talk-plugin
-codex plugin add coders-talk@coders-talk
-```
-
- instead of `/`). For the library, also run `codex mcp login coders-talk` once in a terminal. Codex asks to run the plugin's command outside its sandbox: it needs the network to reach coders.talk and your home folder for the sign-in. The session is found through `CODEX_THREAD_ID` in `~/.codex/sessions` (or `CODEX_HOME`), and HEAD at its start comes from the rollout's `session_meta`, so Codex needs no hook for it. Codex runs the plugin's hooks only for auto mode (see Auto mode), and only once you trust them in `/hooks`.
+Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the same commands as below, with `$` instead of `/`). For the library, also run `codex mcp login coders-talk` once in a terminal. Codex asks to run the plugin's command outside its sandbox: it needs the network to reach coders.talk and your home folder for the sign-in. The session is found through `CODEX_THREAD_ID` in `~/.codex/sessions` (or `CODEX_HOME`), and HEAD at its start comes from the rollout's `session_meta`, so Codex needs no hook for it. Codex runs the plugin's hooks only for auto mode (see Auto mode), and only once you trust them in `/hooks`.
 
 One repository serves both agents: Claude Code reads `.claude-plugin/` and `skills/`, Codex reads `.codex-plugin/`, `.agents/plugins/marketplace.json`, `codex/skills/` and `codex/hooks.json` (its manifest points there, so Codex never picks up `hooks/hooks.json`; the same scripts run with `--agent=codex`). Codex does not expand `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SESSION_ID}` in skills, so its skills give the script path relative to the skill file and pass `--agent=codex`.
 
@@ -152,7 +142,11 @@ The script reads the `url` option from Claude Code's own `settings.json` (`plugi
 npm test                              # node --test, no dependencies
 claude plugin validate . --strict
 claude --plugin-dir .                 # try it in a real session
+npm run build                         # dist/coders-talk-<platform>-<arch>, needs Bun
+npm run test:binary                   # the command and hook tests again, on that file
 ```
+
+The single file is the same scripts compiled with `bun build --compile` (`scripts/build.mjs`): `coders-talk.mjs` is its entry, and the hooks run as `coders-talk hook <claude-code|codex> <session-start|prompt|stop|session-end>` (`scripts/lib/hooks.mjs`; the scripts in `hooks/hooks.json` call the same code). `node scripts/build.mjs all` builds every platform: Linux x64 and arm64, macOS x64 and arm64, Windows x64. The file does not read `.env` or `bunfig.toml` from the folder it runs in. A tag `coders-talk--vX.Y.Z` builds, tests and signs the files on each platform and publishes them with `SHA256SUMS` as a release (`.github/workflows/release.yml`).
 
 `scripts/lib/slim.mjs`, `scripts/lib/usage.mjs` and `test/fixtures/slim` are generated from the site repository (`resources/js/lib/slimSession.ts`, `resources/js/lib/sessionUsage.ts`), so the plugin trims sessions and counts tokens exactly like the site's upload page does. Change them there, then run `npm run plugin:sync` in the site repository.
 

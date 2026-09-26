@@ -9,9 +9,9 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { coders, hookCommand } from './helpers.mjs';
 
 const run = promisify(execFile);
-const script = fileURLToPath(new URL('../scripts/coders-talk.mjs', import.meta.url));
 const fixture = (name) => fileURLToPath(new URL(`./fixtures/slim/${name}`, import.meta.url));
 
 const home = mkdtempSync(join(tmpdir(), 'ct-codex-auto-'));
@@ -63,11 +63,11 @@ before(async () => {
 });
 after(() => server.close());
 
-const cli = (args) => run(process.execPath, [script, ...args], { env }).then(({ stdout }) => stdout, (e) => e.stdout + e.stderr);
+const cli = (args) => run(...coders(args), { env }).then(({ stdout }) => stdout, (e) => e.stdout + e.stderr);
 /** Runs one of the hooks the way codex/hooks.json does: the event on stdin, --agent=codex after the script. */
 const hook = (name, event, args = ['--agent=codex']) =>
     new Promise((resolve, reject) => {
-        const child = execFile(process.execPath, [fileURLToPath(new URL(`../scripts/${name}.mjs`, import.meta.url)), ...args], { env }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+        const child = execFile(...hookCommand(name, args), { env }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
         child.stdin.end(JSON.stringify(event));
     });
 const autoLog = () => (existsSync(join(home, 'ct', 'auto.log')) ? readFileSync(join(home, 'ct', 'auto.log'), 'utf8') : '');

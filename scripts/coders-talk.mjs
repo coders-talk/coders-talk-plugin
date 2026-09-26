@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
  * Coders Talk for Claude Code and Codex: sends the current session to https://coders.talk as a draft Build.
+ * The same commands run as the plugin's script (node coders-talk.mjs …) and as the single coders-talk file (plan,
+ * stage 13.1: scripts/build.mjs), which needs no Node.js.
  *
- *   node coders-talk.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token
+ *   node coders-talk.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token.
+ *                                                 In a terminal it waits at once: no agent stops it after two minutes
  *   node coders-talk.mjs preview [session-id]   trims the session, checks it for secrets, saves it next to the temp dir, prints
  *                                                 what would go and where
  *     --keep=<numbers>                            send these findings of the last preview as they are (see lib/privacy-settings.mjs)
@@ -21,6 +24,10 @@
  *   node coders-talk.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper; a fixed https://coders.talk/mcp):
  *                                                 prints {"Authorization": "Bearer …"} for the saved sign-in, or {}
  *   node coders-talk.mjs nudge [on|off]         the Stop hook's suggestion to share a session that used the library
+ *   node coders-talk.mjs hook <agent> <event>   the plugin's hooks in one command (lib/hooks.mjs): claude-code or codex,
+ *                                                 session-start, prompt, stop or session-end
+ *   coders-talk update [version]                the single file only: replaces itself with the latest release (lib/update.mjs)
+ *   coders-talk version
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
@@ -29,19 +36,20 @@
  * sent (lib/privacy.mjs, the rules the site uses): their values never reach the site, not even for a check. Nothing is published: that happens on the site,
  * and a draft is visible only to its sender, or to the team whose repository the session ran in.
  * The token never passes through the model: the browser sign-in hands it straight to this script.
- * Needs Node.js 20 or newer and nothing else.
+ * As a script it needs Node.js 20 or newer and nothing else.
  */
 import { spawn } from 'node:child_process';
 import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { AUTO_MODES, autoMode, catchUp, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
+import { Failure } from './lib/failure.mjs';
 import { folderGitContexts, gitContext } from './lib/git.mjs';
+import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
 import { nudgeOn, setNudge } from './lib/nudge.mjs';
@@ -51,11 +59,11 @@ import { PRIVACY_LABELS } from './lib/privacy.mjs';
 import { keep, privacyScan, privacySummary, sha256 } from './lib/privacy-settings.mjs';
 import { agentTimes, gitChangeLines, withGitLines } from './lib/snapshots.mjs';
 import { addedFolders, slimLine } from './lib/slim.mjs';
+import { BINARY_VERSION, version } from './lib/runtime.mjs';
+import { removeLeftover, update, updateNotice } from './lib/update.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-// Both manifests carry the same version; whichever the installed copy has.
-const VERSION = JSON.parse(readFileSync(join(ROOT, ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json'].find((p) => existsSync(join(ROOT, p))) ?? '.claude-plugin/plugin.json'), 'utf8')).version;
+const VERSION = version();
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const PREPARED_TTL_MS = 30 * 60 * 1000;
 const POLL_MS = Number(process.env.CODERS_TALK_POLL_MS) || 2000;
@@ -68,12 +76,11 @@ const STAGES = { fetching: 'Reading the session', scanning: 'Scanning for secret
 const RETRY_MS = Number(process.env.CODERS_TALK_RETRY_MS) ? [Number(process.env.CODERS_TALK_RETRY_MS)] : [1500, 5000, 15000];
 const AUTO_TRIES = 4;
 
-class Failure extends Error {}
-
 const env = process.env;
 const args = process.argv.slice(2);
 const option = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-const [command, argId] = args.filter((a) => !a.startsWith('--'));
+const positional = args.filter((a) => !a.startsWith('--'));
+const [command, argId] = positional;
 
 // Where the draft goes: "personal" (--private), a team's slug (--team=acme), or null to let the site decide by the repository.
 const SPACE = args.includes('--private') ? 'personal' : option('team')?.trim().toLowerCase() || null;
@@ -81,11 +88,15 @@ const SPACE = args.includes('--private') ? 'personal' : option('team')?.trim().t
 // The same script serves both plugins; the Codex skills pass --agent=codex.
 const CODEX = option('agent') === 'codex';
 const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : { id: 'claude-code', name: 'Claude Code', client: 'claude-plugin' };
-/** How the person runs one of the plugin's commands in this agent. */
-const run = (name) => (CODEX ? `$coders-talk:${name}` : `/coders-talk:${name}`);
+// Run by a person in a terminal rather than by an agent, which gives its commands no terminal.
+const TERMINAL = Boolean(process.stdout.isTTY && process.stdin.isTTY);
+/** How the person runs one of the plugin's commands: in this agent, or in the terminal they typed it in. */
+const run = (name) => (TERMINAL ? `coders-talk ${name}` : CODEX ? `$coders-talk:${name}` : `/coders-talk:${name}`);
 
 const site = siteUrl(option('site'), CODEX);
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
+
+if (BINARY_VERSION) removeLeftover();
 
 try {
     // First and alone: it runs at every connection of the MCP server, and must answer with JSON whatever happens.
@@ -93,7 +104,12 @@ try {
         mcpHeaders();
         process.exit(0);
     }
-    if (Number(process.versions.node.split('.')[0]) < 20) {
+    // Swallows its own errors: a hook never fails the session.
+    if (command === 'hook') {
+        if (['claude-code', 'codex'].includes(argId) && HOOK_EVENTS.includes(positional[2])) await runHook(argId, positional[2]);
+        process.exit(0);
+    }
+    if (!BINARY_VERSION && Number(process.versions.node.split('.')[0]) < 20) {
         throw new Failure(`The Coders Talk plugin needs Node.js 20 or newer (this is ${process.version}). Or upload the session at ${site}/new.`);
     }
     if (command === 'preview') await preview(sessionId());
@@ -105,7 +121,11 @@ try {
     else if (command === 'whoami') await whoami();
     else if (command === 'logout') logout();
     else if (command === 'nudge') nudge(argId);
-    else throw new Failure('Usage: coders-talk.mjs login | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] [--site=URL]');
+    else if (command === 'version' || args.includes('--version')) console.log(`coders-talk ${VERSION}`);
+    else if (command === 'update') await update(argId, { check: args.includes('--check') });
+    else throw new Failure('Usage: coders-talk login | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
+    // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
+    if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
     console.error(e instanceof Failure ? e.message : `Unexpected error: ${e?.message ?? e}`);
     process.exit(1);
@@ -394,7 +414,9 @@ async function destination(git) {
  * The page and this output show the same short code, so a link from someone else is easy to spot.
  */
 async function login() {
-    if (token && !args.includes('--wait')) {
+    // In a terminal nothing stops a command after two minutes, so the sign-in waits for Connect right away.
+    const wait = args.includes('--wait');
+    if (token && !wait) {
         try {
             const me = await api('GET', '/api/v1/me');
             console.log(`Already connected to ${site} as @${me.username}. To connect again, run: logout, then login.`);
@@ -404,10 +426,11 @@ async function login() {
         }
     }
 
-    if (args.includes('--wait')) return waitForApproval();
+    if (wait) return waitForApproval();
 
     // Always a fresh request: continuing an earlier one is what --wait is for.
-    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: `${AGENT.name} on ${hostname()}`.slice(0, 60), client_version: VERSION }), false);
+    const client = TERMINAL ? 'Coders Talk CLI' : AGENT.name;
+    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: `${client} on ${hostname()}`.slice(0, 60), client_version: VERSION }), false);
     const pending = {
         site,
         device_code: codes.device_code,
@@ -417,20 +440,28 @@ async function login() {
         expires_at: Date.now() + codes.expires_in * 1000,
     };
     savePendingLogin(pending);
-    openBrowser(pending.url);
 
-    console.log(`Opened ${pending.url} in the browser. Check that the page shows the code ${pending.user_code} and press Connect.`);
-    console.log('If no browser opened, open that link yourself.');
+    // Over SSH the browser would open on the wrong computer, if at all: the person opens the link where they are.
+    if (env.SSH_CONNECTION && !env.DISPLAY && process.platform !== 'win32') {
+        console.log(`Open ${codes.verification_url ?? pending.url} in a browser, sign in, enter the code ${pending.user_code} and press Connect.`);
+    } else {
+        openBrowser(pending.url);
+        console.log(`Opened ${pending.url} in the browser. Check that the page shows the code ${pending.user_code} and press Connect.`);
+        console.log('If no browser opened, open that link yourself.');
+    }
+    if (TERMINAL) return waitForApproval(pending.expires_at);
 }
 
-async function waitForApproval() {
+/** Polls until Connect, a refusal, or $until: in an agent, less than its command timeout; in a terminal, the code's life. */
+async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
     const pending = pendingLogin(site);
     if (!pending) {
         if (token) return console.log(`Connected to ${site}.`);
         throw new Failure(`Nothing to wait for: run ${run('login')} to start.`);
     }
 
-    const deadline = Math.min(Date.now() + LOGIN_WAIT_MS, pending.expires_at);
+    if (TERMINAL) console.log('Waiting for Connect in the browser (Ctrl+C to stop)…');
+    const deadline = Math.min(until, pending.expires_at);
     while (Date.now() < deadline) {
         const state = await api('POST', '/api/v1/device/token', json({ device_code: pending.device_code }), false);
         if (state.status === 'approved') {

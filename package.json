@@ -7,6 +7,8 @@
         "node": ">=20"
     },
     "scripts": {
-        "test": "node --test"
+        "test": "node --test",
+        "build": "node scripts/build.mjs",
+        "test:binary": "node scripts/smoke.mjs"
     }
 }

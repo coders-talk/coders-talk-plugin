@@ -1,0 +1,69 @@
+name: Release
+
+# A tag coders-talk--vX.Y.Z publishes the single coders-talk file for each platform (plan, stage 13.1) as a GitHub
+# release with SHA256SUMS: what https://coders.talk/install.sh and install.ps1 download, and `coders-talk update` too.
+on:
+  push:
+    tags: ['coders-talk--v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: linux-x64, os: ubuntu-latest }
+          - { target: linux-arm64, os: ubuntu-24.04-arm }
+          - { target: darwin-x64, os: macos-15-intel }
+          - { target: darwin-arm64, os: macos-latest }
+          - { target: windows-x64, os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - name: The tag matches both manifests
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#coders-talk--v}"
+          for manifest in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
+            version=$(node -p "require('./$manifest').version")
+            [ "$version" = "$tag" ] || { echo "$manifest says $version, the tag $tag"; exit 1; }
+          done
+      - run: node scripts/build.mjs ${{ matrix.target }}
+      # Unsigned files do not start on Apple silicon; curl sets no quarantine, so an ad-hoc signature is enough.
+      - if: runner.os == 'macOS'
+        run: codesign -s - --force dist/coders-talk-*
+      - run: npm run test:binary
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/coders-talk-*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: dist
+        run: sha256sum coders-talk-* > SHA256SUMS && cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#coders-talk--v}"
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "coders-talk $version" \
+            --notes "Install: \`curl -fsSL https://coders.talk/install.sh | sh\` (Windows: \`irm https://coders.talk/install.ps1 | iex\`), or \`coders-talk update\`."

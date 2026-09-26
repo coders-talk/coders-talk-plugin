@@ -20,3 +20,24 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm test
+
+  # The single coders-talk file (plan, stage 13.1): built with Bun, then the tests that run commands and hooks, on it.
+  binary:
+    name: Single file on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+      - run: npm run build
+      - if: runner.os == 'macOS'
+        run: codesign -s - --force dist/coders-talk-*
+      - run: ls -l dist
+        shell: bash
+      - run: npm run test:binary

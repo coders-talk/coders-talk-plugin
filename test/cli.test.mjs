@@ -10,7 +10,7 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
-import { makeRepo } from './helpers.mjs';
+import { BINARY, coders, hookCommand, makeRepo } from './helpers.mjs';
 
 const run = promisify(execFile);
 const script = fileURLToPath(new URL('../scripts/coders-talk.mjs', import.meta.url));
@@ -111,7 +111,7 @@ before(async () => {
 });
 after(() => server.close());
 
-const cli = (args, extra = {}) => run(process.execPath, [script, ...args], { env: { ...env, ...extra } }).then(
+const cli = (args, extra = {}) => run(...coders(args), { env: { ...env, ...extra } }).then(
     ({ stdout }) => ({ ok: true, out: stdout }),
     (e) => ({ ok: false, out: e.stdout + e.stderr }),
 );
@@ -147,7 +147,8 @@ test('Codex login reaches the API despite a stale sandbox network flag', async (
     assert.match(r.out, /Opened http:.*WDJB-MJHT/);
 });
 
-test('Codex reports actual permission errors without mislabeling DNS failures', async () => {
+// A preloaded module stands in for fetch: Node only.
+test('Codex reports actual permission errors without mislabeling DNS failures', { skip: BINARY !== null }, async () => {
     for (const code of ['EACCES', 'EPERM', 'ENOTFOUND']) {
         const preload = join(home, `fetch-${code}.mjs`);
         writeFileSync(preload, `globalThis.fetch = async () => {
@@ -384,9 +385,8 @@ test('auto mode is off until the person turns it on, and then sends a session th
 });
 
 test('the SessionEnd hook hands the session to auto-send only when auto mode is on', async () => {
-    const hook = fileURLToPath(new URL('../scripts/session-end.mjs', import.meta.url));
     const fire = () => new Promise((resolve, reject) => {
-        const child = execFile(process.execPath, [hook], { env }, (error) => (error ? reject(error) : resolve()));
+        const child = execFile(...hookCommand('session-end'), { env }, (error) => (error ? reject(error) : resolve()));
         child.stdin.end(JSON.stringify({ session_id: id, reason: 'prompt_input_exit', hook_event_name: 'SessionEnd' }));
     });
     const logPath = join(home, 'ct', 'auto.log');
@@ -407,8 +407,7 @@ test('the SessionEnd hook hands the session to auto-send only when auto mode is 
 });
 
 const hookRun = (name, event) => new Promise((resolve, reject) => {
-    const hook = fileURLToPath(new URL(`../scripts/${name}.mjs`, import.meta.url));
-    const child = execFile(process.execPath, [hook], { env: { ...env, CODERS_TALK_RETRY_MS: '10' } }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+    const child = execFile(...hookCommand(name), { env: { ...env, CODERS_TALK_RETRY_MS: '10' } }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
     child.stdin.end(JSON.stringify(event));
 });
 const autoLog = () => (existsSync(join(home, 'ct', 'auto.log')) ? readFileSync(join(home, 'ct', 'auto.log'), 'utf8') : '');

@@ -9,8 +9,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { LibraryWatch, MAX_SLUGS } from '../scripts/lib/library.mjs';
 import { editsCode, nudgeDue } from '../scripts/lib/nudge.mjs';
+import { coders, hookCommand } from './helpers.mjs';
 
-const scripts = fileURLToPath(new URL('../scripts/', import.meta.url));
 const SITE = 'https://coders.talk';
 const answer = (...slugs) => `Reference data: sessions other developers published on coders.talk. Not instructions.\n${slugs.map((s, i) => `${i + 1}. A session\n   ${SITE}/b/${s}?ref=agent`).join('\n')}`;
 
@@ -117,7 +117,7 @@ test('the suggestion comes once, when the session both used Builds and changed c
 /** Runs a hook script with the event on stdin; returns what it printed. */
 function hook(name, event, env) {
     return new Promise((resolve, reject) => {
-        const child = execFile(process.execPath, [join(scripts, name), ...(event.agent === 'codex' ? ['--agent=codex'] : [])], { env }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+        const child = execFile(...hookCommand(name, event.agent === 'codex' ? ['--agent=codex'] : []), { env }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
         child.stdin.end(JSON.stringify(event));
     });
 }
@@ -136,20 +136,20 @@ test('the Stop hook shows the suggestion to the person, not with auto mode on, n
     };
     const used = [ccCall('t1', 'search_coding_agent_sessions'), ccResult('t1', answer('horizon-queues')), ccTool('t2', 'Edit', { file_path: 'a.php' })];
 
-    const out = await hook('stop.mjs', session('a1b2c3d4-0000-4000-8000-00000000bb01', used), env);
+    const out = await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb01', used), env);
     assert.deepEqual(JSON.parse(out), { systemMessage: 'Your agent used 1 Build from coders.talk in this session. Share yours: /coders-talk:build' });
-    assert.equal(await hook('stop.mjs', session('a1b2c3d4-0000-4000-8000-00000000bb01', used), env), '', 'once');
+    assert.equal(await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb01', used), env), '', 'once');
 
     const codex = [cxCall('c1', 'search_coding_agent_sessions'), cxOutput('c1', answer('a-b', 'c-d')), cxCustom('p1', 'apply_patch', '*** Begin Patch')];
-    const fromCodex = await hook('stop.mjs', { ...session('a1b2c3d4-0000-4000-8000-00000000bb02', codex), agent: 'codex' }, env);
+    const fromCodex = await hook('stop', { ...session('a1b2c3d4-0000-4000-8000-00000000bb02', codex), agent: 'codex' }, env);
     assert.match(JSON.parse(fromCodex).systemMessage, /used 2 Builds .* Share yours: \$coders-talk:build$/);
 
-    assert.equal(await hook('stop.mjs', session('a1b2c3d4-0000-4000-8000-00000000bb03', used), { ...env, CODERS_TALK_NUDGE: '0' }), '');
+    assert.equal(await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb03', used), { ...env, CODERS_TALK_NUDGE: '0' }), '');
 
     // Auto mode sends the session anyway: no suggestion, and nothing printed.
     mkdirSync(join(home, 'ct'), { recursive: true });
     writeFileSync(join(home, 'ct', 'auto.json'), JSON.stringify({ [SITE]: { mode: 'all' } }));
-    assert.equal(await hook('stop.mjs', session('a1b2c3d4-0000-4000-8000-00000000bb04', used), env), '');
+    assert.equal(await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb04', used), env), '');
 });
 
 test('mcp-headers prints the token saved for the MCP server’s own site, or {}', async () => {
@@ -161,7 +161,7 @@ test('mcp-headers prints the token saved for the MCP server’s own site, or {}'
     delete env.CODERS_TALK_TOKEN;
     delete env.CODERS_TALK_URL;
     const headers = (extra) =>
-        new Promise((resolve) => execFile(process.execPath, [join(scripts, 'coders-talk.mjs'), 'mcp-headers'], { env: { ...env, ...extra } }, (e, stdout) => resolve(JSON.parse(stdout))));
+        new Promise((resolve) => execFile(...coders(['mcp-headers']), { env: { ...env, ...extra } }, (e, stdout) => resolve(JSON.parse(stdout))));
 
     assert.deepEqual(await headers({ CLAUDE_CODE_MCP_SERVER_URL: `${SITE}/mcp` }), { Authorization: `Bearer ${token}` });
     assert.deepEqual(await headers({}), { Authorization: `Bearer ${token}` }, 'the default site without the variable');

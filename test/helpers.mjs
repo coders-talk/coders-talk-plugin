@@ -2,7 +2,25 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/**
+ * CODERS_TALK_BIN=dist/coders-talk-… runs the commands and hooks of the tests on the single file built by
+ * scripts/build.mjs instead of the scripts (npm run test:binary): the same checks, under Bun (plan, stage 13.1).
+ */
+export const BINARY = process.env.CODERS_TALK_BIN ? resolve(process.env.CODERS_TALK_BIN) : null;
+const scripts = fileURLToPath(new URL('../scripts/', import.meta.url));
+
+/** [program, arguments] that run `coders-talk <args>`. */
+export const coders = (args) => (BINARY ? [BINARY, args] : [process.execPath, [join(scripts, 'coders-talk.mjs'), ...args]]);
+
+/** [program, arguments] that run a hook as the agent does: session-start, stop or session-end; --agent=codex for Codex. */
+export function hookCommand(name, args = []) {
+    if (!BINARY) return [process.execPath, [join(scripts, `${name}.mjs`), ...args]];
+
+    return [BINARY, ['hook', args.includes('--agent=codex') ? 'codex' : 'claude-code', name]];
+}
 
 /** A throwaway repository with commits at fixed dates; returns the hashes in order. */
 export function makeRepo(remote = 'git@github.com:mara/shop.git') {

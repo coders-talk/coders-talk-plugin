@@ -7,20 +7,12 @@
  *
  *   node snapshot.mjs start|prompt|stop
  */
-import { pruneSnapshots, takeSnapshot } from './lib/snapshots.mjs';
+import { readEvent, takeSnapshotOf } from './lib/hooks.mjs';
 
 const kind = process.argv[2];
 
 try {
-    let input = '';
-    for await (const chunk of process.stdin) input += chunk;
-    const event = JSON.parse(input);
-
-    if (['start', 'prompt', 'stop'].includes(kind)) {
-        // A resumed or compacted session starts again with the same id: its chain goes on.
-        takeSnapshot(event, kind);
-        if (kind === 'start') pruneSnapshots(event.cwd);
-    }
+    if (['start', 'prompt', 'stop'].includes(kind)) takeSnapshotOf(await readEvent(), kind);
 } catch {
-    // No git, odd input, an unreadable home folder: the session goes on as it would without the plugin.
+    // Odd input: the session goes on as it would without the plugin.
 }

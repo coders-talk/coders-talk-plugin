@@ -20,9 +20,9 @@
  */
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { home } from './credentials.mjs';
+import { selfCommand } from './runtime.mjs';
 
 export const AUTO_MODES = ['all', 'team'];
 export const AGENTS = ['claude-code', 'codex'];
@@ -157,10 +157,10 @@ export function catchUp(site, current, agent = 'claude-code', dir = home(), now 
         .map(({ id, file }) => ({ id, final: now - file.mtimeMs >= IDLE_MS }));
 }
 
-/** Runs coders-talk.mjs with $args after the hook has returned: the agent never waits for an upload. */
+/** Runs `coders-talk <args>` after the hook has returned: the agent never waits for an upload. */
 export function inBackground(args, env = process.env) {
-    const script = join(dirname(fileURLToPath(import.meta.url)), '..', 'coders-talk.mjs');
-    spawn(process.execPath, [script, ...args], { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
+    const [program, programArgs] = selfCommand(args);
+    spawn(program, programArgs, { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
 }
 
 /**

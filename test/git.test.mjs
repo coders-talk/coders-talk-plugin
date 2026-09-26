@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { folderGitContexts, gitContext, normalizeRemote, parseShortstat } from '../scripts/lib/git.mjs';
 import { readSidecar } from '../scripts/lib/sidecar.mjs';
-import { makeRepo } from './helpers.mjs';
+import { hookCommand, makeRepo } from './helpers.mjs';
 
 test('only GitHub remotes become a link, in one form', () => {
     for (const url of ['git@github.com:mara/shop.git', 'https://github.com/mara/shop', 'https://github.com/mara/shop.git/', 'ssh://git@github.com/mara/shop.git', 'https://mara:ghp_secret@github.com/mara/shop.git']) {
@@ -75,9 +75,8 @@ test('outside a repository there is no git context', () => {
 test('the SessionStart hook remembers HEAD once, silently', async () => {
     const { dir, hashes } = makeRepo();
     const home = mkdtempSync(join(tmpdir(), 'ct-home-'));
-    const hook = fileURLToPath(new URL('../scripts/session-start.mjs', import.meta.url));
     const fire = (event) => new Promise((resolve) => {
-        const child = execFile(process.execPath, [hook], { env: { ...process.env, CODERS_TALK_HOME: home } }, (error, stdout) => resolve({ error, stdout }));
+        const child = execFile(...hookCommand('session-start'), { env: { ...process.env, CODERS_TALK_HOME: home } }, (error, stdout) => resolve({ error, stdout }));
         child.stdin.end(JSON.stringify(event));
     });
 

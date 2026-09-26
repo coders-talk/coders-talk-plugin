@@ -73,7 +73,7 @@ function codexSessions(folders, dir, now) {
 }
 
 /** The cwd in the rollout's first line (session_meta), read from its start only: rollouts run to hundreds of megabytes. */
-function rolloutCwd(path) {
+export function rolloutCwd(path) {
     const buffer = Buffer.alloc(256 * 1024);
     let fd;
     try {

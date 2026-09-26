@@ -13,11 +13,14 @@
  *                                                 repository: a team's repositories go to the team, the rest stays private
  *   node coders-talk.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
  *     --continues=<slug or link>                  the draft continues that Build of yours: they become a series
- *   node coders-talk.mjs auto [on|team|off]     auto mode for this computer and agent: send sessions by themselves while
+ *   node coders-talk.mjs auto [on|team|push|off] auto mode for this computer and agent: send sessions by themselves while
  *                                                 they run and when they end (all of them, or only those in repositories of
- *                                                 teams that ask); Claude Code and Codex are switched separately
+ *                                                 teams that ask), or only when their commits are pushed (push, with the git
+ *                                                 hooks); Claude Code and Codex are switched separately
  *   node coders-talk.mjs auto-send <session-id> what the SessionEnd hook runs in the background when auto mode is on
  *     --sync                                      the Stop hook's send of a session that is still going
+ *     --push                                      the pre-push git hook's send of a session behind the push
+ *   coders-talk git-hook <kind> <git's args>    the repository's git hooks (lib/githooks.mjs): prepare-commit-msg, pre-push
  *   node coders-talk.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
  *                                                 they ended (lib/auto.mjs, catchUp), other than the one starting
  *   node coders-talk.mjs whoami | logout
@@ -33,7 +36,8 @@
  *                                                 send's options. Not without a terminal: nothing may skip the question
  *   coders-talk enable | disable | status       connects Claude Code and Codex to this coders-talk through their plugin
  *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
- *     --yes  --agent=claude-code,codex  --auto=off|on|team  --mcp=remove|keep
+ *     --yes  --agent=claude-code,codex  --auto=off|on|team|push  --mcp=remove|keep
+ *     --git-hooks | --no-git-hooks | --no-trailers   this repository's git hooks (lib/githooks.mjs)
  *   coders-talk version
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
@@ -58,6 +62,7 @@ import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, 
 import { Failure } from './lib/failure.mjs';
 import { folderGitContexts, gitContext } from './lib/git.mjs';
 import { disable, enable, refresh, status } from './lib/enable.mjs';
+import { runGitHook } from './lib/githooks.mjs';
 import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
@@ -115,6 +120,12 @@ try {
         process.exit(0);
     }
     // Swallows its own errors: a hook never fails the session.
+    // The same for a commit or a push: git waits for these, and nothing here may stop it.
+    if (command === 'git-hook') {
+        const input = argId === 'pre-push' ? await readAll(process.stdin) : '';
+        runGitHook(argId, positional.slice(2), { site, input });
+        process.exit(0);
+    }
     if (command === 'hook') {
         if (['claude-code', 'codex'].includes(argId) && HOOK_EVENTS.includes(positional[2])) await runHook(argId, positional[2]);
         process.exit(0);
@@ -125,7 +136,7 @@ try {
     if (command === 'preview') await preview(sessionId());
     else if (command === 'send') await send(sessionId());
     else if (command === 'auto') await auto(argId);
-    else if (command === 'auto-send') await autoSend(argId, { final: !args.includes('--sync') });
+    else if (command === 'auto-send') await autoSend(argId, { final: !args.includes('--sync'), push: args.includes('--push') });
     else if (command === 'auto-catch-up') await autoCatchUp(argId);
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
@@ -150,7 +161,14 @@ try {
 
 /** The options of enable and disable. */
 function setupFlags() {
-    return { yes: args.includes('--yes') || args.includes('-y'), agents: option('agent')?.split(',').map((a) => a.trim()).filter(Boolean), auto: option('auto'), mcp: option('mcp') };
+    return {
+        yes: args.includes('--yes') || args.includes('-y'),
+        agents: option('agent')?.split(',').map((a) => a.trim()).filter(Boolean),
+        auto: option('auto'),
+        mcp: option('mcp'),
+        gitHooks: args.includes('--git-hooks') || args.includes('--no-trailers') ? true : args.includes('--no-git-hooks') ? false : undefined,
+        trailers: args.includes('--no-trailers') ? false : undefined,
+    };
 }
 
 function sessionId() {
@@ -639,14 +657,16 @@ async function auto(mode) {
             ? `Auto mode is on for ${site}: every ${AGENT.name} session on this computer is sent while it runs and ${endsOne}.${trust}`
             : current === 'team'
               ? `Auto mode is on for ${site}, for team repositories: ${AGENT.name} sessions in repositories of teams that ask for it are sent while they run and ${ends}.${trust}`
-              : `Auto mode is off for ${site} in ${AGENT.name}: sessions are sent only when you run ${run('build')}.`);
+              : current === 'push'
+                ? `Auto mode is push for ${site}: a ${AGENT.name} session is sent when its commits are pushed, from repositories with the Coders Talk git hooks (coders-talk enable in the repository).`
+                : `Auto mode is off for ${site} in ${AGENT.name}: sessions are sent only when you run ${run('build')}.`);
         const recent = recentAuto(5);
         if (recent.length) console.log(`Last sessions it looked at (${logFile()}):\n${recent.map((l) => `  ${l}`).join('\n')}`);
         return;
     }
 
-    const chosen = { on: 'all', all: 'all', team: 'team', off: null }[mode];
-    if (chosen === undefined) throw new Failure(`Use ${run('auto')} on, ${run('auto')} team or ${run('auto')} off.`);
+    const chosen = { on: 'all', all: 'all', team: 'team', push: 'push', off: null }[mode];
+    if (chosen === undefined) throw new Failure(`Use ${run('auto')} on, ${run('auto')} team, ${run('auto')} push or ${run('auto')} off.`);
     if (chosen === null) {
         setAutoMode(site, null, AGENT.id);
         console.log(`Auto mode is off in ${AGENT.name}: nothing is sent unless you run ${run('build')}.`);
@@ -657,7 +677,9 @@ async function auto(mode) {
     const me = await api('GET', '/api/v1/me');
     const asking = (me.teams ?? []).filter((t) => t.auto_capture);
     setAutoMode(site, chosen, AGENT.id);
-    if (chosen === 'all') {
+    if (chosen === 'push') {
+        console.log(`Auto mode is push. A ${AGENT.name} session is sent to ${site} as @${me.username} when you push its commits, from repositories with the Coders Talk git hooks (coders-talk enable in each repository puts them in): to your team's space when the repository is one of your team's, else to your private Builds. Sessions whose code you never push stay on this computer. Nothing is published.`);
+    } else if (chosen === 'all') {
         console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Secrets are redacted on this computer before a session is sent, and moments are suggested once a session is over.${trust}`);
     } else {
         console.log(asking.length
@@ -669,12 +691,13 @@ async function auto(mode) {
 
 /**
  * Run by the hooks in the background, if auto mode wants the session: SessionEnd sends one that ended ($final), Stop
- * syncs one that is still going, SessionStart catches up on those that never said they ended ($caughtUp). Never
- * prints (nobody is watching); every outcome goes to the auto log instead, and what went to auto-sessions.json.
+ * syncs one that is still going, SessionStart catches up on those that never said they ended ($caughtUp), the pre-push
+ * git hook sends those behind a push ($push; the only sends of push mode). Never prints (nobody is watching); every
+ * outcome goes to the auto log instead, and what went to auto-sessions.json.
  */
-async function autoSend(id, { final = true, caughtUp = false } = {}) {
+async function autoSend(id, { final = true, caughtUp = false, push = false } = {}) {
     const mode = autoMode(site, AGENT.id);
-    if (!mode || !SESSION_ID.test(id ?? '')) return;
+    if (!mode || (mode === 'push' && !push) || !SESSION_ID.test(id ?? '')) return;
     const log = (result) => logAuto(`${CODEX ? 'codex ' : ''}${id} ${result}`);
     const remember = (patch) => trackSession(site, id, patch);
     // Nothing went: the session-end hook stops waiting for it (lib/auto.mjs, waitForSend).
@@ -716,7 +739,7 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
             }
             remember({ sent: { at: Date.now(), size: session.session.bytes, final } });
             const where = r.space?.type === 'team' ? r.space.name : 'your private Builds';
-            return log(`${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : ''}: ${r.edit_url}`);
+            return log(`${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : push ? ' at a push' : ''}: ${r.edit_url}`);
         } catch (e) {
             if (final && attempt < AUTO_TRIES && (['import_running', 'rate_limited'].includes(e.code) || e.unavailable)) {
                 await sleep(RETRY_MS[Math.min(attempt, RETRY_MS.length) - 1]);
@@ -732,7 +755,7 @@ async function autoSend(id, { final = true, caughtUp = false } = {}) {
  * send and never said they ended (lib/auto.mjs, catchUp). $current is the session starting: its own hooks send it.
  */
 async function autoCatchUp(current) {
-    if (!autoMode(site, AGENT.id)) return;
+    if (!['all', 'team'].includes(autoMode(site, AGENT.id))) return;
     for (const { id, final } of catchUp(site, current, AGENT.id)) {
         trackSession(site, id, { tried: Date.now() });
         await autoSend(id, { final, caughtUp: true });
@@ -863,6 +886,13 @@ function launch(cmd, cmdArgs, options = {}) {
     } catch {
         // The link and the path are printed anyway.
     }
+}
+
+async function readAll(stream) {
+    let text = '';
+    for await (const chunk of stream) text += chunk;
+
+    return text;
 }
 
 function sleep(ms) {

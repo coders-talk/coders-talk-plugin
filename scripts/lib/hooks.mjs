@@ -19,7 +19,7 @@
  *
  * Git snapshots (lib/snapshots.mjs) are Claude Code's: at the start, at each prompt and after each answer.
  */
-import { autoMode, catchUp, inBackground, syncDue, trackSession, waitForSend } from './auto.mjs';
+import { autoMode, catchUp, inBackground, RUNNING_MODES, syncDue, trackSession, waitForSend } from './auto.mjs';
 import { siteUrl } from './config.mjs';
 import { currentHead } from './git.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
@@ -96,14 +96,17 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
         pruneSidecars();
     }
 
-    if (id && autoMode(site, agent)) {
+    if (id && RUNNING_MODES.includes(autoMode(site, agent))) {
         trackSession(site, id, { path: event.transcript_path, agent });
         if (catchUp(site, id, agent).length) inBackground(['auto-catch-up', id, ...agentArgs]);
     }
 }
 
 function stop({ event, agent, site, id, agentArgs }) {
-    if (id && autoMode(site, agent)) {
+    const mode = autoMode(site, agent);
+    // Push mode sends at the push; it needs no suggestion either.
+    if (id && mode === 'push') return;
+    if (id && mode) {
         // Auto mode turned on in the middle of a session starts with it from here.
         const session = trackSession(site, id, { path: event.transcript_path, agent });
         if (syncDue(session)) {
@@ -120,7 +123,7 @@ function stop({ event, agent, site, id, agentArgs }) {
 }
 
 async function sessionEnd({ event, agent, site, id, agentArgs }) {
-    if (!id || !autoMode(site, agent)) return;
+    if (!id || !RUNNING_MODES.includes(autoMode(site, agent))) return;
     const session = trackSession(site, id, { path: event.transcript_path, agent });
     if (session.skip) return;
 

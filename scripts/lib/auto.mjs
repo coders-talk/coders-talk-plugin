@@ -6,6 +6,8 @@
  *   all   every session: to the team's space when the repository is one of the person's teams', else to their
  *         private Builds
  *   team  only sessions in repositories of teams that ask for it (auto_capture); everything else stays here
+ *   push  only sessions whose commits are pushed, when they are (plan, stage 13.5: the repository's pre-push hook,
+ *         lib/githooks.mjs); the agents' hooks send nothing in this mode
  *
  * A session goes while it runs (the Stop hook syncs it every SYNC_EVERY_MS of work), once more when it ends
  * (SessionEnd), and at the next start if it never said it ended: a crash, a closed terminal (SessionStart catches up).
@@ -24,7 +26,9 @@ import { join } from 'node:path';
 import { home } from './credentials.mjs';
 import { selfCommand } from './runtime.mjs';
 
-export const AUTO_MODES = ['all', 'team'];
+export const AUTO_MODES = ['all', 'team', 'push'];
+/** The modes in which the agents' own hooks send sessions while they run and when they end. */
+export const RUNNING_MODES = ['all', 'team'];
 export const AGENTS = ['claude-code', 'codex'];
 const LOG_LINES = 500;
 
@@ -61,7 +65,7 @@ function write(path, data) {
 /** auto.json per site: Claude Code's choice at the top, as 0.7 wrote it, and Codex's under "codex". */
 const choiceOf = (all, site, agent) => (agent === 'codex' ? all[site]?.codex : all[site]);
 
-/** 'all', 'team', or null when auto mode is off for this site and agent (or CODERS_TALK_AUTO=0 turns it off for a shell). */
+/** 'all', 'team', 'push', or null when auto mode is off for this site and agent (or CODERS_TALK_AUTO=0 turns it off for a shell). */
 export function autoMode(site, agent = 'claude-code', dir = home(), env = process.env) {
     if (env.CODERS_TALK_AUTO === '0') return null;
     const mode = choiceOf(read(configFile(dir)), site, agent)?.mode;

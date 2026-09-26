@@ -20,7 +20,8 @@ let env;
 const plugin = () => join(dir, 'ct', 'plugin');
 const agentState = () => JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8'));
 const calls = () => readFileSync(join(dir, 'calls.log'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-const cli = (args) => run(...coders(args), { env }).then(({ stdout }) => ({ ok: true, out: stdout }), (e) => ({ ok: false, out: e.stdout + e.stderr }));
+// Outside any repository: enable would ask about the git hooks of the one it runs in (test/githooks.test.mjs).
+const cli = (args) => run(...coders(args), { env, cwd: dir }).then(({ stdout }) => ({ ok: true, out: stdout }), (e) => ({ ok: false, out: e.stdout + e.stderr }));
 
 /** A fresh computer with Claude Code and Codex, and nothing of Coders Talk. */
 beforeEach(() => {
@@ -120,9 +121,12 @@ test('the plugin from GitHub is replaced, and a server added by hand removed or 
     assert.ok(existsSync(join(plugin(), '.mcp.json')), 'the plugin brings its own now');
 });
 
-test('auto mode is one choice for both agents; push waits for the git hooks', async () => {
-    assert.match((await cli(['enable', '--yes', '--auto=push'])).out, /"push" comes with the git hooks/);
-    assert.match((await cli(['enable', '--yes', '--auto=sometimes'])).out, /--auto takes off, on or team/);
+test('auto mode is one choice for both agents; push needs the git hooks', async () => {
+    const push = await cli(['enable', '--yes', '--auto=push']);
+    assert.match(push.out, /Auto mode is push: .*only those whose commits you push/);
+    assert.match(push.out, /Push mode sends from repositories with the Coders Talk git hooks: run coders-talk enable --git-hooks in each of them\./);
+    assert.doesNotMatch(push.out, /trust the three Coders Talk hooks/, 'push mode needs no agent hooks');
+    assert.match((await cli(['enable', '--yes', '--auto=sometimes'])).out, /--auto takes off, on, team or push/);
 
     const r = await cli(['enable', '--yes', '--auto=team']);
     assert.equal(r.ok, true, r.out);

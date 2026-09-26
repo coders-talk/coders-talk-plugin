@@ -9,8 +9,10 @@
  *   - the plugin from the GitHub marketplace (coders-talk@coders-talk) is replaced, or its hooks and snapshots would
  *     run twice;
  *   - a Coders Talk MCP server added by hand is removed, or kept and the plugin brings none to that agent;
- *   - auto mode is one question for every agent found (--auto=off|on|team), off unless the person says otherwise.
- *     Codex's trust in the hooks stays Codex's: one line says where to give it.
+ *   - auto mode is one question for every agent found (--auto=off|on|team|push), off unless the person says otherwise.
+ *     Codex's trust in the hooks stays Codex's: one line says where to give it;
+ *   - in a git repository, one question about its git hooks (lib/githooks.mjs, --git-hooks, --no-git-hooks,
+ *     --no-trailers), no unless they are there already. Every repository they went into is remembered, for disable.
  * The choices are kept in ~/.coders-talk/enable.json, so `coders-talk update` lays the plugin out again the same way
  * (refresh): the plugin's version is always the file's.
  *
@@ -21,6 +23,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { detectAgents, installedPlugins, manualMcpServers, removeMcpServer, runCli } from './agents.mjs';
 import { autoMode, setAutoMode } from './auto.mjs';
+import { hooksOf, installedHooks, installHooks, manualHookLines, removeHooks, TRAILER } from './githooks.mjs';
 import { home, savedUsername } from './credentials.mjs';
 import { Failure } from './failure.mjs';
 import { MARKETPLACE, PLUGIN_ID, pluginFiles, pluginSources } from './plugin.mjs';
@@ -28,16 +31,16 @@ import { BINARY_VERSION, selfProgram } from './runtime.mjs';
 
 const pluginDir = () => join(home(), 'plugin');
 const choicesFile = () => join(home(), 'enable.json');
-const AUTO = { off: null, on: 'all', all: 'all', team: 'team' };
+const AUTO = { off: null, on: 'all', all: 'all', team: 'team', push: 'push' };
 const autoName = (mode) => (mode === 'all' ? 'on' : mode ?? 'off');
 const MCP_KEY = { 'claude-code': 'claude', codex: 'codex' };
 
 /**
- * @param {{site: string, version: string, interactive: boolean, flags: {yes?: boolean, agents?: string[], auto?: string, mcp?: string}}} context
+ * @param {{site: string, version: string, interactive: boolean, flags: {yes?: boolean, agents?: string[], auto?: string, mcp?: string, gitHooks?: boolean, trailers?: boolean}}} context
+ *        gitHooks: true or false from --git-hooks / --no-git-hooks, undefined to ask
  */
 export async function enable({ site, version, interactive, flags }) {
-    if (flags.auto === 'push') throw new Failure('Auto mode "push" comes with the git hooks, in a later release. Use --auto=off, on or team.');
-    if (flags.auto !== undefined && !(flags.auto in AUTO)) throw new Failure(`--auto takes off, on or team, not "${flags.auto}".`);
+    if (flags.auto !== undefined && !(flags.auto in AUTO)) throw new Failure(`--auto takes off, on, team or push, not "${flags.auto}".`);
     if (flags.mcp !== undefined && !['remove', 'keep'].includes(flags.mcp)) throw new Failure(`--mcp takes remove or keep, not "${flags.mcp}".`);
     if (!interactive && !flags.yes) throw new Failure('coders-talk enable asks before it changes anything: run it in a terminal, or add --yes to go ahead with the defaults.');
 
@@ -82,9 +85,20 @@ export async function enable({ site, version, interactive, flags }) {
         const current = autoName(autoMode(site, agents[0].id));
         let auto = flags.auto;
         if (auto === undefined) {
-            const answer = await ask(`Auto mode: send sessions to ${site} by themselves (on), only those in repositories of teams that ask (team), or only when you run build (off)? [${current}]`, current);
+            const answer = await ask(`Auto mode: send sessions to ${site} by themselves (on), only those in repositories of teams that ask (team), only those whose commits you push (push), or only when you run build (off)? [${current}]`, current);
             auto = answer in AUTO ? answer : current;
         }
+
+        // This repository's git hooks, if it is one.
+        const repo = hooksOf(process.cwd());
+        const hooksThere = repo && !repo.shared ? installedHooks(repo) : [];
+        let gitHooks = flags.gitHooks;
+        if (repo && gitHooks === undefined) {
+            const had = hooksThere.length > 0;
+            const answer = await ask(`Git hooks for ${repo.root}: an ${TRAILER} trailer in commits made with a session, and the sessions behind a push found when you push? The session id becomes part of the repository's history. [${had ? 'Y/n' : 'y/N'}]`, had ? 'y' : 'n');
+            gitHooks = answer.startsWith('y');
+        }
+        const trailers = flags.trailers ?? true;
 
         // The plan, then the go-ahead.
         const installing = state.filter((s) => s.agent.cli && (!s.others.length || s.replace));
@@ -99,6 +113,9 @@ export async function enable({ site, version, interactive, flags }) {
             }
         }
         plan.push(`Auto mode: ${auto}${auto === current ? ' (as it is)' : ''}`);
+        if (repo && gitHooks && repo.shared) plan.push(`Git hooks: ${repo.root} keeps its hooks in ${repo.dir} (core.hooksPath), which is not ours to change: the lines to add there are printed at the end`);
+        else if (repo && gitHooks) plan.push(`Git hooks in ${repo.dir}: ${trailers ? 'prepare-commit-msg (the trailer) and pre-push' : 'pre-push only (no trailers)'}`);
+        else if (repo && hooksThere.length) plan.push(`Git hooks: take ours out of ${repo.dir}`);
         console.log(`\nThis will:\n${plan.map((p) => `  - ${p}`).join('\n')}`);
         if (!(await ask('Go ahead? [Y/n]', 'y')).startsWith('y')) {
             console.log('Nothing was changed.');
@@ -124,13 +141,25 @@ export async function enable({ site, version, interactive, flags }) {
         const changed = autoName(mode) !== current || agents.some((a) => autoMode(site, a.id) !== mode);
         if (changed) for (const agent of agents) setAutoMode(site, mode, agent.id);
 
+        if (repo && !repo.shared && gitHooks) {
+            installHooks(repo, selfProgram(), { trailers });
+            writeChoices({ ...readChoices(), git_hooks: [...new Set([...(readChoices().git_hooks ?? []), repo.root])] });
+        } else if (repo && !repo.shared && hooksThere.length) {
+            removeHooks(repo);
+            writeChoices({ ...readChoices(), git_hooks: (readChoices().git_hooks ?? []).filter((r) => r !== repo.root) });
+        }
+
         console.log('');
         for (const agent of done) console.log(`${agent.name}: ${PLUGIN_ID} ${version} is installed. ${agent.id === 'codex' ? 'Start a new Codex session' : 'Restart Claude Code'} to load it.`);
         for (const s of state.filter((x) => !x.agent.cli)) console.log(manualSteps(s.agent));
         if (mode) {
-            console.log(`Auto mode is ${auto}: sessions go to ${site} by themselves (${mode === 'team' ? 'only those in repositories of teams that ask for it' : 'every session'}). Nothing is published by it; coders-talk enable --auto=off stops it.`);
-            if (done.some((a) => a.id === 'codex')) console.log('Codex runs the plugin\'s hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks.');
+            const which = { team: 'only those in repositories of teams that ask for it', push: 'only those whose commits you push, from repositories with the git hooks', all: 'every session' }[mode];
+            console.log(`Auto mode is ${auto}: sessions go to ${site} by themselves (${which}). Nothing is published by it; coders-talk enable --auto=off stops it.`);
+            if (mode !== 'push' && done.some((a) => a.id === 'codex')) console.log('Codex runs the plugin\'s hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks.');
+            if (mode === 'push' && !(repo && gitHooks && !repo.shared)) console.log('Push mode sends from repositories with the Coders Talk git hooks: run coders-talk enable --git-hooks in each of them.');
         }
+        if (repo && !repo.shared && gitHooks) console.log(`Git hooks are in ${repo.dir}. ${trailers ? `Commits made with a session get an ${TRAILER} trailer; a` : 'A'} push looks for the sessions behind it.`);
+        if (repo && repo.shared && gitHooks) console.log(`Add these lines to the hooks in ${repo.dir}, right after the first line of each:\n\n${manualHookLines(selfProgram(), { trailers })}`);
         if (!savedUsername(site)) console.log(`Not signed in to ${site} yet: run coders-talk login.`);
     } finally {
         prompt?.close();
@@ -139,6 +168,12 @@ export async function enable({ site, version, interactive, flags }) {
 
 /** After `coders-talk update`: the plugin laid out again by the new file, and updated where it is installed. Quiet. */
 export function refresh({ site, version }) {
+    // The git hooks call the file by its path, which may be another one now.
+    for (const root of readChoices().git_hooks ?? []) {
+        const repo = hooksOf(root);
+        const there = repo && !repo.shared ? installedHooks(repo) : [];
+        if (there.length) installHooks(repo, selfProgram(), { trailers: there.includes('prepare-commit-msg') });
+    }
     if (!existsSync(pluginDir())) return;
     layOut({ site, version, mcp: readChoices().mcp ?? {} });
     for (const agent of detectAgents().filter((a) => a.cli)) {
@@ -151,7 +186,15 @@ export async function disable({ interactive, flags }) {
     if (!interactive && !flags.yes) throw new Failure('coders-talk disable asks before it changes anything: run it in a terminal, or add --yes.');
     const agents = chosenAgents(flags.agents).filter((a) => a.cli);
     const state = agents.map((agent) => ({ agent, ours: installedPlugins(agent).find((p) => p.marketplace === MARKETPLACE) }));
-    const plan = [...state.filter((s) => s.ours).map((s) => `${s.agent.name}: uninstall ${PLUGIN_ID} and its marketplace`), ...(existsSync(pluginDir()) ? [`Delete ${pluginDir()}`] : [])];
+    // Every repository enable put git hooks in, and this one.
+    const repos = [...new Set([...(readChoices().git_hooks ?? []), hooksOf(process.cwd())?.root].filter(Boolean))]
+        .map((root) => hooksOf(root))
+        .filter((repo) => repo && !repo.shared && installedHooks(repo).length);
+    const plan = [
+        ...state.filter((s) => s.ours).map((s) => `${s.agent.name}: uninstall ${PLUGIN_ID} and its marketplace`),
+        ...repos.map((repo) => `Git hooks: take ours out of ${repo.dir}`),
+        ...(existsSync(pluginDir()) ? [`Delete ${pluginDir()}`] : []),
+    ];
     if (!plan.length) return console.log(`${PLUGIN_ID} is not installed here; nothing to take off.`);
 
     console.log(`This will:\n${plan.map((p) => `  - ${p}`).join('\n')}`);
@@ -167,6 +210,7 @@ export async function disable({ interactive, flags }) {
         // Harmless when it is not there.
         runCli(agent.cli, ['plugin', 'marketplace', 'remove', MARKETPLACE]);
     }
+    for (const repo of repos) removeHooks(repo);
     rmSync(pluginDir(), { recursive: true, force: true });
     rmSync(choicesFile(), { force: true });
     console.log(`Done: the agents no longer run Coders Talk. The sign-in and settings stay in ${home()}; the coders-talk file stays too (${selfProgram()[0]}). To remove it, delete that file and the "Coders Talk CLI" line from your shell's rc file (on Windows, the folder from your user PATH).`);
@@ -192,6 +236,12 @@ export function status({ site, version }) {
         if (servers.length) notes.push(`MCP server added by hand: ${servers.map(describeServer).join(', ')}`);
         notes.push(`auto mode ${autoName(autoMode(site, agent.id))}`);
         lines.push(`${agent.name.padEnd(13)} ${notes.join('; ')}`);
+    }
+    const repo = hooksOf(process.cwd());
+    if (repo) {
+        const there = repo.shared ? [] : installedHooks(repo);
+        const said = repo.shared ? `core.hooksPath ${repo.dir}, not ours (coders-talk enable --git-hooks prints the lines to add)` : there.length ? there.join(', ') : 'none (coders-talk enable --git-hooks)';
+        lines.push(`Git hooks:    ${repo.root}: ${said}`);
     }
     console.log(lines.join('\n'));
 }

@@ -269,7 +269,8 @@ async function prepare(id, cut = true) {
     // The title the Claude app gave the session, checked like its lines (grouping plan, 24.2).
     const title = session.title ? privacy.text(session.title).slice(0, 140) : null;
     // Task numbers in its first prompts and commit titles (25.2): "plan 22.1", "ABC-123", "#42". Only the numbers go.
-    const taskKeys = extractTaskKeys([...session.prompts, ...(git?.commits?.subjects ?? [])]);
+    // Commit titles only when HEAD at the start is known: an estimated start takes in every commit since, other work's too.
+    const taskKeys = extractTaskKeys([...session.prompts, ...(git?.head_start_estimated ? [] : git?.commits?.subjects ?? [])]);
 
     return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library, project, continuation: session.continuation, title, taskKeys };
 }

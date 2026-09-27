@@ -9,6 +9,13 @@
  * `function_call` with the server in its `namespace`. The Codex desktop app may call tools from a script (`exec`): a
  * script that names one of the tools counts. A shell command or a patch that only mentions a tool's name does not. A Build is a `/b/<slug>?ref=agent` link in such a call's answer: only the
  * library's answers carry `?ref=agent`, so a page or a file that mentions the site elsewhere in the session never counts.
+ *
+ * And the playbooks the agent used (plan: library, stage 22.4): a skill named ct-<slug>, which `coders-talk use` wrote.
+ * Claude Code runs one with the Skill tool, or the person types /ct-<slug>, and the skill's text comes in the next user
+ * line; Codex puts it into a <skill> block when the person names it, and reads .agents/skills/ct-<slug>/SKILL.md itself
+ * when it picks the skill on its own. The Build is the `/b/<slug>?ref=playbook` link at the end of that text: a skill's
+ * name is cut at 64 characters, the link never is. A playbook written as a rule into AGENTS.md or CLAUDE.md is in every
+ * session whether the agent heeds it or not, so it never counts: better too few than too many.
  */
 export const LIBRARY_TOOLS = ['search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures'];
 /** The site takes at most this many; the first ones the agent got are kept. */
@@ -18,8 +25,14 @@ const NAMED = new RegExp(`(?:^|__)(?:${LIBRARY_TOOLS.join('|')})$`);
 // On its own, or after a server prefix (`tools.mcp__coders_talk__get_coding_agent_session(…)`).
 const MENTIONED = new RegExp(`(?:^|[^A-Za-z0-9_]|__)(?:${LIBRARY_TOOLS.join('|')})(?![A-Za-z0-9_])`);
 const BUILD_LINK = /\/b\/([a-z0-9]+(?:-[a-z0-9]+)*)\?ref=agent/g;
+const PLAYBOOK_LINK = /\/b\/([a-z0-9]+(?:-[a-z0-9]+)*)\?ref=playbook/;
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// A skill `coders-talk use` wrote: ct-<slug>, at most 64 characters.
+const SKILL_NAME = /^ct-[a-z0-9-]+$/;
+// Codex reading a playbook skill's file by itself.
+const SKILL_FILE = /skills[\\/]+(ct-[a-z0-9-]+)[\\/]+SKILL\.md/;
 // Anything worth parsing mentions one of these; the rest of a long session is skipped without JSON.parse.
-const MARKS = [...LIBRARY_TOOLS, 'ref=agent'];
+const MARKS = [...LIBRARY_TOOLS, 'ref=agent', 'ref=playbook', '"Skill"', '<skill>', '/ct-'];
 
 export class LibraryWatch {
     /** @param {{calls?: number, slugs?: string[], pending?: string[]}} state  what an earlier read of the same file found */
@@ -29,6 +42,11 @@ export class LibraryWatch {
         // Calls whose answer has not been read yet; a Codex call may also show up twice (function_call and mcp_tool_call_end).
         this.pending = new Set(Array.isArray(state.pending) ? state.pending : []);
         this.seen = new Set(this.pending);
+        // Playbooks used (ct-<slug> skills), and the skill whose text the next user line brings (Claude Code).
+        this.used = new Set(Array.isArray(state.used) ? state.used : []);
+        this.awaiting = typeof state.awaiting === 'string' ? state.awaiting : null;
+        // Codex reads of a playbook skill's file, by call id, waiting for their output.
+        this.reads = new Map(Object.entries(state.reads ?? {}));
     }
 
     /** Cheap test on the raw line, so a caller can skip JSON.parse for the lines that cannot matter here. */
@@ -41,14 +59,27 @@ export class LibraryWatch {
         if (!d || typeof d !== 'object') return;
 
         // Claude Code: tool_use blocks in the agent's messages, tool_result blocks in the next "user" line.
-        const blocks = Array.isArray(d.message?.content) ? d.message.content : [];
+        const content = d.message?.content;
+        const blocks = Array.isArray(content) ? content : [];
+        if (d.type === 'user' && this.awaiting && !blocks.some((b) => b?.type === 'tool_result')) {
+            // The skill's text, right after it was launched.
+            this.usedSkill(this.awaiting, textOf(content));
+            this.awaiting = null;
+        }
         for (const b of blocks) {
             if (b?.type === 'tool_use' && typeof b.name === 'string' && NAMED.test(b.name)) this.call(b.id);
+            else if (b?.type === 'tool_use' && b.name === 'Skill' && SKILL_NAME.test(b.input?.skill ?? '')) this.awaiting = b.input.skill;
             else if (b?.type === 'tool_result' && this.pending.has(b.tool_use_id)) this.answer(b.tool_use_id, b.content, b.is_error === true);
+        }
+        // Typed by the person: /ct-<slug>.
+        if (d.type === 'user') {
+            const typed = textOf(content).match(/<command-name>\/(ct-[a-z0-9-]+)<\/command-name>/)?.[1];
+            if (typed) this.awaiting = typed;
         }
 
         const p = d.payload;
         if (!p || typeof p !== 'object') return;
+        if (d.type === 'response_item') this.codexSkill(p);
         // Codex: a function call to an MCP tool (the server is the namespace), or a script that calls one.
         if (d.type === 'response_item') {
             if (p.type === 'function_call' && typeof p.name === 'string' && (NAMED.test(p.name) || NAMED.test(`${p.namespace ?? ''}${p.name}`))) this.call(p.call_id);
@@ -61,6 +92,29 @@ export class LibraryWatch {
             this.call(p.call_id);
             this.answer(p.call_id, p.result, p.result?.Err !== undefined);
         }
+    }
+
+    /** Codex: a <skill> block the person asked for, or the agent reading a playbook skill's file and its output. */
+    codexSkill(p) {
+        if (p.type === 'message' && p.role === 'user') {
+            for (const [, name, body] of textOf(p.content).matchAll(/<skill>\s*<name>(ct-[a-z0-9-]+)<\/name>([\s\S]*?)<\/skill>/g)) this.usedSkill(name, body);
+            return;
+        }
+        const input = p.type === 'function_call' ? p.arguments : p.type === 'custom_tool_call' && p.name === 'exec' ? p.input : null;
+        const file = typeof input === 'string' ? input.match(SKILL_FILE)?.[1] : null;
+        if (file && typeof p.call_id === 'string') this.reads.set(p.call_id, file);
+        else if ((p.type === 'function_call_output' || p.type === 'custom_tool_call_output') && this.reads.has(p.call_id)) {
+            this.usedSkill(this.reads.get(p.call_id), textOf(p.output));
+            this.reads.delete(p.call_id);
+        }
+    }
+
+    /** A playbook skill in use: the Build from the link in its text, else from its name if the name was not cut short. */
+    usedSkill(name, text) {
+        const linked = PLAYBOOK_LINK.exec(text ?? '')?.[1];
+        const named = name.length < 64 ? name.slice(3) : null;
+        const slug = linked ?? named;
+        if (slug && SLUG.test(slug) && this.used.size < MAX_SLUGS) this.used.add(slug);
     }
 
     call(id) {
@@ -80,22 +134,36 @@ export class LibraryWatch {
         }
     }
 
-    /** For the site: null when the agent never called the library in this session. */
+    /**
+     * For the site: null when the agent neither called the library nor used a playbook in this session. `used` only when
+     * a playbook was: the Builds whose playbooks the session was built with.
+     */
     result() {
-        return this.calls ? { calls: this.calls, slugs: [...this.slugs] } : null;
+        if (!this.calls && !this.used.size) return null;
+
+        return { calls: this.calls, slugs: [...this.slugs], ...(this.used.size ? { used: [...this.used] } : {}) };
     }
 
     /** To go on from here with the next part of the same file. */
     state() {
-        return { calls: this.calls, slugs: [...this.slugs], pending: [...this.pending] };
+        return { calls: this.calls, slugs: [...this.slugs], pending: [...this.pending], used: [...this.used], awaiting: this.awaiting, reads: Object.fromEntries(this.reads) };
     }
 }
 
-/** "2 calls; 3 Builds used: laravel-horizon-x1, …" for the preview. */
-export function describeLibrary(library) {
-    const calls = `${library.calls} call${library.calls === 1 ? '' : 's'}`;
-    if (!library.slugs.length) return `${calls}, no Builds in the answers`;
-    const names = library.slugs.slice(0, 3).join(', ') + (library.slugs.length > 3 ? ', …' : '');
+/** The text of a message's content: a string, or its text blocks. */
+function textOf(content) {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return content == null ? '' : JSON.stringify(content);
 
-    return `${calls}; ${library.slugs.length} Build${library.slugs.length === 1 ? '' : 's'} used (${names}): their slugs are sent, so the Builds link up on the site`;
+    return content.map((b) => (typeof b === 'string' ? b : typeof b?.text === 'string' ? b.text : typeof b?.content === 'string' ? b.content : '')).join('\n');
+}
+
+/** "2 calls; 3 Builds used: laravel-horizon-x1, …" for the preview, and the playbooks the session was built with. */
+export function describeLibrary(library) {
+    const list = (slugs) => slugs.slice(0, 3).join(', ') + (slugs.length > 3 ? ', …' : '');
+    const calls = `${library.calls} call${library.calls === 1 ? '' : 's'}`;
+    const used = library.used?.length ? `built with the playbook${library.used.length === 1 ? '' : 's'} of ${list(library.used)}` : null;
+    if (!library.slugs.length) return library.calls ? [`${calls}, no Builds in the answers`, used].filter(Boolean).join('; ') + (used ? ': its slug is sent, so the Builds link up on the site' : '') : `${used}: the slug${library.used.length === 1 ? ' is' : 's are'} sent, so the Builds link up on the site`;
+
+    return `${[`${calls}; ${library.slugs.length} Build${library.slugs.length === 1 ? '' : 's'} used (${list(library.slugs)})`, used].filter(Boolean).join('; ')}: their slugs are sent, so the Builds link up on the site`;
 }

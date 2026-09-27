@@ -155,12 +155,23 @@ export function isCodexPrompt(content) {
 /** What Claude Code itself writes as a "user" message: slash commands, their output, background task notices. */
 const WRAPPER = /^<(?:command-(?:name|message|args)|local-command-[a-z]+|task-notification|system-reminder|bash-(?:stdout|stderr))>/;
 
+/** The same blocks whole, as Claude Code also puts them in front of a prompt (the desktop app: a <system-reminder> first). */
+const WRAPPER_BLOCK = /<(command-(?:name|message|args)|local-command-[a-z]+|task-notification|system-reminder|bash-(?:stdout|stderr))(?:\s[^>]*)?>[\s\S]*?<\/\1>/g;
+
+/**
+ * What the person typed, without the wrapper blocks Claude Code added around it, or null when the message is not a
+ * prompt: a tool result, wrappers only, an interruption notice.
+ */
+export function promptText(content) {
+    const text = typeof content === 'string' ? content : Array.isArray(content) && !content.some((b) => b?.type === 'tool_result') ? content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : '';
+    const typed = text.replace(WRAPPER_BLOCK, '').trim();
+
+    return typed !== '' && !WRAPPER.test(typed) && !typed.startsWith('[Request interrupted') ? typed : null;
+}
+
 /** Typed by the person: not a tool result, not a wrapper Claude Code added, not an interruption notice. */
 export function isPrompt(content) {
-    const text = typeof content === 'string' ? content : Array.isArray(content) && !content.some((b) => b?.type === 'tool_result') ? content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : '';
-    const trimmed = text.trim();
-
-    return trimmed !== '' && !WRAPPER.test(trimmed) && !trimmed.startsWith('[Request interrupted');
+    return promptText(content) !== null;
 }
 
 /**

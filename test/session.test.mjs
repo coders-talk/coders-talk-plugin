@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ForkWatch, cutOwnCommand, findRollout, findTranscript, summarize } from '../scripts/lib/session.mjs';
+import { ForkWatch, cutOwnCommand, findRollout, findTranscript, promptText, summarize } from '../scripts/lib/session.mjs';
 
 const line = (d) => JSON.stringify(d);
 const prompt = (text, s) => line({ type: 'user', cwd: '/home/you/code/shop', message: { role: 'user', content: text }, timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:00Z` });
@@ -43,6 +43,22 @@ test('the summary counts prompts typed by the person, tool calls and the time sp
         startedAt: Date.parse('2026-09-01T10:00:00Z'),
         durationSec: 2700,
     });
+});
+
+test('a prompt behind a block Claude Code put in front of it is still a prompt', () => {
+    // The desktop app starts a worktree session's first prompt with a <system-reminder> block of its own.
+    const reminded = [{ type: 'text', text: '<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>' }, { type: 'text', text: 'Add rate limiting' }];
+    assert.equal(promptText(reminded), 'Add rate limiting');
+    assert.equal(promptText('<system-reminder>note</system-reminder>\nKey it by email'), 'Key it by email');
+
+    // Wrappers only, whole or cut short, are still not the person's.
+    assert.equal(promptText([{ type: 'text', text: '<system-reminder>note</system-reminder>' }]), null);
+    assert.equal(promptText('<command-message>loop</command-message>\n<command-name>/loop</command-name>\n<command-args></command-args>'), null);
+    assert.equal(promptText('<local-command-stdout>ok'), null);
+    assert.equal(promptText([{ type: 'text', text: '<system-reminder>x</system-reminder>' }, { type: 'tool_result', content: 'done' }]), null);
+
+    const text = line({ type: 'user', cwd: '/home/you/code/shop', message: { role: 'user', content: reminded }, timestamp: '2026-09-01T10:00:00Z' });
+    assert.equal(summarize(text).prompts, 1);
 });
 
 test('the transcript is found by session id in any project folder', () => {

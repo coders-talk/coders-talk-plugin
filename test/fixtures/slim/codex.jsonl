@@ -1,5 +1,8 @@
 {"timestamp":"2026-09-01T10:00:00.000Z","type":"session_meta","payload":{"id":"s1","cwd":"/home/you/shop","instructions":"long instructions"}}
 {"timestamp":"2026-09-01T10:00:00.000Z","type":"turn_context","payload":{"model":"gpt-5-codex"}}
+{"timestamp":"2026-09-01T10:00:00.500Z","type":"response_item","payload":{"type":"ghost_snapshot","ghost_commit":{"id":"leakcommit","parent":"leakparent","preexisting_untracked_files":["/home/you/leak-secret.txt"]}}}
+{"timestamp":"2026-09-01T10:00:00.600Z","type":"response_item","payload":{"type":"future_item","account_id":"leak-account","data":"future item: leak"}}
+{"timestamp":"2026-09-01T10:00:00.700Z","type":"future_state","payload":{"account_id":"leak-account","note":"future top-level type: leak"}}
 {"timestamp":"2026-09-01T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the flaky checkout test."}]}}
 {"timestamp":"2026-09-01T10:00:02.000Z","type":"event_msg","payload":{"type":"user_message","message":"Fix the flaky checkout test."}}
 {"timestamp":"2026-09-01T10:00:03.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"thinking"}],"encrypted_content":"abc"}}

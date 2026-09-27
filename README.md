@@ -2,7 +2,7 @@
 
 Send the Claude Code or Codex session you are in to [Coders Talk](https://coders.talk) as a draft Build: the prompts, interventions and fails that mattered, with the raw log one layer down. The plugin never publishes. The draft is private: only you see it, or your team when the session ran in one of the team's repositories. You review every moment on the site and publish it there if you want to.
 
-The other way round, the plugin gives your agent the Coders Talk library: before a non-trivial task, or after a few failed attempts, it can look up sessions where other developers did something similar, and what went wrong for them (see [The library in your agent](#the-library-in-your-agent)).
+The other way round, the plugin gives your agent the Coders Talk library: before a non-trivial task, or after a few failed attempts, it can look up sessions where other developers did something similar, and what went wrong for them (see [The library in your agent](#the-library-in-your-agent)). And `/coders-talk:use` puts a published Build's playbook, what that session learned the hard way, into your repository as a skill or a rule (see [Playbooks](#playbooks)).
 
 ## Install
 
@@ -68,12 +68,14 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 | `/coders-talk:login` | Connects this computer through the browser, or says which account it is connected to. |
 | `/coders-talk:logout` | Forgets the token on this computer (revoke it on the site under Settings → Agent plugins). |
 | `/coders-talk:lookup <task>` | Searches the Coders Talk library for sessions of a similar task and shows what came back. The agent also does this by itself (see below). |
+| `/coders-talk:use <link>` | Shows a published Build's playbook as a skill for this agent: the whole text, where it goes and what changed since the version here. Asks, then writes it. `--as rule` or `--as prompt` for the other two forms; `--team <team> --stack <stack>` for your team's rules (see [Playbooks](#playbooks)). |
 
 Sending the same session again updates its draft until you publish it.
 
 Two rules:
 
 - **Commands that send your session** (`build` and `auto`, and `login` and `logout` with them) run only when you type them. The agent never invokes them on its own.
+- **Putting a playbook into your repository** (`use`) runs only when you type it too. The library may tell the agent that a session has a playbook; the agent can only pass that on to you.
 - **Searching the library** is something the agent does by itself when a task calls for it (the `lookup` skill and the `coders-talk` MCP server). It sends a short description of the task and the stack, never the session. Switch it off in `/mcp` (Claude Code) or in `~/.codex/config.toml` (Codex); see [The library in your agent](#the-library-in-your-agent).
 
 A forked session (`/branch` or `--fork-session` in Claude Code, a fork in Codex) is sent as its own draft, and the plugin tells the site which session it came from and where it left it. The fork's Build then says it is a fork and links to the Build of the original session, and the original's Build links to its forks. Whichever of the two is sent first, the link appears once both are on the site. Claude Code writes the lines the fork inherited with the original's session id and Codex names it in the rollout's `session_meta`, so no hook is needed for it.
@@ -116,8 +118,26 @@ The plugin brings an MCP server, `coders-talk` (`https://coders.talk/mcp`), with
   ```
 
 - **Another site.** The plugin's server always points at `https://coders.talk/mcp`: the Claude desktop app compares the address it shows with the session's and does not expand variables, so a `${…}` address breaks signing in there. For another site add your own server and switch the plugin's off: in Claude Code `claude mcp add --transport http coders-talk-dev http://…/mcp`, in Codex `[mcp_servers.coders-talk-dev]` with `url = "http://…/mcp"` in `config.toml`. Sending sessions still follows `CODERS_TALK_URL` and the plugin option `url`.
-- **Which Builds your session used.** When you send a session, the plugin counts the agent's calls to these tools in it and collects the Builds their answers linked to (`/b/<slug>?ref=agent`), up to 20; the preview shows them. The site links your draft to those Builds: "Used from the library" on yours, "Helped N published sessions" on theirs, once yours is published. Only the count and the slugs are sent, never the queries.
+- **Which Builds your session used.** When you send a session, the plugin counts the agent's calls to these tools in it and collects the Builds their answers linked to (`/b/<slug>?ref=agent`), up to 20, and the Builds whose playbooks the agent worked with: a `ct-<slug>` skill it ran (the Skill tool, or `/ct-…` typed in Claude Code; a `<skill>` block, or the agent reading the skill's `SKILL.md`, in Codex), by the Build's link at the end of the skill's text. A playbook written as a rule into `AGENTS.md` or `CLAUDE.md` is in every session whether it helped or not, so it is not counted. The preview shows them. The site links your draft to those Builds: "Used from the library" and "Built with the playbook from @author" on yours, "Helped N published sessions" and "N built with its playbook" on theirs, once yours is published. Only the count and the slugs are sent, never the queries.
 - **A suggestion to share.** Once per session, after an answer, when the agent got Builds from the library and the session changed code, the `Stop` hook shows you one line: "Your agent used 2 Builds from coders.talk in this session. Share yours: /coders-talk:build". It sends nothing, and it never shows with auto mode on. To read the session for it, the hook goes on from where it stopped the last time and keeps that place, the count and the slugs in `~/.coders-talk/nudges/`. Turn it off with `CODERS_TALK_NUDGE=0`, or `node <plugin folder>/scripts/coders-talk.mjs nudge off`. In Codex the hook runs only once you trust the plugin's hooks in `/hooks`.
+
+### Playbooks
+
+A published Build can come with a playbook: what its session taught, written for an agent from the Build's page (when to use it, the approach, the pitfalls, the checks, and a better first prompt). `/coders-talk:use <link or slug>` (`$coders-talk:use` in Codex, `coders-talk use` in a terminal) shows it in full, says where it would go and what changed since the version already here, and writes it only after you say yes.
+
+| `--as` | Claude Code | Codex |
+| --- | --- | --- |
+| `skill` (the default) | `.claude/skills/ct-<slug>/SKILL.md` | `.agents/skills/ct-<slug>/SKILL.md` |
+| `rule` | a block in `CLAUDE.md` | a block in `AGENTS.md` |
+| `prompt` | shown, not written | shown, not written |
+
+- The paths are at the root of the repository you are in, or in the folder itself outside a repository. A skill is a folder of its own: delete the folder and it is gone. The agent opens it by itself when a task matches its description; its front matter has a name and a description and nothing else, so no tool permissions.
+- A rule is the block between `<!-- coders-talk:<slug>@<version> -->` and `<!-- /coders-talk:<slug> -->`; the rest of the file stays as it was, line endings included. When `CLAUDE.md` imports `@AGENTS.md`, the block goes into `AGENTS.md` once and both agents read it. With both files and no import, it goes into the file of the agent you chose, and the output says the other agent will not see it.
+- `.coders-talk/uses.json` in the repository notes what was written: the Build, the version, the format and the agent. Nothing updates by itself: `use` again shows what changed and asks again.
+- In a terminal it asks `[y/N]` before writing, and asks for which agent when both are on this computer. For scripts, `--agent=claude|codex` and `--write` answer both.
+- It asks the site for one public file, `/b/<slug>/use/<format>.md`, with `via=cli` and the agent; the request that goes with writing adds `write=1`, which the site counts as a use (once a day). Nothing about your repository goes with it, and no token: only when the file is not public (a Build of your team that is not published) does it ask again with your sign-in, and only this site ever gets it. A team's own Build is not counted.
+- Your team's rules: `use --team=<team> --stack=<stack>`, as the team's page shows it. The pitfalls of the team's own playbooks on that stack, the same one gathered from several sessions once, in one block in `CLAUDE.md` or `AGENTS.md` (`<!-- coders-talk:team-<team>-<stack>@<version> -->`), written the same way as a rule. For members only, so it needs the sign-in; each member gets the sessions they can see.
+- Once written, it prints the Build's link with `?ref=use`: open it after your agent has worked with the playbook and say whether it worked for you.
 
 ### Git hooks
 
@@ -142,7 +162,7 @@ A repository whose hooks live elsewhere (`core.hooksPath`: husky, lefthook, a sh
 - The number of tokens the session spent per model (input, output, cache reads and writes), counted from the session file before it is slimmed. Only the counts; they show on the Build and in your team's numbers.
 - For a forked session, the id of the session it was forked from and the time of the fork, so the site can link the two Builds.
 - If the agent used the Coders Talk library in the session: how many times it called it, and the slugs of the Builds it got (up to 20).
-- Apart from sessions: the library searches the agent makes by itself (a short task description and the stack; see [The library in your agent](#the-library-in-your-agent)).
+- Apart from sessions: the library searches the agent makes by itself (a short task description and the stack; see [The library in your agent](#the-library-in-your-agent)), and `use`, which only fetches a public playbook ([Playbooks](#playbooks)).
 - The token can start imports and read the library. Revoke it in Settings at any time.
 
 ## Configuration

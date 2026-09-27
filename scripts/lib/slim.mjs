@@ -7,20 +7,30 @@
  * and send that, so a 60 MB session uploads as about 1 MB. Anything that is not JSON lines is
  * returned unchanged.
  */
-const DROP_TYPES = new Set([
-    'file-history-snapshot',
-    'file-history-delta',
-    'attachment',
-    'queue-operation',
-    'last-prompt',
-    'custom-title',
-    'agent-name',
-    'atis-latch',
-    'cost-state',
-    'mode',
-    'summary',
-    'system',
-    'progress',
+/*
+ * Lines are kept by what they are, never by what they are not: Claude Code and the desktop app keep adding bookkeeping
+ * lines (bridge-session with account and organization ids, frame-link, artifact-*), and a list of what to drop is
+ * always one release behind. A line of a type not named here goes nowhere.
+ */
+/** Claude Code's conversation lines and Pi's (its message lines): their message goes, as role and content. */
+const MESSAGE_TYPES = new Set(['user', 'assistant', 'message']);
+/** The Codex items the server reads (TurnParser): what was said, tool calls and their output. */
+const CODEX_ITEMS = new Set(['message', 'function_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output']);
+const CODEX_KEYS = ['type', 'role', 'content', 'name', 'arguments', 'input', 'output', 'exit_code', 'changes'];
+/**
+ * Other exports (older Codex rollouts, chat dumps) put a turn on the line itself. It is kept when it names a speaker
+ * TurnParser knows (its role(), by role or else type), with only the keys TurnParser reads.
+ */
+const SPEAKERS = new Set([
+    'user', 'human', 'you',
+    'assistant', 'ai', 'model', 'agent', 'claude', 'bot',
+    'tool', 'function', 'tool_result', 'toolresult', 'function_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output',
+]);
+const TURN_KEYS = ['type', 'role', 'timestamp', 'ts', 'created_at', 'text', 'content', 'output', 'name', 'arguments', 'input', 'exit_code', 'changes'];
+/** Lines the plugin writes itself: what git saw change (snapshots.mjs) and the session's folders (learnFolders). */
+const OWN_LINES = new Map([
+    ['git-changes', ['type', 'timestamp', 'by', 'changes', 'commits']],
+    ['folders', ['type', 'timestamp', 'main', 'added']],
 ]);
 const TOOL_LINES = 60;
 const TOOL_CHARS = 8000;
@@ -30,7 +40,9 @@ const CHANGE_CHARS = 20000;
 function cut(value, lines = TOOL_LINES) {
     const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
     const all = text.split('\n');
-    const kept = all.length > lines ? `${all.slice(0, lines).join('\n')}\n… ${all.length - lines} more lines` : text;
+    // Cut before (the plugin's lines, slimmed again on the server): the count of what was cut stays.
+    const done = all.length === lines + 1 && /^… \d+ more lines$/.test(all[lines]);
+    const kept = all.length > lines && !done ? `${all.slice(0, lines).join('\n')}\n… ${all.length - lines} more lines` : text;
     return kept.length > TOOL_CHARS ? `${kept.slice(0, TOOL_CHARS)}…` : kept;
 }
 function blockText(value) {
@@ -299,10 +311,10 @@ function slimCodexLine(type, timestamp, payload, ctx = {}) {
     // session_meta, turn_context, compacted, world_state, token_usage_record: bookkeeping, some of it huge.
     if (type !== 'response_item')
         return null;
-    const p = { ...payload };
-    delete p.internal_chat_message_metadata_passthrough;
-    if (p.type === 'reasoning' || p.type === 'compaction')
+    // reasoning, compaction, ghost_snapshot, web_search_call and whatever comes next: not read, not sent.
+    if (typeof payload.type !== 'string' || !CODEX_ITEMS.has(payload.type))
         return null;
+    const p = only(payload, CODEX_KEYS);
     // Developer messages are the app's instructions to the model, not the conversation.
     if (p.type === 'message' && (p.role === 'developer' || p.role === 'system'))
         return null;
@@ -397,14 +409,14 @@ export function slimLine(d, ctx = {}) {
     const folders = learnFolders(d, type, payload, ctx);
     if (folders)
         return folders;
-    if (type && DROP_TYPES.has(type))
-        return null;
     // Codex rollout: {timestamp, type: 'response_item', payload: {...}}
     if (payload)
         return slimCodexLine(type, d.timestamp, payload, ctx);
     // Claude Code: {type, timestamp, message: {role, content}}, plus big copies like toolUseResult we skip.
     // isMeta marks messages Claude Code wrote in the person's name (skill bodies, caveats): the server skips them.
     if (d.message && typeof d.message === 'object') {
+        if (type !== undefined && !MESSAGE_TYPES.has(type))
+            return null;
         const m = d.message;
         const content = Array.isArray(m.content) ? m.content.map(slimBlock).filter(Boolean) : m.content;
         // The change an edit made rides on its result; a line carries one tool result, so there is no doubt whose.
@@ -414,7 +426,15 @@ export function slimLine(d, ctx = {}) {
             results[0].change = change;
         return { type, timestamp: d.timestamp, ...(d.isMeta === true ? { isMeta: true } : {}), message: { role: m.role, content } };
     }
-    return d;
+    const own = typeof type === 'string' ? OWN_LINES.get(type) : undefined;
+    if (own)
+        return only(d, own);
+    const speaker = typeof d.role === 'string' ? d.role : type;
+    return typeof speaker === 'string' && SPEAKERS.has(speaker.toLowerCase()) ? only(d, TURN_KEYS) : null;
+}
+/** The keys that are present, in the order given. */
+function only(d, keys) {
+    return Object.fromEntries(keys.filter((k) => k in d).map((k) => [k, d[k]]));
 }
 /**
  * The slim JSON lines of a session, or null when the text is not JSON lines: then it goes as it is.

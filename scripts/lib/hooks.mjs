@@ -19,7 +19,7 @@
  *
  * Git snapshots (lib/snapshots.mjs) are Claude Code's: at the start, at each prompt and after each answer.
  */
-import { autoMode, catchUp, inBackground, RUNNING_MODES, syncDue, trackSession, waitForSend } from './auto.mjs';
+import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, settled, stillHeld, syncDue, trackSession, waitForSend } from './auto.mjs';
 import { siteUrl } from './config.mjs';
 import { currentHead } from './git.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
@@ -97,6 +97,7 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
     }
 
     if (id && RUNNING_MODES.includes(autoMode(site, agent))) {
+        removeStaleTemps();
         trackSession(site, id, { path: event.transcript_path, agent });
         if (catchUp(site, id, agent).length) inBackground(['auto-catch-up', id, ...agentArgs]);
     }
@@ -125,7 +126,7 @@ function stop({ event, agent, site, id, agentArgs }) {
 async function sessionEnd({ event, agent, site, id, agentArgs }) {
     if (!id || !RUNNING_MODES.includes(autoMode(site, agent))) return;
     const session = trackSession(site, id, { path: event.transcript_path, agent });
-    if (session.skip) return;
+    if (settled(session) || stillHeld(session)) return;
 
     const started = Date.now();
     trackSession(site, id, { tried: started });

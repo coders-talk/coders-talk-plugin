@@ -34,6 +34,13 @@
  *   coders-talk build [number|session-id]       in a terminal: preview, a yes or no, send. The number is one from
  *                                                 `sessions`; without one, the newest session. Takes preview's and
  *                                                 send's options. Not without a terminal: nothing may skip the question
+ *   coders-talk use <build link or slug>        a published Build's playbook (plan: library, stage 22.3, lib/playbooks.mjs):
+ *     --as=skill|rule|prompt                      shows the text, where it goes and what changed since the version here;
+ *     --agent=claude|codex                        for which agent (in a terminal it asks when both are here)
+ *     --write                                     writes it (a terminal asks instead); a prompt is never written
+ *                                                 A team's own Build needs the sign-in: the token goes to the site then only
+ *   coders-talk use --team=<team> --stack=<stack>  the team's rules for a stack (22.5): its pitfalls, one block in
+ *                                                 CLAUDE.md or AGENTS.md; --agent and --write as above
  *   coders-talk enable | disable | status       connects Claude Code and Codex to this coders-talk through their plugin
  *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
  *     --yes  --agent=claude-code,codex  --auto=off|on|team|push  --mcp=remove|keep
@@ -56,13 +63,15 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { createInterface as createPrompt } from 'node:readline/promises';
 import { gzipSync } from 'node:zlib';
-import { AUTO_MODES, autoMode, catchUp, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
+import { AUTO_MODES, autoMode, autoSession, catchUp, currentSize, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { Failure } from './lib/failure.mjs';
 import { folderGitContexts, gitContext } from './lib/git.mjs';
 import { disable, enable, refresh, status } from './lib/enable.mjs';
 import { runGitHook } from './lib/githooks.mjs';
+import { detectAgents, installedPlugins } from './lib/agents.mjs';
+import { AGENTS as USE_AGENTS, FORMATS as USE_FORMATS, agentOf, buildSlug, findBlock, lineDiff, projectRoot, readUses, recordUse, ruleTarget, shown, skillName, withBlock, writeText } from './lib/playbooks.mjs';
 import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
@@ -146,12 +155,13 @@ try {
     else if (command === 'update') await update(argId, { check: args.includes('--check') });
     else if (command === 'sessions') await sessions();
     else if (command === 'build') await build(argId);
+    else if (command === 'use') await use(argId);
     else if (command === 'enable') await enable({ site, version: VERSION, interactive: TERMINAL, flags: setupFlags() });
     else if (command === 'disable') await disable({ interactive: TERMINAL, flags: setupFlags() });
     else if (command === 'status') status({ site, version: VERSION });
     // What `update` runs with the new file: the plugin laid out again, in the new version.
     else if (command === 'refresh-plugin') refresh({ site, version: VERSION });
-    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
+    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | use <build> [--as=skill|rule|prompt] | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
     // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
     if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
@@ -212,7 +222,7 @@ async function prepare(id, cut = true) {
     const slim = privacy.jsonl(withGitLines(kept.split('\n'), gitLines).join('\n'));
     if (gitLines.length) session.code = gitCode(gitLines);
     const stats = summarize(kept, session.cwd);
-    if (slim.trim() === '' || stats.prompts === 0) throw new Failure('There is nothing to send yet: the session has no prompts before this command.');
+    if (slim.trim() === '' || stats.prompts === 0) throw new Failure(`There is nothing to send yet: the session has no prompts${cut ? ' before this command' : ''}.`);
 
     const gz = gzipSync(Buffer.from(slim, 'utf8'));
     if (gz.length > MAX_UPLOAD) {
@@ -606,6 +616,198 @@ async function build(which) {
     if (sent !== 0) process.exit(sent);
 }
 
+/**
+ * `use <build>` (plan: library, stage 22.3): a Build's playbook into this repository, for Claude Code or Codex. Without
+ * --write it only shows: the whole text, where it goes, and what changed since the version written here before. The
+ * plugin's `use` skill shows that to the person and asks before it runs --write; in a terminal the command asks
+ * itself. Nothing here follows the playbook: it is another developer's experience, for the person to read first.
+ */
+async function use(what) {
+    if (option('team') !== undefined || option('stack') !== undefined) return useTeamRules(option('team'), option('stack'));
+    const slug = buildSlug(what);
+    if (!slug) throw new Failure(`Which Build? Give its link or its slug: ${run('use')} <link> [--as=skill|rule|prompt].`);
+    const format = option('as') ?? (args.includes('--as') ? positional[2] : null) ?? 'skill';
+    if (!USE_FORMATS.includes(format)) throw new Failure(`--as takes skill, rule or prompt, not "${format}".`);
+    const agent = await useAgent();
+    const target = USE_AGENTS[agent];
+    const write = args.includes('--write');
+
+    // ?via=cli: the site tells this apart from the page (22.4); &write=1 is a playbook written into a repository, which
+    // it counts as a use. The text is the same for everyone.
+    const path = `/b/${slug}/use/${format}.md?via=cli&agent=${agent}`;
+    const first = write && format !== 'prompt' ? `${path}&write=1` : path;
+    let response = await siteGet(first);
+    // A team's own Build (22.5) is no public file: asked again with the sign-in, which only this site ever gets.
+    const signed = response.status === 404 && Boolean(token);
+    if (signed) response = await siteGet(first, { signed });
+    if (response.status === 404) {
+        throw new Failure(`${site}/b/${slug} has no playbook to use: the Build is not public${token ? ' or a Build of your team' : ` (a team's own Build needs you signed in: ${run('login')})`}, its author keeps it for reading, or it has not passed the agent-safety check. The page says which.`);
+    }
+    if (!response.ok) throw Object.assign(new Failure(`The site answered ${response.status}.`), { unavailable: response.status >= 500 });
+    const text = (await response.text()).replace(/\r\n/g, '\n');
+    const hash = (response.headers.get('etag') ?? '').replace(/^W\//, '').replace(/"/g, '') || sha256(text).slice(0, 12);
+    const source = `${site}/b/${slug}`;
+
+    if (format === 'prompt') {
+        console.log(`The prompt of ${source}, version ${hash}, for ${target.name}:`);
+        console.log(`----- prompt -----\n${text.replace(/\n$/, '')}\n----- end -----`);
+        console.log('Nothing is written: paste it as the first message of your next session. Fill in the <your …> blanks first, or leave them for the agent to ask about.');
+        return;
+    }
+
+    const root = projectRoot(process.cwd());
+    const change = format === 'skill' ? skillChange(root, target, slug, text) : ruleChange(root, agent, slug, text);
+    const had = readUses(root).find((u) => u.slug === slug && u.format === format && u.agent === agent);
+    const was = change.before === null ? null : change.oldHash ?? had?.hash ?? 'unknown';
+
+    console.log(`The playbook of ${source} as a ${target.name} ${format}, version ${hash}. It is advice from another developer's session: read it before your agent acts on it.`);
+    console.log(`  Goes to: ${shown(root, change.file)}${change.same ? ' (already there, unchanged)' : change.before === null ? (existsSync(change.file) ? ' (added to the file)' : ' (new)') : ` (replaces version ${was})`}`);
+    if (change.note) console.log(`  ${change.note}`);
+    console.log(`----- ${change.shows} -----\n${change.after.replace(/\n$/, '')}\n----- end -----`);
+    if (change.before !== null && !change.same) console.log(`What changed since the version here (${was}):\n${lineDiff(change.before, change.after)}`);
+
+    if (change.same) {
+        if (write) recordUse(root, { slug, hash, format, agent, path: shown(root, change.file) });
+        return console.log('Nothing to write: this version is already here.');
+    }
+    if (!write) {
+        if (!TERMINAL) return console.log('Nothing is written yet: the same command with --write writes it.');
+        const prompt = createPrompt({ input: process.stdin, output: process.stdout });
+        const answer = (await prompt.question(`Write it to ${shown(root, change.file)}? [y/N] `)).trim().toLowerCase();
+        prompt.close();
+        if (!['y', 'yes'].includes(answer)) return console.log('Nothing was written.');
+        // The yes of a terminal, told to the site as the --write of an agent's skill is.
+        await siteGet(`${path}&write=1`, { signed }).catch(() => undefined);
+    }
+
+    writeText(change.file, change.content);
+    recordUse(root, { slug, hash, format, agent, path: shown(root, change.file) });
+    console.log(format === 'skill'
+        ? `Written: ${shown(root, change.file)}. ${target.name} opens the skill ${skillName(slug)} by itself when a task matches its description. To take it away, delete its folder.`
+        : `Written: the block for ${slug} in ${shown(root, change.file)}. The agent reads it at the start of every session. A newer version replaces only that block; the rest of the file is as it was.`);
+    console.log(`Noted in ${shown(root, join(root, '.coders-talk', 'uses.json'))}. Nothing updates by itself: ${run('use')} ${slug} again shows what changed.`);
+    console.log(`Once your agent has worked with it, say how it went: ${source}?ref=use&agent=${agent}`);
+}
+
+/**
+ * `use --team=<team> --stack=<stack>` (plan: library, stage 22.5): the team's rules for one stack, the pitfalls of its
+ * own playbooks, as a block in CLAUDE.md or AGENTS.md. For members only, so with the sign-in; the same showing, asking
+ * and writing as a Build's rule. The block's marker names the team and the stack: a newer set replaces it.
+ */
+async function useTeamRules(team, stack) {
+    const slugPart = (value) => (value ?? '').trim().toLowerCase();
+    team = slugPart(team);
+    stack = slugPart(stack);
+    if (!/^[a-z0-9-]+$/.test(team) || !/^[a-z0-9-]+$/.test(stack)) {
+        throw new Failure(`Which team and which stack? ${run('use')} --team=<team> --stack=<stack>, as the team's page shows it.`);
+    }
+    const as = option('as');
+    if (as && as !== 'rule') throw new Failure("A team's rules are a rule only: leave --as out.");
+    if (!token) throw new Failure(`A team's rules are for its members: sign in first with ${run('login')}.`);
+    const agent = await useAgent();
+    const target = USE_AGENTS[agent];
+    const write = args.includes('--write');
+
+    const response = await siteGet(`/t/${team}/rules/${stack}.md?via=cli&agent=${agent}`, { signed: true });
+    if (response.status === 404) {
+        throw new Failure(`${team} has no rules on ${stack} that you can see: you are not in the team, or none of its playbooks on that stack is ready yet. The team's page lists the stacks: ${site}/t/${team}`);
+    }
+    if (!response.ok) throw Object.assign(new Failure(`The site answered ${response.status}.`), { unavailable: response.status >= 500 });
+    const text = (await response.text()).replace(/\r\n/g, '\n');
+    const marker = /<!-- coders-talk:(team-[a-z0-9-]+)@([A-Za-z0-9]+) -->/.exec(text);
+    if (!marker) throw new Failure('The site sent something other than a block of rules. Update the plugin, then try again.');
+    const [, slug, hash] = marker;
+
+    const root = projectRoot(process.cwd());
+    const change = ruleChange(root, agent, slug, text);
+    const was = change.before === null ? null : change.oldHash ?? 'unknown';
+    console.log(`The rules of ${team} for ${stack}, for ${target.name}, version ${hash}: where the team's agents went wrong, from the team's own sessions.`);
+    console.log(`  Goes to: ${shown(root, change.file)}${change.same ? ' (already there, unchanged)' : change.before === null ? (existsSync(change.file) ? ' (added to the file)' : ' (new)') : ` (replaces version ${was})`}`);
+    if (change.note) console.log(`  ${change.note}`);
+    console.log(`----- ${change.shows} -----\n${change.after.replace(/\n$/, '')}\n----- end -----`);
+    if (change.before !== null && !change.same) console.log(`What changed since the version here (${was}):\n${lineDiff(change.before, change.after)}`);
+
+    const note = { slug, hash, format: 'rule', agent, path: shown(root, change.file), team, stack };
+    if (change.same) {
+        if (write) recordUse(root, note);
+        return console.log('Nothing to write: this version is already here.');
+    }
+    if (!write) {
+        if (!TERMINAL) return console.log('Nothing is written yet: the same command with --write writes it.');
+        const prompt = createPrompt({ input: process.stdin, output: process.stdout });
+        const answer = (await prompt.question(`Write it to ${shown(root, change.file)}? [y/N] `)).trim().toLowerCase();
+        prompt.close();
+        if (!['y', 'yes'].includes(answer)) return console.log('Nothing was written.');
+    }
+
+    writeText(change.file, change.content);
+    recordUse(root, note);
+    console.log(`Written: the block ${slug} in ${shown(root, change.file)}. The agent reads it at the start of every session. A newer set replaces only that block; the rest of the file is as it was.`);
+    console.log(`Nothing updates by itself: ${run('use')} --team=${team} --stack=${stack} again shows what changed.`);
+}
+
+/** The skill's folder: SKILL.md written whole, in place of an earlier version. */
+function skillChange(root, target, slug, text) {
+    const file = join(root, ...target.skills, skillName(slug), 'SKILL.md');
+    const before = existsSync(file) ? readFileSync(file, 'utf8').replace(/\r\n/g, '\n') : null;
+
+    return { file, before, after: text, content: text, same: before === text, shows: shown(root, file), oldHash: null, note: null };
+}
+
+/** The block between this Build's markers in CLAUDE.md or AGENTS.md; the rest of the file is kept. */
+function ruleChange(root, agent, slug, text) {
+    const { file, name, note } = ruleTarget(root, agent);
+    const current = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    const found = findBlock(current, slug);
+    const before = found ? found.text.replace(/\r\n/g, '\n') : null;
+    const content = withBlock(current, slug, text);
+
+    return { file, before, after: text, content, same: before !== null && before.replace(/\n*$/, '') === text.replace(/\n*$/, ''), shows: `${name}, the block for ${slug}`, oldHash: found?.hash ?? null, note };
+}
+
+/**
+ * The agent the playbook is for: --agent, which the plugin's skills always pass. In a terminal without it, the agent
+ * whose Coders Talk plugin is installed here, or the one that is here at all; when both are, the person picks.
+ */
+async function useAgent() {
+    const given = option('agent');
+    if (given) {
+        const agent = agentOf(given);
+        if (!agent) throw new Failure(`--agent takes claude or codex, not "${given}".`);
+        return agent;
+    }
+    if (!TERMINAL) throw new Failure('Say which agent it is for: --agent=claude or --agent=codex.');
+
+    const here = detectAgents().filter((a) => a.present);
+    const withPlugin = here.filter((a) => installedPlugins(a).length);
+    const candidates = withPlugin.length ? withPlugin : here;
+    if (candidates.length === 1) return candidates[0].id === 'codex' ? 'codex' : 'claude';
+
+    const prompt = createPrompt({ input: process.stdin, output: process.stdout });
+    const answer = (await prompt.question('For Claude Code or Codex? [c/x] ')).trim().toLowerCase();
+    prompt.close();
+    const agent = { c: 'claude', claude: 'claude', x: 'codex', codex: 'codex' }[answer];
+    if (!agent) throw new Failure('Nothing was written. Name the agent with --agent=claude or --agent=codex.');
+
+    return agent;
+}
+
+/**
+ * A GET of one of the site's pages or files, with the same errors as api(). Public ones go without the sign-in; signed
+ * (a team's own playbook or rules, 22.5) adds it. The token is this site's own (savedToken(site)): it goes nowhere else.
+ */
+async function siteGet(path, { signed = false } = {}) {
+    const headers = { Accept: 'text/markdown, text/plain', 'User-Agent': `${AGENT.client}/${VERSION}` };
+    if (signed && token) headers.Authorization = `Bearer ${token}`;
+    try {
+        return await request(site + path, { headers });
+    } catch (e) {
+        const denied = (error) => error && (['EACCES', 'EPERM'].includes(error.code) || denied(error.cause) || error.errors?.some(denied));
+        if (CODEX && denied(e)) throw new Failure(`Network access to ${site} was denied. Run the same command again with network access (approve the request when Codex asks).`);
+        throw unavailable(`Could not reach ${site}: ${e.cause?.message ?? e.message}`);
+    }
+}
+
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
 function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null } = {}) {
     const form = new FormData();
@@ -702,13 +904,20 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
     const remember = (patch) => trackSession(site, id, patch);
     // Nothing went: the session-end hook stops waiting for it (lib/auto.mjs, waitForSend).
     const giveUp = (result) => (remember({ failed: Date.now() }), log(result));
+    // Not sent for what the file holds now: looked at again once it grows (lib/auto.mjs, trackSession), said once.
+    const hold = (size, why, result) => {
+        const before = autoSession(site, id)?.held?.why;
+        remember({ held: { at: Date.now(), size, why }, skip: null });
+        if (before !== why) log(result);
+    };
     if (!token) return giveUp('skipped: this computer is not connected');
 
     let session;
     try {
         session = await prepare(id, false);
     } catch (e) {
-        return giveUp(`skipped: ${e instanceof Failure ? e.message : e}`);
+        const size = e instanceof Failure ? currentSize(autoSession(site, id)) : null;
+        return size === null ? giveUp(`skipped: ${e instanceof Failure ? e.message : e}`) : hold(size, e.message, `skipped: ${e.message}`);
     }
 
     let space = null;
@@ -722,8 +931,7 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
         const owner = session.git?.remote?.match(/^https:\/\/github\.com\/([^/]+)\//)?.[1]?.toLowerCase();
         const asking = owner ? teams.filter((t) => t.auto_capture && (t.github_owners ?? []).includes(owner)) : [];
         if (asking.length !== 1) {
-            remember({ skip: 'not a team repository' });
-            return log('skipped: not a repository of a team that asks for automatic sending');
+            return hold(session.session.bytes, 'not a team repository', 'skipped: not a repository of a team that asks for automatic sending (looked at again when the session grows)');
         }
         space = asking[0].slug;
     }
@@ -737,7 +945,7 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
                 remember({ skip: r.reason });
                 return log(`skipped: ${r.reason === 'published' ? 'already published' : 'its draft is not yours to change'}`);
             }
-            remember({ sent: { at: Date.now(), size: session.session.bytes, final } });
+            remember({ sent: { at: Date.now(), size: session.session.bytes, final }, held: null, skip: null });
             const where = r.space?.type === 'team' ? r.space.name : 'your private Builds';
             return log(`${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : push ? ' at a push' : ''}: ${r.edit_url}`);
         } catch (e) {

@@ -21,7 +21,7 @@
  * for the sessions auto mode saw, where their file is and how much of it went. Never anything from the conversation.
  */
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { home } from './credentials.mjs';
 import { selfCommand } from './runtime.mjs';
@@ -54,12 +54,45 @@ function read(path) {
     }
 }
 
+/** Windows refuses a rename onto a file another process has open for a moment (a hook reading it): tried again. */
+const RENAME_TRIES = 20;
+const RENAME_WAIT_MS = 50;
+const BUSY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+/** A temp file this old was left by a write that died; one being written is gone in milliseconds. */
+const STALE_TEMP_MS = 60_000;
+
 /** Written whole and renamed into place: hooks of several sessions may write at once, and a torn file loses them all. */
 function write(path, data) {
     mkdirSync(join(path, '..'), { recursive: true });
     const temp = `${path}.${process.pid}.tmp`;
     writeFileSync(temp, JSON.stringify(data, null, 2));
-    renameSync(temp, path);
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return renameSync(temp, path);
+        } catch (e) {
+            if (attempt < RENAME_TRIES && BUSY_CODES.has(e.code)) {
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_WAIT_MS);
+                continue;
+            }
+            rmSync(temp, { force: true });
+            throw e;
+        }
+    }
+}
+
+/** Removes the temp files of writes that died half way (a rename Windows refused used to leave them behind). */
+export function removeStaleTemps(dir = home(), now = Date.now()) {
+    let names;
+    try {
+        names = readdirSync(dir);
+    } catch {
+        return;
+    }
+    for (const name of names) {
+        if (!/^auto-sessions\.json\.\d+\.tmp$/.test(name)) continue;
+        const file = fileStat(join(dir, name));
+        if (file && now - file.mtimeMs >= STALE_TEMP_MS) rmSync(join(dir, name), { force: true });
+    }
 }
 
 /** auto.json per site: Claude Code's choice at the top, as 0.7 wrote it, and Codex's under "codex". */
@@ -108,7 +141,9 @@ export function autoSession(site, id, dir = home()) {
  *   seen      when auto mode first saw it
  *   tried     when a send last started
  *   sent      {at, size, final} of the last send the site took
- *   skip      why it is not sent again (published, not a team repository)
+ *   held      {at, size, why} when it was last not sent for what it held then: no prompts yet, not a repository of a
+ *             team that asks for it. Looked at again once the file grows: a prompt comes, a team turns it on
+ *   skip      why it is never sent again (published, a draft that is not the person's)
  */
 export function trackSession(site, id, patch = {}, dir = home(), now = Date.now()) {
     const all = read(sessionsFile(dir));
@@ -130,14 +165,37 @@ function fileStat(path) {
     }
 }
 
+/** Up to 0.11 a session outside the team's repositories was skipped for good; now it is held (trackSession). */
+const LEGACY_HOLD = 'not a team repository';
+
+/** Never sent again: published, or a draft that is not the person's. */
+export function settled(session) {
+    return !!session?.skip && session.skip !== LEGACY_HOLD;
+}
+
+/** The size of the session's file now, or null when it is gone. */
+export function currentSize(session) {
+    return session?.path ? (fileStat(session.path)?.size ?? null) : null;
+}
+
+/** Held (trackSession) and not grown since: sending it again would only say the same. */
+export function stillHeld(session) {
+    const size = currentSize(session);
+
+    return !!session?.held && size !== null && size <= session.held.size;
+}
+
+/** How much of the file auto mode is done with: what went, or what was held back. */
+const doneWith = (session) => Math.max(session.sent?.size ?? 0, session.held?.size ?? 0);
+
 /**
  * Whether the Stop hook sends this session now: it grew since the last send, and the last send (or the start) is
  * SYNC_EVERY_MS ago. A short session is never synced: its end sends it.
  */
 export function syncDue(session, now = Date.now()) {
-    if (!session?.path || session.skip) return false;
+    if (!session?.path || settled(session)) return false;
     const file = fileStat(session.path);
-    if (!file || file.size <= (session.sent?.size ?? 0)) return false;
+    if (!file || file.size <= doneWith(session)) return false;
 
     return now - Math.max(session.seen ?? 0, session.tried ?? 0) >= SYNC_EVERY_MS;
 }
@@ -153,9 +211,9 @@ export function catchUp(site, current, agent = 'claude-code', dir = home(), now 
     const sessions = read(sessionsFile(dir))[site] ?? {};
 
     return Object.entries(sessions)
-        .filter(([id, s]) => id !== current && s.path && !s.skip && (s.agent ?? 'claude-code') === agent)
-        .map(([id, s]) => ({ id, file: fileStat(s.path), sent: s.sent }))
-        .filter(({ file, sent }) => file && file.size > (sent?.size ?? 0) && now - file.mtimeMs >= BUSY_MS)
+        .filter(([id, s]) => id !== current && s.path && !settled(s) && (s.agent ?? 'claude-code') === agent)
+        .map(([id, s]) => ({ id, file: fileStat(s.path), done: doneWith(s) }))
+        .filter(({ file, done }) => file && file.size > done && now - file.mtimeMs >= BUSY_MS)
         .sort((a, b) => a.file.mtimeMs - b.file.mtimeMs)
         .slice(0, CATCH_UP)
         .map(({ id, file }) => ({ id, final: now - file.mtimeMs >= IDLE_MS }));
@@ -175,7 +233,7 @@ export function inBackground(args, env = process.env) {
 export async function waitForSend(site, id, since, ms, dir = home()) {
     for (const deadline = Date.now() + ms; Date.now() < deadline; ) {
         const session = autoSession(site, id, dir);
-        if ((session?.sent?.at ?? 0) >= since || session?.skip || (session?.failed ?? 0) >= since) return true;
+        if ((session?.sent?.at ?? 0) >= since || settled(session) || (session?.held?.at ?? 0) >= since || (session?.failed ?? 0) >= since) return true;
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
 

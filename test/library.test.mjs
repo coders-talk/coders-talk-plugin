@@ -83,6 +83,59 @@ test('at most twenty Builds, and a read can go on from where the last one stoppe
     assert.equal(LibraryWatch.worthParsing(JSON.stringify(ccCall('t', 'search_coding_agent_sessions'))), true);
 });
 
+// A playbook skill's text as `coders-talk use` wrote it (plan: library, stage 22.4): the Build's link at the end.
+const skillText = (slug) => `---\nname: ct-${slug.slice(0, 61)}\ndescription: "Use when …"\n---\n\n# A playbook\n\n---\n\nFrom ${SITE}/b/${slug}?ref=playbook by @mara · Sep 2026 · Laravel`;
+const LONG = 'migrate-forty-laravel-queue-jobs-to-go-workers-without-downtime-k3x9q';
+
+test('Claude Code: a playbook skill run by the agent or typed by the person counts, by the link in its text', () => {
+    assert.deepEqual(watch([
+        ccTool('s1', 'Skill', { skill: 'ct-horizon-queues-ab12' }),
+        ccResult('s1', 'Launching skill: ct-horizon-queues-ab12'),
+        { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: skillText('horizon-queues-ab12') }] } },
+        // A name cut at 64 characters: the link says which Build.
+        ccTool('s2', 'Skill', { skill: `ct-${LONG}`.slice(0, 64) }),
+        ccResult('s2', `Launching skill: ct-${LONG}`.slice(0, 81)),
+        { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: skillText(LONG) }] } },
+        // Typed: /ct-… then the skill's text.
+        { type: 'user', message: { role: 'user', content: '<command-message>ct-vite-manifest</command-message>\n<command-name>/ct-vite-manifest</command-name>' } },
+        { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: skillText('vite-manifest') }] } },
+    ]), { calls: 0, slugs: [], used: ['horizon-queues-ab12', LONG, 'vite-manifest'] });
+
+    // Skills that are not playbooks, and a rule's link in a message that is no skill's text, do not count.
+    assert.equal(watch([
+        ccTool('s3', 'Skill', { skill: 'artifact-design' }),
+        ccResult('s3', 'Launching skill: artifact-design'),
+        { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: 'Design lead…' }] } },
+        { type: 'user', message: { role: 'user', content: `<system-reminder>CLAUDE.md: <!-- coders-talk:x@1 -->\nFrom ${SITE}/b/rule-build?ref=playbook</system-reminder>\nFix the queues.` } },
+    ]), null);
+
+    // Named in one part of the file, its text in the next.
+    const first = new LibraryWatch();
+    first.add(ccTool('s1', 'Skill', { skill: 'ct-horizon-queues-ab12' }));
+    first.add(ccResult('s1', 'Launching skill: ct-horizon-queues-ab12'));
+    const next = new LibraryWatch(JSON.parse(JSON.stringify(first.state())));
+    next.add({ type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: skillText('horizon-queues-ab12') }] } });
+    assert.deepEqual(next.result(), { calls: 0, slugs: [], used: ['horizon-queues-ab12'] });
+    assert.equal(LibraryWatch.worthParsing(JSON.stringify(ccTool('s', 'Skill', { skill: 'ct-x' }))), true);
+});
+
+test('Codex: a playbook skill named by the person, or read by the agent itself; a rule in AGENTS.md does not count', () => {
+    const cxUser = (text) => ({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
+    assert.deepEqual(watch([
+        // The rule in AGENTS.md comes with the first message of every session.
+        cxUser(`# AGENTS.md instructions for /repo\n<!-- coders-talk:rule-build@1 -->\nFrom ${SITE}/b/rule-build?ref=playbook\n<!-- /coders-talk:rule-build -->`),
+        cxUser(`<skill>\n<name>ct-horizon-queues-ab12</name>\n<path>/repo/.agents/skills/ct-horizon-queues-ab12/SKILL.md</path>\n${skillText('horizon-queues-ab12')}\n</skill>`),
+        // Picked by the agent: it reads the file, the link is in the output.
+        { type: 'response_item', payload: { type: 'function_call', name: 'shell', arguments: JSON.stringify({ command: ['cat', `.agents/skills/ct-${LONG}`.slice(0, 79) + '/SKILL.md'] }), call_id: 'r1' } },
+        cxOutput('r1', skillText(LONG)),
+        { type: 'response_item', payload: { type: 'custom_tool_call', name: 'exec', input: "await tools.shell({ command: ['Get-Content', '.agents\\\\skills\\\\ct-vite-manifest\\\\SKILL.md'] })", call_id: 'r2' } },
+        cxOutput('r2', skillText('vite-manifest'), 'custom_tool_call_output'),
+    ]), { calls: 0, slugs: [], used: ['horizon-queues-ab12', LONG, 'vite-manifest'] });
+
+    // Writing the skill's file is not using it.
+    assert.equal(watch([cxCustom('p1', 'apply_patch', `*** Begin Patch\n*** Add File: .agents/skills/ct-x/SKILL.md\n+From ${SITE}/b/x?ref=playbook\n*** End Patch`), cxOutput('p1', 'Done', 'custom_tool_call_output')]), null);
+});
+
 test('code changes: edit tools in Claude Code, patches in Codex', () => {
     assert.equal(editsCode(ccTool('t', 'Edit', { file_path: 'a.php' })), true);
     assert.equal(editsCode(ccTool('t', 'Write', { file_path: 'a.php' })), true);

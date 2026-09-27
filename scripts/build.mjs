@@ -8,7 +8,9 @@
  *
  * Writes dist/coders-talk-<platform>-<arch>[.exe] (the release file names, lib/update.mjs assetName) and, with more
  * than one, dist/SHA256SUMS. The version comes from .claude-plugin/plugin.json. The plugin's skills, manifests and hooks go
- * in as CODERS_TALK_PLUGIN_SOURCES: `coders-talk enable` lays the plugin out from them (lib/plugin.mjs).
+ * in as a module that sets globalThis.CODERS_TALK_PLUGIN_SOURCES before the program starts: `coders-talk enable` lays
+ * the plugin out from them (lib/plugin.mjs). Not a --define: at over 32 767 characters it no longer fits on a Windows
+ * command line, and Bun then builds nothing.
  *
  * x64 builds use Bun's baseline runtime, which runs on CPUs without AVX2. A standalone Bun file would read .env and
  * bunfig.toml from the folder it runs in, which is the person's repository here: both are turned off. macOS files must
@@ -16,7 +18,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSources } from './lib/plugin.mjs';
@@ -44,15 +46,19 @@ if (unknown.length) {
 
 const out = join(ROOT, 'dist');
 mkdirSync(out, { recursive: true });
+// The entry of the file: the sources first (modules run in the order they are imported), then the program.
+const entryDir = join(out, '.entry');
+mkdirSync(entryDir, { recursive: true });
+writeFileSync(join(entryDir, 'sources.mjs'), `globalThis.CODERS_TALK_PLUGIN_SOURCES = ${sources};\n`);
+writeFileSync(join(entryDir, 'entry.mjs'), "import './sources.mjs';\nimport '../../scripts/coders-talk.mjs';\n");
 const sums = [];
 for (const target of targets) {
     const [platform, arch] = target.split('-');
     const name = assetName(platform === 'windows' ? 'win32' : platform, arch);
     const args = [
-        'build', join(ROOT, 'scripts/coders-talk.mjs'),
+        'build', join(entryDir, 'entry.mjs'),
         '--compile', `--target=${TARGETS[target]}`, `--outfile=${join(out, name)}`,
         `--define=CODERS_TALK_VERSION=${JSON.stringify(version)}`,
-        `--define=CODERS_TALK_PLUGIN_SOURCES=${sources}`,
         '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig',
     ];
     // Bun sets these only when it builds on Windows; they name the file in Task Manager and the file's properties.
@@ -61,7 +67,11 @@ for (const target of targets) {
     }
     console.log(`${name} (${TARGETS[target]}, ${version})`);
     const result = spawnSync(process.env.BUN || 'bun', args, { stdio: 'inherit' });
-    if (result.status !== 0) process.exit(result.status ?? 1);
+    if (result.status !== 0) {
+        if (result.error) console.error(`Could not run bun: ${result.error.message}`);
+        process.exit(result.status ?? 1);
+    }
     sums.push(`${createHash('sha256').update(readFileSync(join(out, name))).digest('hex')}  ${name}`);
 }
+rmSync(entryDir, { recursive: true, force: true });
 if (targets.length > 1) writeFileSync(join(out, 'SHA256SUMS'), sums.join('\n') + '\n');

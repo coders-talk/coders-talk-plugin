@@ -14,7 +14,7 @@ import { createInterface } from 'node:readline';
 import { autoSession } from './auto.mjs';
 import { home } from './credentials.mjs';
 import { repositoryRoot } from './git.mjs';
-import { codexHome, configDir, isCodexPrompt, isPrompt } from './session.mjs';
+import { codexHome, configDir, isCodexPrompt, promptText } from './session.mjs';
 
 const CODEX_DAYS = 30;
 const ROLLOUT = /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_[A-Za-z0-9-]+)?\.jsonl$/i;
@@ -112,10 +112,7 @@ export async function describeSession({ agent, path }) {
 }
 
 function claudePrompt(d) {
-    const content = d?.message?.content;
-    if (d?.type !== 'user' || d.isMeta || !isPrompt(content)) return null;
-
-    return typeof content === 'string' ? content : content.filter((b) => b?.type === 'text').map((b) => b.text).join(' ');
+    return d?.type === 'user' && !d.isMeta ? promptText(d?.message?.content) : null;
 }
 
 function codexPrompt(d) {

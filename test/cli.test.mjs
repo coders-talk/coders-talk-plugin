@@ -195,6 +195,8 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     const sentLater = gunzipSync(gz).toString('utf8');
     assert.doesNotMatch(sentLater, /SKILL BODY MARKER|coders-talk:build/);
     assert.doesNotMatch(sentLater, /file-history-snapshot|iVBORw0KGgoAAAA/);
+    // The transcript carries bridge-session (account ids), frame-link, artifact-* and made-up future lines.
+    assert.doesNotMatch(sentLater, /leak|ownerAccountUuid|bridgeSessionId|frameUrl/);
 
     const send = await cli(['send', id, '--continues=https://coders.talk/b/first-part']);
     assert.equal(send.ok, true, send.out);
@@ -372,6 +374,12 @@ test('auto mode is off until the person turns it on, and then sends a session th
     await cli(['auto-send', id]);
     assert.equal(received, null);
     assert.match(readFileSync(logPath, 'utf8'), /skipped: not a repository of a team that asks for automatic sending/);
+    // Held, not skipped for good: the team may ask for it later. Said once, not at every look.
+    assert.equal(sessionsState()[id].held.why, 'not a team repository');
+    assert.equal(sessionsState()[id].skip, null);
+    const said = autoLog().split('\n').filter((l) => l.includes(`${id} skipped: not a repository`)).length;
+    await cli(['auto-send', id]);
+    assert.equal(autoLog().split('\n').filter((l) => l.includes(`${id} skipped: not a repository`)).length, said);
     await cli(['auto-send', 'a1b2c3d4-0000-4000-8000-000000000002']);
     assert.match(received.toString('latin1'), /name="space"\r\n\r\nacme/);
 

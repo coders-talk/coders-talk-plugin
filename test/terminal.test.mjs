@@ -2,7 +2,7 @@
 // sessions, `coders-talk build <#>` previews, asks and sends. The question needs a real terminal: where `script` can
 // give the program one (Linux, macOS), the whole round runs in it; nothing lets a script answer it otherwise.
 import assert from 'node:assert/strict';
-import { execFile, spawn, spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { coders } from './helpers.mjs';
+import { coders, inTerminal as terminal } from './helpers.mjs';
 
 const run = promisify(execFile);
 const fixture = (name) => fileURLToPath(new URL(`./fixtures/slim/${name}`, import.meta.url));
@@ -91,33 +91,8 @@ test('build refuses without a terminal and says what a script can run instead', 
     assert.equal(imports.length, 0);
 });
 
-const plain = (text) => text.replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '');
-
-/** $args run in a pseudo-terminal by `script`, with $input typed into it; null where `script` cannot do that. */
-function inTerminal(args, input) {
-    if (process.platform === 'win32') return null;
-    const [program, programArgs] = coders(args);
-    const quoted = [program, ...programArgs].map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ');
-    const linux = spawnSync('script', ['--version'], { encoding: 'utf8' }).stdout?.includes('util-linux');
-    const scriptArgs = linux ? ['-qec', quoted, '/dev/null'] : ['-q', '/dev/null', 'sh', '-c', quoted];
-    if (spawnSync('script', linux ? ['-qec', 'true', '/dev/null'] : ['-q', '/dev/null', 'true']).status !== 0) return null;
-
-    return new Promise((resolve) => {
-        const child = spawn('script', scriptArgs, { env, cwd: work });
-        let out = '';
-        child.stdout.on('data', (d) => {
-            out += d;
-            // Readline moves the cursor after its question, so the escape codes go first. `script` waits for its
-            // input to end before it exits.
-            if (/\[y\/N\]$/.test(plain(out).trimEnd()) && child.stdin.writable) child.stdin.end(input);
-        });
-        const stuck = setTimeout(() => child.kill(), 60_000);
-        child.on('close', (status) => {
-            clearTimeout(stuck);
-            resolve({ status, out: plain(out) });
-        });
-    });
-}
+/** $args run in a pseudo-terminal, with $input typed into it; null where that cannot be done (helpers.mjs). */
+const inTerminal = (args, input) => terminal(args, input, { env, cwd: work });
 
 test('build in a terminal: the preview, the question, and only a yes sends', async (t) => {
     const no = await inTerminal(['build', '2'], 'n\n');

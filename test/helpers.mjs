@@ -1,5 +1,5 @@
 // Shared by the tests; not a test file itself.
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -29,6 +29,37 @@ export function hookCommand(name, args = []) {
 export async function waitFor(check, ms = 30_000) {
     const until = Date.now() + ms;
     while (!check() && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+}
+
+export const plain = (text) => text.replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '');
+
+/**
+ * `coders-talk <args>` run in a pseudo-terminal by `script`, with $input typed in once it asks `[y/N]`: {status, out}.
+ * Null where `script` cannot give it one (Windows): nothing lets a script answer the question otherwise.
+ */
+export function inTerminal(args, input, { env, cwd }) {
+    if (process.platform === 'win32') return null;
+    const [program, programArgs] = coders(args);
+    const quoted = [program, ...programArgs].map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ');
+    const linux = spawnSync('script', ['--version'], { encoding: 'utf8' }).stdout?.includes('util-linux');
+    const scriptArgs = linux ? ['-qec', quoted, '/dev/null'] : ['-q', '/dev/null', 'sh', '-c', quoted];
+    if (spawnSync('script', linux ? ['-qec', 'true', '/dev/null'] : ['-q', '/dev/null', 'true']).status !== 0) return null;
+
+    return new Promise((resolve) => {
+        const child = spawn('script', scriptArgs, { env, cwd });
+        let out = '';
+        child.stdout.on('data', (d) => {
+            out += d;
+            // Readline moves the cursor after its question, so the escape codes go first. `script` waits for its
+            // input to end before it exits.
+            if (/\[y\/N\]$/.test(plain(out).trimEnd()) && child.stdin.writable) child.stdin.end(input);
+        });
+        const stuck = setTimeout(() => child.kill(), 60_000);
+        child.on('close', (status) => {
+            clearTimeout(stuck);
+            resolve({ status, out: plain(out) });
+        });
+    });
 }
 
 /** A throwaway repository with commits at fixed dates; returns the hashes in order. */

@@ -1,7 +1,7 @@
 {
     "name": "coders-talk",
-    "version": "0.11.1",
-    "description": "Send a Codex session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site. Codex can also look up how other developers did a similar task in the Coders Talk library.",
+    "version": "0.12.0",
+    "description": "Send a Codex session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site. Codex can also look up how other developers did a similar task in the Coders Talk library, and $coders-talk:use puts a published Build's playbook into your repository as a skill or a rule.",
     "author": { "name": "Coders Talk", "url": "https://coders.talk" },
     "homepage": "https://coders.talk/plugins",
     "keywords": ["coders-talk", "sessions", "sharing", "builds"],
@@ -11,7 +11,7 @@
     "interface": {
         "displayName": "Coders Talk",
         "shortDescription": "Send this session to Coders Talk as a draft",
-        "longDescription": "Turns the current Codex session into a draft Build on coders.talk: the prompts, the moments you stepped in and the fails that mattered. Secrets are redacted on the server. The draft is private to you, or to your team for sessions in its repositories, and nothing is published until you do it on the site. The plugin also connects Codex to the Coders Talk library (sign in with codex mcp login coders-talk): before a non-trivial task, or after repeated failures, Codex can look up published sessions where others did something similar, and what went wrong for them.",
+        "longDescription": "Turns the current Codex session into a draft Build on coders.talk: the prompts, the moments you stepped in and the fails that mattered. Secrets are redacted on the server. The draft is private to you, or to your team for sessions in its repositories, and nothing is published until you do it on the site. The plugin also connects Codex to the Coders Talk library (sign in with codex mcp login coders-talk): before a non-trivial task, or after repeated failures, Codex can look up published sessions where others did something similar, and what went wrong for them. $coders-talk:use shows a Build's playbook and, once you say yes, writes it into the repository as a skill in .agents/skills or a block in AGENTS.md.",
         "developerName": "Coders Talk",
         "category": "Developer Tools",
         "capabilities": ["Read", "Write"],

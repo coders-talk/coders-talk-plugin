@@ -1,4 +1,3 @@
-/* global CODERS_TALK_PLUGIN_SOURCES */
 /**
  * The plugin `coders-talk enable` lays out for the agents (plan, stage 13.3): the same skills, hooks and MCP server as
  * this repository's, as a local marketplace "coders-talk-local" in ~/.coders-talk/plugin, whose commands call the
@@ -6,7 +5,8 @@
  * PATH, which lacks the folder an rc file added; and the file itself stays out of the plugin, which each agent copies
  * into its cache for every version.
  *
- * The sources are this repository's files: read from it under Node, built into the single file by scripts/build.mjs.
+ * The sources are this repository's files: read from it under Node; in the single file, the module scripts/build.mjs
+ * puts in front of it sets them on globalThis (a --define would be too long a command line for Windows).
  * Each agent gets its command in the form its shell takes:
  *   Claude Code hooks   exec form (command + args), which no shell parses, on any platform
  *   Claude Code skills  POSIX quoting for the Bash tool (Git Bash on Windows), with a word for PowerShell on Windows
@@ -25,7 +25,8 @@ const SOURCE_DIRS = ['skills', 'codex/skills'];
 
 /** The repository files the plugin is made from, by path: built into the single file, or read from the repository. */
 export function pluginSources() {
-    if (typeof CODERS_TALK_PLUGIN_SOURCES === 'object') return CODERS_TALK_PLUGIN_SOURCES;
+    const built = globalThis.CODERS_TALK_PLUGIN_SOURCES;
+    if (built && typeof built === 'object') return built;
     const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
     return readSources(root);

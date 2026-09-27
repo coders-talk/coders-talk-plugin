@@ -7,6 +7,12 @@
     "slim/codex-folders.slim.jsonl": "34c49478ea80fbe7ce6d61dce96c15c4e6559d62c331f9e88e7a893a3ba47204",
     "slim/codex.jsonl": "9e498265ef731b84ead78a7fb963a22a1d135ac44d78f7433435a997c7a1e385",
     "slim/codex.slim.jsonl": "66a64515870a1a2fb510fd9f82ef9d07635de8a67272534e3f9dbd48480a1d5b",
+    "slim/hermes-gateway.jsonl": "54a07cb4f1eed9e6c59412311cdecdda7d82e5eaabd7c312a2f743b0404e9f0a",
+    "slim/hermes-gateway.slim.jsonl": "731073936a65ec35f546d411762c85ce289fe821ac222b4b9d5512f9d26ead77",
+    "slim/hermes-snapshot.jsonl": "211504ead791fc0f99276e605ee689636d704342f188f4ed66a3ebdc88b1e333",
+    "slim/hermes-snapshot.slim.jsonl": "3f3e7b2fb46d31a873f1b159b3624c2eef7b0981210764395aefbe6649423ee7",
+    "slim/hermes.jsonl": "a138ab7d3cbeaa1f71e12a74fedf79d951feee5809edc9fdd84d7c5666461ce9",
+    "slim/hermes.slim.jsonl": "6c9820aeb08e0cb054678fd7d2fe008e4ba1e28123a8411cea55b5009c94c78b",
     "slim/not-jsonl.txt": "21f1a4fab494517752999a22d1420a6c4a5eb9946e70f67471dccbf00b6db9d3",
     "privacy/cases.json": "ca7e0c11ef16013d77cb0dd1fd61edc78889b5290096efbc16b849673d78d7dd"
 }

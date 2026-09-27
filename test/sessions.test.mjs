@@ -12,11 +12,11 @@ const line = JSON.stringify({ type: 'user', message: { role: 'user', content: 'F
 
 test('the main working tree and its worktrees, also removed ones, list each other\'s sessions', () => {
     const home = mkdtempSync(join(tmpdir(), 'ct-list-'));
-    const dir = realpathSync(makeRepo().dir);
+    const dir = realpathSync.native(makeRepo().dir);
     const live = join(dir, '.claude', 'worktrees', 'live-one');
     execFileSync('git', ['worktree', 'add', '-q', '-b', 'claude/live-one', live], { cwd: dir, stdio: 'ignore' });
     const gone = join(dir, '.claude', 'worktrees', 'gone-one');
-    const other = realpathSync(makeRepo().dir);
+    const other = realpathSync.native(makeRepo().dir);
 
     const encode = (f) => f.replace(/[^a-zA-Z0-9]/g, '-');
     const put = (folder, id) => {

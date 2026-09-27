@@ -20,7 +20,7 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { autoMode, inBackground } from './auto.mjs';
+import { inBackground, sessionAutoMode } from './auto.mjs';
 import { home } from './credentials.mjs';
 import { shCommand } from './plugin.mjs';
 import { rolloutCwd, sentAt } from './sessions.mjs';
@@ -186,7 +186,7 @@ function onPush(root, [remote], input, site) {
 
     const waiting = [];
     for (const { id, agent } of sessions) {
-        const mode = autoMode(site, agent);
+        const mode = sessionAutoMode(site, id, agent);
         if (mode) inBackground(['auto-send', id, '--push', ...(agent === 'codex' ? ['--agent=codex'] : [])]);
         else if (!sentAt(site, id)) waiting.push(id);
     }

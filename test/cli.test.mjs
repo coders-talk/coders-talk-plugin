@@ -484,6 +484,39 @@ function sawSession(sessionId, path, agoMs) {
     writeFileSync(file, JSON.stringify(all));
 }
 
+test('auto mode for one session: on sends it with the computer\'s mode off, off keeps it with the mode on', async () => {
+    await cli(['auto', 'off']);
+    const end = { session_id: id, transcript_path: transcript, hook_event_name: 'SessionEnd' };
+    assert.match((await cli(['auto', 'session', id])).out, /This session follows the auto mode for this computer \(off\)/);
+    assert.match((await cli(['auto', 'session', 'sometimes', id])).out, /Use \/coders-talk:auto session on/);
+
+    const on = await cli(['auto', 'session', 'on', id]);
+    assert.match(on.out, /Auto mode is on for this session\. It is sent to .* as @mara by itself/);
+    assert.match(on.out, /Other sessions follow the auto mode for this computer \(off\)/);
+    assert.equal(sessionsState()[id].own, 'on');
+    assert.equal(sessionsState()[id].path, transcript);
+    assert.match((await cli(['auto', 'session', id])).out, /Auto mode is on for this session: it is sent while it runs and when it ends, whatever the mode for this computer \(off\)/);
+
+    bodies.length = 0;
+    await hookRun('session-end', end);
+    await waitFor(() => bodies.length === 1);
+    assert.match(bodies[0], /name="trigger"\r\n\r\nauto/);
+    assert.match(bodies[0], /name="final"\r\n\r\n1/);
+
+    // Off for this session: nothing goes, even with auto mode on for the computer.
+    await cli(['auto', 'on']);
+    assert.match((await cli(['auto', 'session', 'off', id])).out, /Auto mode is off for this session: it is not sent by itself any more, whatever the mode for this computer \(on\)/);
+    await hookRun('session-end', end);
+    await cli(['auto-send', id]);
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(bodies.length, 1);
+
+    // Turned off for the computer, the session's own choice stays.
+    await cli(['auto', 'off']);
+    assert.equal(sessionsState()[id].own, 'off');
+    writeFileSync(join(home, 'ct', 'auto-sessions.json'), '{}');
+});
+
 test('the Stop hook syncs a running session every ten minutes of work, as still going', async () => {
     await cli(['auto', 'on']);
     const event = { session_id: id, transcript_path: transcript, hook_event_name: 'Stop' };

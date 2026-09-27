@@ -18,6 +18,8 @@
  *                                                 they run and when they end (all of them, or only those in repositories of
  *                                                 teams that ask), or only when their commits are pushed (push, with the git
  *                                                 hooks); Claude Code and Codex are switched separately
+ *   node coders-talk.mjs auto session [on|off] [session-id]  auto mode for this one session, over the computer's:
+ *                                                 on sends it (as `auto on` would) even when auto mode is off, off never does
  *   node coders-talk.mjs auto-send <session-id> what the SessionEnd hook runs in the background when auto mode is on
  *     --sync                                      the Stop hook's send of a session that is still going
  *     --push                                      the pre-push git hook's send of a session behind the push
@@ -64,7 +66,7 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { createInterface as createPrompt } from 'node:readline/promises';
 import { gzipSync } from 'node:zlib';
-import { AUTO_MODES, autoMode, autoSession, catchUp, currentSize, logAuto, logFile, recentAuto, setAutoMode, trackSession } from './lib/auto.mjs';
+import { AUTO_MODES, autoMode, autoSession, catchUp, currentSize, logAuto, logFile, recentAuto, RUNNING_MODES, sessionAutoMode, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { Failure } from './lib/failure.mjs';
@@ -168,7 +170,7 @@ try {
     }
     // What `update` runs with the new file: the plugin laid out again, in the new version.
     else if (command === 'refresh-plugin') refresh({ site, version: VERSION });
-    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | use <build> [--as=skill|rule|prompt] | preview [session-id] | send [session-id] | discard [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
+    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | use <build> [--as=skill|rule|prompt] | preview [session-id] | send [session-id] | discard [session-id] | auto [on|team|push|off] | auto session [on|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
     // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
     if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
@@ -188,8 +190,8 @@ function setupFlags() {
     };
 }
 
-function sessionId() {
-    const id = argId || (CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID) || '';
+function sessionId(given = argId) {
+    const id = given || (CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID) || '';
     if (!SESSION_ID.test(id)) throw new Failure(`Could not tell which session this is. Run the command from inside a ${AGENT.name} session.`);
 
     return id;
@@ -881,6 +883,7 @@ async function auto(mode) {
     const ends = CODEX ? 'when they end or sit idle for 30 minutes' : 'when they end';
     const endsOne = CODEX ? 'when it ends or sits idle for 30 minutes' : 'when it ends';
     const trust = CODEX ? ` Codex runs a plugin's hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks. Until then nothing is sent.` : '';
+    if (mode === 'session') return autoForSession(endsOne, trust);
 
     if (!mode) {
         const current = autoMode(site, AGENT.id);
@@ -921,13 +924,50 @@ async function auto(mode) {
 }
 
 /**
+ * `auto session [on|off] [session-id]`: auto mode for one session, over the computer's (lib/auto.mjs, sessionAutoMode).
+ * `on` sends it as `auto on` would even when the computer's mode is off; `off` keeps it here whatever that mode is.
+ */
+async function autoForSession(endsOne, trust) {
+    const rest = positional.slice(2);
+    const choice = rest.find((a) => a === 'on' || a === 'off');
+    // What is left is the session id (the skill adds it; Codex has it in the environment). A word is an id to SESSION_ID too.
+    const words = rest.filter((a) => a !== choice);
+    if (words.length > 1 || rest.filter((a) => a === choice).length > 1) throw new Failure(`Use ${run('auto')} session on or ${run('auto')} session off.`);
+    const id = sessionId(words[0]);
+    const computer = autoMode(site, AGENT.id);
+    const computerSays = computer === 'all' ? 'on' : computer ?? 'off';
+
+    if (!choice) {
+        const own = autoSession(site, id)?.own;
+        console.log(own === 'on'
+            ? `Auto mode is on for this session: it is sent while it runs and ${endsOne}, whatever the mode for this computer (${computerSays}).${trust}`
+            : own === 'off'
+              ? `Auto mode is off for this session: it is never sent by itself, whatever the mode for this computer (${computerSays}). ${run('build')} still sends it when you ask.`
+              : `This session follows the auto mode for this computer (${computerSays}). ${run('auto')} session on sends this one by itself, ${run('auto')} session off keeps it here.`);
+        return;
+    }
+    if (choice === 'off') {
+        trackSession(site, id, { own: 'off', agent: AGENT.id });
+        console.log(`Auto mode is off for this session: it is not sent by itself any more, whatever the mode for this computer (${computerSays}). What it already sent stays a draft on ${site}; ${run('build')} still sends it when you ask.`);
+        return;
+    }
+    if (!token) throw notConnected();
+
+    const me = await api('GET', '/api/v1/me');
+    const path = autoSession(site, id)?.path ?? (CODEX ? findRollout(id) : findTranscript(id));
+    trackSession(site, id, { own: 'on', agent: AGENT.id, path: path ?? undefined });
+    console.log(`Auto mode is on for this session. It is sent to ${site} as @${me.username} by itself, every ten minutes while it runs and once more ${endsOne}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before it is sent; anything it does not recognise goes as it is, so read the draft before you publish it. Other sessions follow the auto mode for this computer (${computerSays}).${trust}`);
+    console.log(`Turn it off for this session with ${run('auto')} session off. What it sent is listed in ${logFile()}.`);
+}
+
+/**
  * Run by the hooks in the background, if auto mode wants the session: SessionEnd sends one that ended ($final), Stop
  * syncs one that is still going, SessionStart catches up on those that never said they ended ($caughtUp), the pre-push
  * git hook sends those behind a push ($push; the only sends of push mode). Never prints (nobody is watching); every
  * outcome goes to the auto log instead, and what went to auto-sessions.json.
  */
 async function autoSend(id, { final = true, caughtUp = false, push = false } = {}) {
-    const mode = autoMode(site, AGENT.id);
+    const mode = sessionAutoMode(site, id, AGENT.id);
     if (!mode || (mode === 'push' && !push) || !SESSION_ID.test(id ?? '')) return;
     const log = (result) => logAuto(`${CODEX ? 'codex ' : ''}${id} ${result}`);
     const remember = (patch) => trackSession(site, id, patch);
@@ -990,10 +1030,11 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
 /**
  * Run by the SessionStart hook in the background: sends, one after another, the sessions that grew since their last
  * send and never said they ended (lib/auto.mjs, catchUp). $current is the session starting: its own hooks send it.
+ * With the computer's mode off, only the sessions turned on for themselves.
  */
 async function autoCatchUp(current) {
-    if (!['all', 'team'].includes(autoMode(site, AGENT.id))) return;
-    for (const { id, final } of catchUp(site, current, AGENT.id)) {
+    const running = RUNNING_MODES.includes(autoMode(site, AGENT.id));
+    for (const { id, final } of catchUp(site, current, AGENT.id, undefined, undefined, running)) {
         trackSession(site, id, { tried: Date.now() });
         await autoSend(id, { final, caughtUp: true });
     }

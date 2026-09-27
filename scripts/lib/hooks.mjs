@@ -19,7 +19,7 @@
  *
  * Git snapshots (lib/snapshots.mjs) are Claude Code's: at the start, at each prompt and after each answer.
  */
-import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, settled, stillHeld, syncDue, trackSession, waitForSend } from './auto.mjs';
+import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, sessionAutoMode, settled, stillHeld, syncDue, trackSession, waitForSend } from './auto.mjs';
 import { siteUrl } from './config.mjs';
 import { currentHead } from './git.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
@@ -100,15 +100,17 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
         pruneSidecars();
     }
 
-    if (id && RUNNING_MODES.includes(autoMode(site, agent))) {
-        removeStaleTemps();
-        trackSession(site, id, { path: event.transcript_path, agent });
-        if (catchUp(site, id, agent).length) inBackground(['auto-catch-up', id, ...agentArgs]);
-    }
+    if (!id) return;
+    const running = RUNNING_MODES.includes(autoMode(site, agent));
+    if (running) removeStaleTemps();
+    // A resumed session turned on for itself goes on being sent.
+    if (RUNNING_MODES.includes(sessionAutoMode(site, id, agent))) trackSession(site, id, { path: event.transcript_path, agent });
+    // Sessions turned on for themselves are caught up even when the computer's mode is off.
+    if (catchUp(site, id, agent, undefined, undefined, running).length) inBackground(['auto-catch-up', id, ...agentArgs]);
 }
 
 function stop({ event, agent, site, id, agentArgs }) {
-    const mode = autoMode(site, agent);
+    const mode = sessionAutoMode(site, id, agent);
     // Push mode sends at the push; it needs no suggestion either.
     if (id && mode === 'push') return;
     if (id && mode) {
@@ -128,7 +130,7 @@ function stop({ event, agent, site, id, agentArgs }) {
 }
 
 async function sessionEnd({ event, agent, site, id, agentArgs }) {
-    if (!id || !RUNNING_MODES.includes(autoMode(site, agent))) return;
+    if (!id || !RUNNING_MODES.includes(sessionAutoMode(site, id, agent))) return;
     const session = trackSession(site, id, { path: event.transcript_path, agent });
     if (settled(session) || stillHeld(session)) return;
 

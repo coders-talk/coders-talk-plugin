@@ -99,12 +99,25 @@ export function rolloutCwd(path) {
     }
 }
 
-/** What the list shows of a session: {prompts, firstPrompt}. Reads the file line by line, parsing only the person's lines. */
+/**
+ * What the list shows of a session: {prompts, firstPrompt, title}, the title the Claude app gave it (grouping plan,
+ * 27.4). Reads the file line by line, parsing only the person's lines and the title's.
+ */
 export async function describeSession({ agent, path }) {
     const marker = agent === 'codex' ? '"role":"user"' : '"type":"user"';
     let prompts = 0;
     let firstPrompt = null;
+    let title = null;
     for await (const line of createInterface({ input: createReadStream(path, 'utf8'), crlfDelay: Infinity })) {
+        if (line.includes('"type":"custom-title"')) {
+            try {
+                const t = JSON.parse(line).customTitle;
+                if (typeof t === 'string' && t.trim()) title = t.replace(/\s*\(fork\)\s*$/i, '').trim();
+            } catch {
+                // a line cut short: the title stays what it was
+            }
+            continue;
+        }
         if (!line.includes(marker)) continue;
         let d;
         try {
@@ -118,7 +131,7 @@ export async function describeSession({ agent, path }) {
         firstPrompt ??= text.replace(/\s+/g, ' ').trim();
     }
 
-    return { prompts, firstPrompt };
+    return { prompts, firstPrompt, title };
 }
 
 function claudePrompt(d) {
@@ -138,6 +151,13 @@ export function sentAt(site, id) {
     const auto = autoSession(site, id)?.sent?.at ?? 0;
 
     return Math.max(manual, auto) || null;
+}
+
+/** The link of the draft the send step made of a session, while it is remembered; null otherwise. */
+export function sentUrl(site, id) {
+    const url = readSent()[site]?.[id]?.url;
+
+    return typeof url === 'string' ? url : null;
 }
 
 /** Remembered after the send step: the draft's link and when; sends older than SENT_DAYS are forgotten then. */

@@ -75,7 +75,8 @@ test('sessions lists both agents\' sessions of this folder, newest first, and wh
     const rows = r.out.split('\n').filter((l) => /^ {2}\d/.test(l));
     assert.equal(rows.length, 2, r.out);
     assert.match(rows[0], /^ {2}1 +today \d\d:\d\d +Codex +3 +- +Fix the flaky checkout test\./);
-    assert.match(rows[1], /^ {2}2 +\S+ \d\d:\d\d +Claude Code +2 +- +Add rate limiting to \/api\/login\. Keep the tests green\./);
+    // The title the Claude app gave the session, where it has one (grouping plan, 27.4); else its first prompt.
+    assert.match(rows[1], /^ {2}2 +\S+ \d\d:\d\d +Claude Code +2 +- +rate limits$/);
     assert.doesNotMatch(r.out, /aa02/, 'another folder\'s session is not listed');
     assert.match(r.out, /Send one: coders-talk build <#>/);
 

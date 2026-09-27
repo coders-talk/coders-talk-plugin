@@ -68,7 +68,7 @@ import { AUTO_MODES, autoMode, autoSession, catchUp, currentSize, logAuto, logFi
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { Failure } from './lib/failure.mjs';
-import { folderGitContexts, gitContext, projectOf } from './lib/git.mjs';
+import { folderGitContexts, gitContext, projectOf, worktrees } from './lib/git.mjs';
 import { disable, enable, refresh, status } from './lib/enable.mjs';
 import { runGitHook } from './lib/githooks.mjs';
 import { detectAgents, installedPlugins } from './lib/agents.mjs';
@@ -87,7 +87,7 @@ import { discardPrepared, PREPARED_TTL_MS, prepared, sweepPrepared, writePrepare
 import { agentTimes, gitChangeLines, pruneSnapshots, withGitLines } from './lib/snapshots.mjs';
 import { addedFolders, slimLine } from './lib/slim.mjs';
 import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
-import { describeSession, folderSessions, markSent, sentAt } from './lib/sessions.mjs';
+import { describeSession, folderSessions, markSent, sentAt, sentUrl } from './lib/sessions.mjs';
 import { removeLeftover, update, updateNotice } from './lib/update.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
@@ -593,10 +593,14 @@ async function sessions() {
     const list = await folderList(Number(option('limit')) || 10);
     if (!list.length) return console.log(`No Claude Code or Codex sessions with prompts in ${process.cwd()}.`);
 
-    console.log(`Sessions in ${process.cwd()}, newest first:`);
-    console.log(`  #   ${'Last active'.padEnd(17)} ${'Agent'.padEnd(12)} Prompts  Sent  First prompt`);
+    // A repository's sessions are its project's (grouping plan, 27.4): its main folder's and its worktrees'.
+    const project = projectOf(process.cwd());
+    const repository = project && worktrees(project.root).length > 0;
+    console.log(repository ? `Sessions of ${project.name} and its worktrees, newest first:` : `Sessions in ${process.cwd()}, newest first:`);
+    console.log(`  #   ${'Last active'.padEnd(17)} ${'Agent'.padEnd(12)} Prompts  Sent  Title or first prompt`);
     list.forEach((s, i) => {
-        const first = s.firstPrompt.length > 60 ? `${s.firstPrompt.slice(0, 59)}…` : s.firstPrompt;
+        const text = s.title ?? s.firstPrompt;
+        const first = text.length > 60 ? `${text.slice(0, 59)}…` : text;
         console.log(`  ${String(i + 1).padEnd(3)} ${when(s.mtimeMs).padEnd(17)} ${(s.agent === 'codex' ? 'Codex' : 'Claude Code').padEnd(12)} ${String(s.prompts).padEnd(8)} ${(s.sent ? 'yes' : '-').padEnd(5)} ${first}`);
     });
     console.log('Send one: coders-talk build <#>');
@@ -655,6 +659,7 @@ async function build(which) {
     pruneOwnSnapshots();
     const previewed = self(['preview', chosen.id, '--whole', ...agentArgs, ...pass(['private', 'team', 'keep', 'site'])]);
     if (previewed !== 0) process.exit(previewed);
+    await suggestContinues(chosen);
 
     const prompt = createPrompt({ input: process.stdin, output: process.stdout });
     // Ctrl+C at the question is a no too: the prepared file goes with it.
@@ -673,6 +678,19 @@ async function build(which) {
 
     const sent = self(['send', chosen.id, ...agentArgs, ...pass(['continues', 'site'])]);
     if (sent !== 0) process.exit(sent);
+}
+
+/**
+ * The session continues one that was sent from here (grouping plan, 27.4): says how to make the two Builds a series.
+ * The site groups them into one task anyway; a series is what readers see, so it stays the person's call.
+ */
+async function suggestContinues(chosen) {
+    if (chosen.agent !== 'claude-code' || option('continues')) return;
+    const path = findTranscript(chosen.id);
+    const before = path ? await continuationOf(chosen.id, path, null) : null;
+    const url = before ? sentUrl(site, before.session_id) : null;
+    const slug = url?.match(/\/b\/([^/?#]+)/)?.[1];
+    if (slug) console.log(`  It continues the session you sent as ${url.replace(/\/edit$/, '')}: run it again with --continues=${slug} to make the two a series.`);
 }
 
 /**

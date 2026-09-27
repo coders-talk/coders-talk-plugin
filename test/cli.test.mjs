@@ -314,6 +314,44 @@ test('a fork says which session it came from, and the site links the two', async
     assert.doesNotMatch(received.toString('latin1'), /name="fork"/);
 });
 
+test('a continuation names the session it continues, counts only its own tokens, and sends its title (grouping plan, 24)', async () => {
+    const fixture = readFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), 'utf8').split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
+    const numbered = fixture.map((d, i) => ({ ...d, uuid: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` }));
+    const previous = 'a1b2c3d4-0000-4000-8000-0000000000c1';
+    const next = 'a1b2c3d4-0000-4000-8000-0000000000c2';
+    const put = (sessionId, rows) => writeFileSync(join(home, 'projects', 'C--code-shop', `${sessionId}.jsonl`), rows.map((d) => JSON.stringify(d)).join('\n') + '\n');
+    put(previous, numbered.map((d) => ({ ...d, sessionId: previous })));
+    // The Claude app's continue: the lines before, under the new session's id, then its own.
+    put(next, [
+        ...numbered.map((d) => ({ ...d, sessionId: next })),
+        { type: 'custom-title', customTitle: 'Rate limits (fork)', sessionId: next },
+        { type: 'user', sessionId: next, uuid: '00000000-0000-4000-8000-000000000901', timestamp: '2026-09-03T09:00:00.000Z', message: { role: 'user', content: 'Carry on with the limiter tests' } },
+        { type: 'assistant', sessionId: next, uuid: '00000000-0000-4000-8000-000000000902', timestamp: '2026-09-03T09:01:00.000Z', message: { id: 'msg_own', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'On it.' }], usage: { input_tokens: 7, output_tokens: 0 } } },
+    ]);
+    // Where the app keeps what it continued: the plugin reads it when it is there.
+    const app = join(home, 'app-sessions');
+    mkdirSync(join(app, 'account'), { recursive: true });
+    writeFileSync(join(app, 'account', 'local_1.json'), JSON.stringify({ cliSessionId: next, priorCliSessionIds: [previous] }));
+
+    const preview = await cli(['preview', next], { CODERS_TALK_CLAUDE_APP_DIR: app });
+    assert.equal(preview.ok, true, preview.out);
+    assert.match(preview.out, new RegExp(`Continues: +session ${previous}`));
+    assert.match(preview.out, /Title: +Rate limits\n/);
+    assert.match(preview.out, /Tokens: +7 \(claude-opus-5-5\)/, 'the copied lines were counted with the session before');
+    const send = await cli(['send', next], { CODERS_TALK_CLAUDE_APP_DIR: app });
+    assert.equal(send.ok, true, send.out);
+    const body = received.toString('utf8');
+    const continuation = JSON.parse(body.match(/name="continuation"\r\n\r\n(.*)\r\n/)[1]);
+    assert.equal(continuation.session_id, previous);
+    assert.ok(Date.parse(continuation.at) < Date.parse('2026-09-03T09:00:00.000Z'));
+    assert.match(body, /name="session_title"\r\n\r\nRate limits\r\n/);
+
+    // The session before continues nothing.
+    await cli(['preview', previous], { CODERS_TALK_CLAUDE_APP_DIR: app });
+    await cli(['send', previous], { CODERS_TALK_CLAUDE_APP_DIR: app });
+    assert.doesNotMatch(received.toString('latin1'), /name="continuation"/);
+});
+
 test('Builds the agent got from the library are shown in the preview and go with the session', async () => {
     const used = 'a1b2c3d4-0000-4000-8000-0000000000e1';
     const lines = readFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), 'utf8').trimEnd();

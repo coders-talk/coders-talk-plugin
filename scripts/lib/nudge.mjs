@@ -11,6 +11,7 @@
  */
 import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { copiedUuids } from './continuation.mjs';
 import { home, writePrivate } from './credentials.mjs';
 import { LibraryWatch } from './library.mjs';
 
@@ -80,6 +81,7 @@ export function nudgeDue({ agent, id, path }, dir = home(), now = Date.now()) {
         return null;
     }
     let offset = Number.isInteger(state.offset) ? state.offset : 0;
+    const copied = copiedUuids(id, dir);
     let library;
     let edited = state.edited === true;
     try {
@@ -113,6 +115,8 @@ export function nudgeDue({ agent, id, path }, dir = home(), now = Date.now()) {
                 } catch {
                     continue;
                 }
+                // What a fork or a continuation copied from another session happened there (grouping plan, 24.1).
+                if ((typeof d?.sessionId === 'string' && d.sessionId !== id) || copied.has(d?.uuid)) continue;
                 if (forLibrary) library.add(d);
                 if (forEdits && editsCode(d)) edited = true;
             }

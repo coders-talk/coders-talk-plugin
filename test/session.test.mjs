@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ForkWatch, cutOwnCommand, findRollout, findTranscript, promptText, summarize } from '../scripts/lib/session.mjs';
+import { ForkWatch, TitleWatch, cutOwnCommand, findRollout, findTranscript, promptText, summarize } from '../scripts/lib/session.mjs';
 
 const line = (d) => JSON.stringify(d);
 const prompt = (text, s) => line({ type: 'user', cwd: '/home/you/code/shop', message: { role: 'user', content: text }, timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:00Z` });
@@ -153,7 +153,11 @@ test('a fork names the session it came from and where it left it', () => {
     // Codex: the first session_meta names the parent.
     const meta = (payload) => ({ timestamp: '2026-09-24T04:51:22.900Z', type: 'session_meta', payload: { id: fork, ...payload } });
     assert.deepEqual(watch(fork, [meta({ forked_from_id: parent })]), { session_id: parent, at: '2026-09-24T04:51:22.900Z' });
-    assert.deepEqual(watch(fork, [meta({ history_base: { thread_id: parent, end_ordinal_exclusive: 108 } })]), { session_id: parent, at: '2026-09-24T04:51:22.900Z' });
+    // Started on another thread's history: a continuation of it, not a fork (grouping plan, 24.1).
+    assert.equal(watch(fork, [meta({ history_base: { thread_id: parent, end_ordinal_exclusive: 108 } })]), null);
+    const continued = new ForkWatch(fork);
+    continued.add(meta({ history_base: { thread_id: parent, end_ordinal_exclusive: 108 } }));
+    assert.deepEqual(continued.continuation(), { session_id: parent, at: null });
     // A rollout that carries on its own thread's history, and a subagent's, are not forks.
     assert.equal(watch(fork, [meta({ history_base: { thread_id: fork, end_ordinal_exclusive: 108 } })]), null);
     assert.equal(watch(fork, [meta({ parent_thread_id: parent, source: { subagent: { other: 'guardian' } } })]), null);

@@ -77,7 +77,8 @@ import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
 import { nudgeOn, setNudge } from './lib/nudge.mjs';
-import { ForkWatch, SESSION_ID, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
+import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, summarize } from './lib/session.mjs';
+import { continuationOf } from './lib/continuation.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
 import { PRIVACY_LABELS } from './lib/privacy.mjs';
 import { keep, privacyScan, privacySummary, sha256 } from './lib/privacy-settings.mjs';
@@ -230,8 +231,13 @@ async function prepare(id, cut = true) {
             : `Could not find this session's transcript (${id}.jsonl) under the Claude Code config folder.`);
     }
 
-    const session = await readSession(path, id);
+    // The session this one continues (grouping plan, 24.1): the Claude app copies its lines in, with new session ids.
+    const sidecar = CODEX ? null : readSidecar(id);
+    const continued = CODEX ? null : await continuationOf(id, path, sidecar?.cwd ?? null);
+    const session = await readSession(path, id, continued?.inherited);
     if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
+    // A fork is a fork: its copied lines say so themselves.
+    session.continuation = session.fork ? null : continued ? { session_id: continued.session_id, at: continued.at } : session.continuation;
     const kept = cut ? cutOwnCommand(session.lines.join('\n')).text : session.lines.join('\n');
     // What the git snapshots saw at each turn (Claude Code hooks, lib/snapshots.mjs), put into the session by time.
     const gitLines = CODEX ? [] : gitChangeLines(id, agentTimes(session.lines));
@@ -249,7 +255,6 @@ async function prepare(id, cut = true) {
 
     // HEAD at the start: Claude Code's SessionStart hook remembered it, Codex writes it into the session itself.
     // A fork starts where it left the original: the original's commits are not the fork's.
-    const sidecar = CODEX ? null : readSidecar(id);
     const startedAt = Date.parse(session.fork?.at ?? '') || stats.startedAt;
     const git = checkedGit(gitContext(sidecar?.cwd ?? stats.cwd, sidecar?.head ?? session.headStart, startedAt), privacy);
     // The folders added to the session that are repositories of their own: their commits, under the folder's name.
@@ -260,7 +265,10 @@ async function prepare(id, cut = true) {
     const found = projectOf(sidecar?.cwd ?? stats.cwd);
     const project = found ? { key: found.key, name: privacy.text(found.name).slice(0, 120) } : null;
 
-    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library, project };
+    // The title the Claude app gave the session, checked like its lines (grouping plan, 24.2).
+    const title = session.title ? privacy.text(session.title).slice(0, 140) : null;
+
+    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library, project, continuation: session.continuation, title };
 }
 
 async function preview(id) {
@@ -268,14 +276,14 @@ async function preview(id) {
     const out = prepared(id);
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
     // --whole: `build` from a terminal, where the session holds no run of the command to cut off (only earlier ones).
-    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project } = await prepare(id, !args.includes('--whole'));
+    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project, continuation, title } = await prepare(id, !args.includes('--whole'));
 
     const goesTo = await destination(git);
 
     writePrepared(out.file, gz);
     // Findings by number and hash, for --keep; the values stay in memory only.
     const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
-    writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library, project }));
+    writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library, project, continuation, title }));
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
     console.log(`  Project:    ${project?.name ?? stats.project ?? 'unknown'}${project ? ': its name and a hash that tells it apart go, never its path' : ''}`);
@@ -290,7 +298,9 @@ async function preview(id) {
     if (session.code.files.size) console.log(`  Code:       ${describeCode(session.code)}`);
     if (usage) console.log(`  Tokens:     ${describeUsage(usage)}`);
     if (library) console.log(`  Library:    ${describeLibrary(library)}`);
+    if (title) console.log(`  Title:      ${title}`);
     if (fork) console.log(`  Fork of:    session ${fork.session_id}: the draft and that session's Build link to each other once both are on the site`);
+    if (continuation) console.log(`  Continues:  session ${continuation.session_id}: its lines at the start are that session's, counted there; the two Builds are linked on the site`);
     console.log(`  Goes to:    ${goesTo}`);
     console.log(describePrivacy(privacy));
     if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
@@ -302,11 +312,12 @@ async function preview(id) {
  * session ran, for Codex HEAD at its start (session_meta), the session it was forked from (lib/session.mjs, ForkWatch),
  * and what the agent took from the Coders Talk library (lib/library.mjs).
  */
-async function readSession(path, id) {
+async function readSession(path, id, inherited = null) {
     const lines = [];
     const usage = new UsageCounter();
     const fork = new ForkWatch(id);
     const library = new LibraryWatch();
+    const title = new TitleWatch();
     // Shared by every line: slimming learns the session folder from it, to make changed paths relative (plan, stage 11.1).
     const ctx = {};
     const code = { files: new Set(), additions: 0, deletions: 0, withheld: new Set() };
@@ -332,11 +343,14 @@ async function readSession(path, id) {
         }
         cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
         // Counted before slimming drops the lines that carry it; only the counts leave the machine. A fork's inherited
-        // lines were counted with the original, and what the original took from the library is the original's.
-        if (!fork.add(d)) {
+        // lines were counted with the original, and what the original took from the library is the original's; the
+        // same for the lines a continuation copied from the session before it (lib/continuation.mjs).
+        const copied = inherited?.has(d.uuid) ?? false;
+        if (!fork.add(d) && !copied) {
             usage.add(d);
             library.add(d);
         }
+        title.add(d);
         const slim = slimLine(d, ctx);
         if (slim) {
             lines.push(JSON.stringify(slim));
@@ -345,7 +359,9 @@ async function readSession(path, id) {
     }
 
     // folders: the ones added to the session, with their paths; only their names leave the machine.
-    return total < 2 || parsed < total * 0.8 ? null : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code, fork: fork.result(), folders: addedFolders(ctx), library: library.result() };
+    return total < 2 || parsed < total * 0.8
+        ? null
+        : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code, fork: fork.result(), continuation: fork.continuation(), title: title.result(), folders: addedFolders(ctx), library: library.result() };
 }
 
 /** The files a slimmed line says the agent changed: on a Claude Code tool result, or on a Codex call. */
@@ -397,7 +413,7 @@ async function send(id) {
     // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
     const continues = option('continues');
     // Only a space the person chose; otherwise the site routes by the repository, as the preview said.
-    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project });
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project, continuation: meta.continuation, title: meta.title });
 
     let started;
     try {
@@ -842,7 +858,7 @@ async function siteGet(path, { signed = false } = {}) {
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
-function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null, project = null } = {}) {
+function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null, project = null, continuation = null, title = null } = {}) {
     const form = new FormData();
     form.append('agent', AGENT.id);
     form.append('session_id', id);
@@ -864,6 +880,9 @@ function importForm(id, gz, { git = null, gitFolders = null, usage = null, space
     if (library) form.append('library', JSON.stringify(library));
     // Which project it belongs to, for grouping on the site: a hash and a folder name (grouping plan, 23.1).
     if (project) form.append('project', JSON.stringify(project));
+    // The session this one continues and when it left it (grouping plan, 24.1), and the title the Claude app gave it.
+    if (continuation) form.append('continuation', JSON.stringify(continuation));
+    if (title) form.append('session_title', title);
     form.append('file', new Blob([gz], { type: 'application/gzip' }), `${id}.jsonl.gz`);
 
     return form;
@@ -971,7 +990,7 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
         space = asking[0].slug;
     }
 
-    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork, library: session.library, project: session.project });
+    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork, library: session.library, project: session.project, continuation: session.continuation, title: session.title });
     // A sync still being imported holds the draft for a moment; the end of the session waits for it rather than get lost.
     for (let attempt = 1; ; attempt++) {
         try {

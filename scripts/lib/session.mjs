@@ -179,7 +179,10 @@ export function isPrompt(content) {
  * Claude Code copies the parent's lines into the fork with the parent's sessionId, and the fork's own lines carry its
  * own; the last foreign id before the first own line is the parent (a fork of a fork copies the grandparent's lines
  * too), and the last of its timestamps is where the fork left it. Codex names the parent in the first session_meta:
- * forked_from_id, or a history_base in another thread. $at is when the fork happened: lines up to it are the parent's.
+ * forked_from_id. $at is when the fork happened: lines up to it are the parent's.
+ *
+ * A Codex thread started on the history of another thread (a history_base in another thread) continues that one
+ * rather than forking it (grouping plan, 24.1): continuation() says so. One in its own thread is a later rollout of it.
  */
 export class ForkWatch {
     constructor(id) {
@@ -187,6 +190,7 @@ export class ForkWatch {
         this.parent = null;
         this.at = null;
         this.done = false;
+        this.continues = null;
     }
 
     /** True when the line is one a Claude Code fork inherited: its tokens were spent, and counted, in the original. */
@@ -197,10 +201,12 @@ export class ForkWatch {
             this.done = true;
             const p = d.payload ?? {};
             const own = typeof p.id === 'string' ? p.id : this.id;
-            const parent = [p.forked_from_id, p.history_base?.thread_id].find((t) => typeof t === 'string' && t !== own && SESSION_ID.test(t));
-            if (parent) {
-                this.parent = parent;
+            const other = (t) => typeof t === 'string' && t !== own && SESSION_ID.test(t);
+            if (other(p.forked_from_id)) {
+                this.parent = p.forked_from_id;
                 this.at = d.timestamp ?? p.timestamp ?? null;
+            } else if (other(p.history_base?.thread_id)) {
+                this.continues = { session_id: p.history_base.thread_id, at: null };
             }
             return false;
         }
@@ -221,6 +227,32 @@ export class ForkWatch {
 
     result() {
         return this.parent ? { session_id: this.parent, at: this.at } : null;
+    }
+
+    /** The Codex thread this one continues: {session_id, at: null}; its rollout holds none of that thread's lines. */
+    continuation() {
+        return this.continues;
+    }
+}
+
+/**
+ * The session's title as the Claude app shows it (grouping plan, 24.2): the last custom-title or agent-name line, without
+ * the " (fork)" a fork's title gets. Slimming drops these lines; only this text goes.
+ */
+export class TitleWatch {
+    constructor() {
+        this.title = null;
+    }
+
+    add(d) {
+        const value = d?.type === 'custom-title' ? d.customTitle : d?.type === 'agent-name' ? d.agentName : null;
+        if (typeof value !== 'string') return;
+        const title = value.replace(/\s*\(fork\)\s*$/i, '').replace(/\s+/g, ' ').trim();
+        if (title) this.title = title;
+    }
+
+    result() {
+        return this.title;
     }
 }
 

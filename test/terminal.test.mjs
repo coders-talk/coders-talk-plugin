@@ -3,7 +3,7 @@
 // give the program one (Linux, macOS), the whole round runs in it; nothing lets a script answer it otherwise.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -100,8 +100,10 @@ test('build in a terminal: the preview, the question, and only a yes sends', asy
     assert.match(no.out, /Session #2: Claude Code, .*"Add rate limiting/);
     assert.match(no.out, /Ready to send to http:\/\/127\.0\.0\.1:\d+/);
     assert.match(no.out, /Send this session to http:\/\/127\.0\.0\.1:\d+\? \[y\/N\]/);
-    assert.match(no.out, /Nothing was sent\./);
+    assert.match(no.out, /Nothing was sent, and the prepared file is deleted\./);
     assert.equal(imports.length, 0);
+    assert.equal(existsSync(join(home, 'coders-talk', `${claudeId}.jsonl.gz`)), false, 'a no deletes the preview');
+    assert.equal(existsSync(join(home, 'coders-talk', `${claudeId}.json`)), false);
 
     const yes = await inTerminal(['build', '2'], 'y\n');
     assert.equal(yes.status, 0, yes.out);

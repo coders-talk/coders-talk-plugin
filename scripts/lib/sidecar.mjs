@@ -2,9 +2,10 @@
  * What the SessionStart hook remembers about a session: where it runs and HEAD at its start.
  * ~/.coders-talk/sessions/<session id>.json, a path and a commit hash, nothing from the conversation.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { privateDir, writePrivate } from './credentials.mjs';
 import { SESSION_ID } from './session.mjs';
 
 const KEEP_DAYS = 30;
@@ -25,10 +26,10 @@ export function readSidecar(sessionId, dir = sidecarDir()) {
 /** Written once per session: resume and compact keep the session id, and HEAD at the very start is what counts. */
 export function writeSidecar(data, dir = sidecarDir()) {
     if (!SESSION_ID.test(data.session_id ?? '')) return false;
-    mkdirSync(dir, { recursive: true });
+    privateDir(dir);
     const path = join(dir, `${data.session_id}.json`);
     if (existsSync(path)) return false;
-    writeFileSync(path, JSON.stringify(data));
+    writePrivate(path, JSON.stringify(data));
 
     return true;
 }

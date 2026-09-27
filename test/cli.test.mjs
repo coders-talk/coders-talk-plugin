@@ -41,12 +41,19 @@ let alreadyPublished = false;
 let busyOnce = false;
 let polls = 0;
 let tokenPolls = 0;
+// What the sign-in asked for codes with.
+const deviceRequests = [];
 const server = createServer((req, res) => {
     const reply = (status, body) => res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
 
     // Browser sign-in: no token yet. The person "approves" on the second poll.
     if (req.method === 'POST' && req.url === '/api/v1/device/codes') {
-        return reply(201, { device_code: 'device-secret', user_code: 'WDJB-MJHT', verification_url: `http://127.0.0.1:${server.address().port}/connect`, verification_url_complete: `http://127.0.0.1:${server.address().port}/connect/01request`, expires_in: 600, interval: 0 });
+        const body = [];
+        req.on('data', (c) => body.push(c));
+        return req.on('end', () => {
+            deviceRequests.push(JSON.parse(Buffer.concat(body).toString()));
+            reply(201, { device_code: 'device-secret', user_code: 'WDJB-MJHT', verification_url: `http://127.0.0.1:${server.address().port}/connect`, verification_url_complete: `http://127.0.0.1:${server.address().port}/connect/01request`, expires_in: 600, interval: 0 });
+        });
     }
     if (req.method === 'POST' && req.url === '/api/v1/device/token') {
         const body = [];
@@ -127,6 +134,9 @@ test('login opens the approval link, --wait collects the token and saves it for 
     assert.match(r.out, /Opened http:\/\/127\.0\.0\.1:\d+\/connect\/01request in the browser\. Check that the page shows the code WDJB-MJHT and press Connect\./);
     assert.doesNotMatch(r.out, /Connected to/);
     assert.equal(tokenPolls, 0, 'the first step does not wait');
+    // The program that asks, never the computer's name.
+    assert.deepEqual(Object.keys(deviceRequests.at(-1)), ['client_name', 'client_version']);
+    assert.equal(deviceRequests.at(-1).client_name, 'Claude Code');
 
     const waited = await cli(['login', '--wait']);
     assert.equal(waited.ok, true, waited.out);
@@ -139,6 +149,10 @@ test('login opens the approval link, --wait collects the token and saves it for 
     assert.equal(existsSync(join(home, 'ct', 'login-pending.json')), false);
 
     assert.match((await cli(['login'])).out, /Already connected .* as @mara/);
+    if (process.platform !== 'win32') {
+        assert.equal(statSync(join(home, 'ct')).mode & 0o777, 0o700);
+        assert.equal(statSync(join(home, 'ct', 'credentials.json')).mode & 0o777, 0o600);
+    }
 });
 
 test('Codex login reaches the API despite a stale sandbox network flag', async () => {
@@ -167,7 +181,38 @@ test('Codex reports actual permission errors without mislabeling DNS failures', 
     }
 });
 
+test('a preview nobody sends goes: at once when the person says no, after 30 minutes on any run', async () => {
+    const dir = join(temp, 'coders-talk');
+    const files = [join(dir, `${id}.jsonl.gz`), join(dir, `${id}.json`)];
+    assert.equal((await cli(['preview', id])).ok, true);
+    assert.ok(files.every((f) => existsSync(f)));
+    if (process.platform !== 'win32') {
+        assert.equal(statSync(dir).mode & 0o777, 0o700);
+        for (const f of files) assert.equal(statSync(f).mode & 0o777, 0o600, f);
+    }
+
+    const no = await cli(['discard', id]);
+    assert.equal(no.ok, true, no.out);
+    assert.match(no.out, /Nothing was sent, and the prepared file is deleted\./);
+    assert.ok(files.every((f) => !existsSync(f)));
+
+    // Left over: any run of coders-talk sweeps it once it is 30 minutes old, and not before.
+    await cli(['preview', id]);
+    const stranger = join(dir, 'notes.txt');
+    writeFileSync(stranger, 'not ours');
+    const old = new Date(Date.now() - 31 * 60_000);
+    for (const f of [...files, stranger]) utimesSync(f, old, old);
+    await cli(['version']);
+    assert.ok(files.every((f) => !existsSync(f)));
+    assert.equal(existsSync(stranger), true, 'only what the preview writes');
+
+    await cli(['preview', id]);
+    await cli(['version']);
+    assert.ok(files.every((f) => existsSync(f)), 'a fresh one stays for the send step');
+});
+
 test('send refuses without a preview', async () => {
+    await cli(['discard', id]);
     const r = await cli(['send', id]);
     assert.equal(r.ok, false);
     assert.match(r.out, /Run the preview step first/);
@@ -177,7 +222,7 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     const preview = await cli(['preview', id]);
     assert.equal(preview.ok, true, preview.out);
     assert.match(preview.out, /Project: +shop/);
-    assert.match(preview.out, /Prompts: +2, tool calls: 5/);
+    assert.match(preview.out, /Prompts: +2, tool calls: 8/);
     assert.match(preview.out, /compressed/);
     // mara/shop is not one of the team's repositories: the draft stays with its sender.
     assert.match(preview.out, /Goes to: +your private Builds: only you see the draft/);
@@ -189,7 +234,8 @@ test('preview prints what will go, then send uploads exactly that and waits for 
         preview.out.includes('Git:        https://github.com/mara/shop (linked on the Build only if the repository is public), branch main; 2 commits in this session, 1 file +2 −0. Commit titles are sent, not the commits.'),
         preview.out,
     );
-    assert.match(preview.out, /Privacy check, on this computer: no keys, tokens or addresses found\./);
+    assert.match(preview.out, /Privacy check, on this computer: no keys, tokens or addresses it recognises\./);
+    assert.match(preview.out, /anything else, a secret in an unusual form or a name you would rather keep, goes as it is/);
     const prepared = join(temp, 'coders-talk', `${id}.jsonl.gz`);
     const gz = readFileSync(prepared);
     const sentLater = gunzipSync(gz).toString('utf8');
@@ -271,16 +317,21 @@ test('Builds the agent got from the library are shown in the preview and go with
 
     const preview = await cli(['preview', used]);
     assert.equal(preview.ok, true, preview.out);
-    assert.match(preview.out, /Library: +1 call; 2 Builds used \(login-throttle-x1, redis-limiter\)/);
+    // The fixture asks the library once too: a search whose answer names no Build it counts.
+    assert.match(preview.out, /Library: +2 calls; 2 Builds used \(login-throttle-x1, redis-limiter\)/);
     const send = await cli(['send', used]);
     assert.equal(send.ok, true, send.out);
     const sent = JSON.parse(received.toString('utf8').match(/name="library"\r\n\r\n(.*)\r\n/)[1]);
-    assert.deepEqual(sent, { calls: 1, slugs: ['login-throttle-x1', 'redis-limiter'] });
+    assert.deepEqual(sent, { calls: 2, slugs: ['login-throttle-x1', 'redis-limiter'] });
 
     // No library call in the session: no field, no line.
-    const plain = await cli(['preview', id]);
+    const none = 'a1b2c3d4-0000-4000-8000-0000000000e2';
+    const noLibrary = lines.split('\n').filter((l) => !/coders-talk|coders\.talk\/b\//.test(l));
+    writeFileSync(join(home, 'projects', 'C--code-shop', `${none}.jsonl`), noLibrary.join('\n') + '\n');
+    const plain = await cli(['preview', none]);
+    assert.equal(plain.ok, true, plain.out);
     assert.doesNotMatch(plain.out, /Library:/);
-    await cli(['send', id]);
+    await cli(['send', none]);
     assert.doesNotMatch(received.toString('latin1'), /name="library"/);
 });
 
@@ -539,7 +590,7 @@ test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_
 
     const preview = await cli(['preview', '--agent=codex'], codex);
     assert.equal(preview.ok, true, preview.out);
-    assert.match(preview.out, /Prompts: +3, tool calls: 7/);
+    assert.match(preview.out, /Prompts: +3, tool calls: 11/);
     assert.match(preview.out, /2 commits in this session/);
     assert.doesNotMatch(preview.out, /Claude Code/);
     const gz = readFileSync(join(temp, 'coders-talk', `${thread}.jsonl.gz`));

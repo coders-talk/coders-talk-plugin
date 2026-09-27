@@ -1,4 +1,6 @@
-// Generated from coders.talk resources/js/lib/sessionUsage.ts by `npm run plugin:sync`. Do not edit here.
+// Generated from coders.talk resources/js/lib/sessionUsage.ts by `npm run plugin:sync`. Do not edit here: change the site's
+// file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
+// sha256:e2e8e762ec4a3b01a11a80168c250f15cb7e447c772a9891ba6ec11201997a79
 
 /**
  * The tokens a session spent, per model (plan: private and team Builds, phase 3). Slimming drops the bookkeeping

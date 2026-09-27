@@ -1,13 +1,46 @@
 /**
  * Tokens the browser sign-in saved, per site: ~/.coders-talk/credentials.json, readable by this user only.
  * Kept out of Claude Code's own settings on purpose: nothing here ever passes through the model.
+ *
+ * The whole folder is this user's only: ~/.coders-talk and every folder in it 0700, every file 0600. Every file the
+ * plugin keeps there is written through privateDir, writePrivate and appendPrivate. Windows ignores the modes: the
+ * user profile is private there already.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 
 export function home(env = process.env) {
     return env.CODERS_TALK_HOME || join(homedir(), '.coders-talk');
+}
+
+function chmod(path, mode) {
+    try {
+        chmodSync(path, mode);
+    } catch {
+        // Windows, or a file system without modes.
+    }
+}
+
+/** The folder, made if missing, opened by this user only; ~/.coders-talk as well when the folder is inside it. */
+export function privateDir(dir, env = process.env) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmod(dir, 0o700);
+    const own = resolve(home(env));
+    if (resolve(dir).startsWith(own + sep)) chmod(own, 0o700);
+}
+
+/** A file only this user can read, in a folder only this user can open. */
+export function writePrivate(path, data) {
+    privateDir(dirname(path));
+    writeFileSync(path, data, { mode: 0o600 });
+    chmod(path, 0o600);
+}
+
+export function appendPrivate(path, data) {
+    privateDir(dirname(path));
+    appendFileSync(path, data, { mode: 0o600 });
+    chmod(path, 0o600);
 }
 
 function read(path) {
@@ -19,13 +52,7 @@ function read(path) {
 }
 
 function write(path, data) {
-    mkdirSync(join(path, '..'), { recursive: true });
-    writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 });
-    try {
-        chmodSync(path, 0o600);
-    } catch {
-        // Windows keeps the user profile private already.
-    }
+    writePrivate(path, JSON.stringify(data, null, 2));
 }
 
 const credentialsFile = (dir) => join(dir, 'credentials.json');

@@ -10,10 +10,10 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { inBackground } from './auto.mjs';
-import { home } from './credentials.mjs';
+import { home, writePrivate } from './credentials.mjs';
 import { Failure } from './failure.mjs';
 import { request } from './http.mjs';
 import { BINARY_VERSION } from './runtime.mjs';
@@ -71,10 +71,14 @@ export async function update(requested = null, { check = false, current = BINARY
     spawnSync(executable, ['refresh-plugin'], { stdio: 'inherit', windowsHide: true });
 }
 
-/** The new file next to the running one, then moved over it; on Windows the running one steps aside first. */
+/**
+ * The new file next to the running one, then moved over it; on Windows the running one steps aside first. In
+ * ~/.coders-talk/bin, as the installer puts it, it is this user's only (0700), like everything in that folder.
+ */
 export function replaceExecutable(executable, body) {
     const fresh = `${executable}.new`;
-    writeFileSync(fresh, body, { mode: 0o755 });
+    const own = resolve(executable).startsWith(resolve(home()) + sep);
+    writeFileSync(fresh, body, { mode: own ? 0o700 : 0o755 });
     if (process.platform !== 'win32') return renameSync(fresh, executable);
 
     const old = `${executable}.old`;
@@ -163,6 +167,5 @@ function readState() {
 }
 
 function writeState(state) {
-    mkdirSync(home(), { recursive: true });
-    writeFileSync(stateFile(), JSON.stringify(state, null, 2));
+    writePrivate(stateFile(), JSON.stringify(state, null, 2));
 }

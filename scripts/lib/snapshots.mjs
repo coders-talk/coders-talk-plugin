@@ -11,9 +11,10 @@
  * the temporary index. Best effort throughout: no git, no repository or a failing command means no snapshot.
  */
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { privateDir, writePrivate } from './credentials.mjs';
 import { SESSION_ID } from './session.mjs';
 import { gitFileChange } from './slim.mjs';
 
@@ -60,9 +61,8 @@ export function readSnapshots(sessionId, dir = snapshotDir()) {
 
 /** Written whole and renamed into place: auto mode may read it from another process while a hook writes. */
 function writeSnapshots(state, dir) {
-    mkdirSync(dir, { recursive: true });
     const path = join(dir, `${state.session_id}.json`);
-    writeFileSync(`${path}.tmp`, JSON.stringify(state));
+    writePrivate(`${path}.tmp`, JSON.stringify(state));
     renameSync(`${path}.tmp`, path);
 }
 
@@ -82,7 +82,7 @@ export function takeSnapshot(event, kind, { dir = snapshotDir(), now = Date.now(
     // Not a repository, or the session moved into another one: its snapshots would not compare.
     if (!root || !gitDir || (state.root && state.root !== root)) return null;
 
-    mkdirSync(dir, { recursive: true });
+    privateDir(dir);
     const index = join(dir, `${id}.index`);
     // Starting from the person's index, git add re-reads only the files that changed since.
     try {
@@ -99,6 +99,12 @@ export function takeSnapshot(event, kind, { dir = snapshotDir(), now = Date.now(
         .slice(0, MAX_NEW_FILES);
     if (others.length) git(root, ['add', '--pathspec-from-file=-', '--pathspec-file-nul'], { env, input: others.join('\0'), timeout: budgetMs });
     const tree = git(root, ['write-tree'], { env, timeout: budgetMs });
+    // git writes the index with the umask's mode; the folder is private anyway (0700).
+    try {
+        chmodSync(index, 0o600);
+    } catch {
+        // Windows, or no index written.
+    }
     if (!tree) return null;
 
     const last = state.snapshots[state.snapshots.length - 1];

@@ -9,9 +9,9 @@
  * ~/.coders-talk/nudges/<agent>-<session>.json keeps where that was and what was found: counts and Build slugs, never
  * anything from the conversation. One file per session, because hooks of several sessions run at once.
  */
-import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { home } from './credentials.mjs';
+import { home, writePrivate } from './credentials.mjs';
 import { LibraryWatch } from './library.mjs';
 
 const READ_BYTES = 32 * 1024 * 1024;
@@ -32,9 +32,8 @@ function read(path) {
 }
 
 function write(path, data) {
-    mkdirSync(join(path, '..'), { recursive: true });
     const temp = `${path}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify(data));
+    writePrivate(temp, JSON.stringify(data));
     renameSync(temp, path);
 }
 

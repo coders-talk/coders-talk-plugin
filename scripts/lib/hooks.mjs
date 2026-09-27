@@ -26,6 +26,7 @@ import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
 import { findRollout, findTranscript, SESSION_ID } from './session.mjs';
 import { pruneSidecars, writeSidecar } from './sidecar.mjs';
 import { pruneSnapshots, takeSnapshot } from './snapshots.mjs';
+import { sweepPrepared } from './prepared.mjs';
 
 export const HOOK_EVENTS = ['session-start', 'prompt', 'stop', 'session-end'];
 
@@ -65,8 +66,11 @@ export async function runHook(agent, name, { snapshot = agent === 'claude-code',
             /** What `coders-talk` needs to be told to read this agent's sessions. */
             agentArgs: agent === 'codex' ? ['--agent=codex'] : [],
         };
-        if (name === 'session-start') sessionStart(context);
-        else if (name === 'stop') stop(context);
+        if (name === 'session-start') {
+            // Previews nobody sent go even when coders-talk itself is not run again (lib/prepared.mjs).
+            sweepPrepared();
+            sessionStart(context);
+        } else if (name === 'stop') stop(context);
         else if (name === 'session-end') await sessionEnd(context);
     } catch {
         // A missing git, an unreadable home folder or odd input must not get in the way of the session.

@@ -21,9 +21,9 @@
  * for the sessions auto mode saw, where their file is and how much of it went. Never anything from the conversation.
  */
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { home } from './credentials.mjs';
+import { appendPrivate, home, writePrivate } from './credentials.mjs';
 import { selfCommand } from './runtime.mjs';
 
 export const AUTO_MODES = ['all', 'team', 'push'];
@@ -31,6 +31,7 @@ export const AUTO_MODES = ['all', 'team', 'push'];
 export const RUNNING_MODES = ['all', 'team'];
 export const AGENTS = ['claude-code', 'codex'];
 const LOG_LINES = 500;
+const LOG_DAYS = 30;
 
 /** A session that is still going is sent again at most this often. */
 export const SYNC_EVERY_MS = 10 * 60_000;
@@ -63,9 +64,8 @@ const STALE_TEMP_MS = 60_000;
 
 /** Written whole and renamed into place: hooks of several sessions may write at once, and a torn file loses them all. */
 function write(path, data) {
-    mkdirSync(join(path, '..'), { recursive: true });
     const temp = `${path}.${process.pid}.tmp`;
-    writeFileSync(temp, JSON.stringify(data, null, 2));
+    writePrivate(temp, JSON.stringify(data, null, 2));
     for (let attempt = 1; ; attempt++) {
         try {
             return renameSync(temp, path);
@@ -114,8 +114,7 @@ export function setAutoMode(site, mode, agent = 'claude-code', dir = home()) {
     const entry = agent === 'codex' ? { ...claude, ...(choice ? { codex: choice } : {}) } : { ...(choice ?? {}), ...(codex ? { codex } : {}) };
     if (Object.keys(entry).length) all[site] = entry;
     else delete all[site];
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(configFile(dir), JSON.stringify(all, null, 2));
+    writePrivate(configFile(dir), JSON.stringify(all, null, 2));
 
     if (!mode) {
         const sessions = read(sessionsFile(dir));
@@ -240,13 +239,17 @@ export async function waitForSend(site, id, since, ms, dir = home()) {
     return false;
 }
 
-/** One line per session auto mode looked at; the file keeps the last few hundred. */
+/**
+ * One line per session auto mode looked at; the file keeps the last LOG_LINES, none older than LOG_DAYS. A line
+ * starts with its time; one that does not (written by hand) goes when it is among the oldest.
+ */
 export function logAuto(line, dir = home(), now = new Date()) {
-    mkdirSync(dir, { recursive: true });
     const path = logFile(dir);
-    appendFileSync(path, `${now.toISOString()} ${line.replace(/\s+/g, ' ').trim()}\n`);
+    appendPrivate(path, `${now.toISOString()} ${line.replace(/\s+/g, ' ').trim()}\n`);
     const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
-    if (lines.length > LOG_LINES) writeFileSync(path, lines.slice(-LOG_LINES).join('\n') + '\n');
+    const since = now.getTime() - LOG_DAYS * 86_400_000;
+    const kept = lines.filter((l) => !(Date.parse(l.split(' ', 1)[0]) < since)).slice(-LOG_LINES);
+    if (kept.length !== lines.length) writePrivate(path, kept.length ? kept.join('\n') + '\n' : '');
 }
 
 /** The last lines of the log, newest last. */

@@ -1,4 +1,6 @@
-// Generated from coders.talk resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here.
+// Generated from coders.talk resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here: change the site's
+// file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
+// sha256:0a02fc3eb9af0b099a811353d087347c8b5ab742e2d973b49598b501c1e98f3c
 
 /**
  * Claude Code and Codex sessions are mostly weight nobody reads: screenshots as base64, whole files
@@ -16,17 +18,18 @@
 const MESSAGE_TYPES = new Set(['user', 'assistant', 'message']);
 /** The Codex items the server reads (TurnParser): what was said, tool calls and their output. */
 const CODEX_ITEMS = new Set(['message', 'function_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output']);
-const CODEX_KEYS = ['type', 'role', 'content', 'name', 'arguments', 'input', 'output', 'exit_code', 'changes'];
+const CODEX_KEYS = ['type', 'role', 'content', 'name', 'arguments', 'input', 'output', 'exit_code', 'changes', 'withheld'];
 /**
  * Other exports (older Codex rollouts, chat dumps) put a turn on the line itself. It is kept when it names a speaker
- * TurnParser knows (its role(), by role or else type), with only the keys TurnParser reads.
+ * TurnParser knows (its role(), by role or else type), with only the keys TurnParser reads. A Codex item among them
+ * (an older rollout's call or output) is slimmed like one in a payload.
  */
 const SPEAKERS = new Set([
     'user', 'human', 'you',
     'assistant', 'ai', 'model', 'agent', 'claude', 'bot',
     'tool', 'function', 'tool_result', 'toolresult', 'function_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output',
 ]);
-const TURN_KEYS = ['type', 'role', 'timestamp', 'ts', 'created_at', 'text', 'content', 'output', 'name', 'arguments', 'input', 'exit_code', 'changes'];
+const TURN_KEYS = ['type', 'role', 'timestamp', 'ts', 'created_at', 'text', 'content', 'output', 'name', 'arguments', 'input', 'exit_code', 'changes', 'withheld'];
 /** Lines the plugin writes itself: what git saw change (snapshots.mjs) and the session's folders (learnFolders). */
 const OWN_LINES = new Map([
     ['git-changes', ['type', 'timestamp', 'by', 'changes', 'commits']],
@@ -37,6 +40,13 @@ const TOOL_CHARS = 8000;
 /** One file change is shown whole up to here; the counts always cover all of it. */
 const CHANGE_LINES = 300;
 const CHANGE_CHARS = 20000;
+/** What is left of a call to the Coders Talk library and of its answer: the searches and other people's sessions stay here. */
+export const LIBRARY_MARKER = '[library call — not kept]';
+/**
+ * What the answer of a call that names a file that may hold secrets becomes (a read, a search, a shell print, an edit, a
+ * Codex patch), and its input too unless the file is named by a path key.
+ */
+export const WITHHELD_MARKER = '[content not shown, the file may hold secrets]';
 function cut(value, lines = TOOL_LINES) {
     const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
     const all = text.split('\n');
@@ -89,6 +99,11 @@ export function withheldReason(path) {
         return 'sensitive';
     if (/\.(pem|key|p12|pfx|jks|keystore)$/.test(name))
         return 'sensitive';
+    // Tokens, cloud and cluster logins, infrastructure state, password vaults, VPN profiles; prod.env like .env.
+    if (/^(\.git-credentials|\.envrc|\.dev\.vars|kubeconfig|\.htpasswd|application_default_credentials\.json|local\.settings\.json|\.vault-token|\.s3cfg|\.boto|\.terraformrc|secrets\.(ya?ml|json|toml))$/.test(name) ||
+        /\.(env|tfvars|tfstate|tfstate\.backup|kdbx|gpg|ovpn)$/.test(name) ||
+        /(^|\/)\.ssh\/|(^|\/)\.kube\/config$|(^|\/)\.docker\/config\.json$/.test(lower))
+        return 'sensitive';
     if (/^(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|cargo\.lock|poetry\.lock|uv\.lock|pipfile\.lock|gemfile\.lock|go\.sum|bun\.lockb?)$/.test(name))
         return 'generated';
     if (/\.min\.(js|css)$/.test(name) || name.endsWith('.map'))
@@ -97,6 +112,112 @@ export function withheldReason(path) {
     if (/(^|\/)(vendor|node_modules|dist)\//.test(path) || path.startsWith('build/'))
         return 'generated';
     return null;
+}
+const LIBRARY_TOOLS = ['search_coding_agent_sessions', 'find_coding_agent_failures', 'get_coding_agent_session'];
+/** A Codex script (the exec tool) that calls one of the library's tools. */
+const LIBRARY_SCRIPT = /(?:^|[^A-Za-z0-9_]|__)(?:search_coding_agent_sessions|find_coding_agent_failures|get_coding_agent_session)(?![A-Za-z0-9_])/;
+/** Shell tools: the command's words are checked for secret files (`cat .env`, `type prod.env`). */
+const SHELL_TOOLS = ['bash', 'shell', 'sh', 'zsh', 'powershell', 'pwsh', 'cmd', 'exec', 'exec_command', 'local_shell', 'shell_command', 'container.exec', 'run_terminal_cmd', 'run_shell_command', 'terminal', 'execute_command'];
+/** Where tools name the file they read, search or change. */
+const PATH_KEYS = ['file_path', 'filePath', 'path', 'notebook_path', 'file', 'filename'];
+const isSecretFile = (path) => typeof path === 'string' && path !== '' && withheldReason(path.replace(/\\/g, '/')) === 'sensitive';
+/** The Coders Talk library's tools: mcp__…coders-talk…__*, plugin_coders-talk*, or one of its tool names however prefixed. */
+export function isLibraryTool(name) {
+    const lower = name.toLowerCase();
+    if (/^mcp__.*coders[-_]?talk.*__/.test(lower) || lower.startsWith('plugin_coders-talk') || lower.startsWith('plugin_coders_talk'))
+        return true;
+    return LIBRARY_TOOLS.includes(lower.split(/__|[./:]/).pop() ?? '');
+}
+/** A call's input as an object: parsed when it is JSON, a shell tool's raw string as its command; null otherwise. */
+function callArgs(input, shell) {
+    let args = input;
+    if (typeof args === 'string') {
+        const raw = args;
+        try {
+            args = JSON.parse(raw);
+        }
+        catch {
+            args = undefined;
+        }
+        if (!args || typeof args !== 'object')
+            args = shell ? { command: raw } : null;
+    }
+    return args && typeof args === 'object' && !Array.isArray(args) ? args : null;
+}
+/** Whether a path key of a call's input (file_path, path, paths…) names a file that may hold secrets. */
+function namesSecretPath(a) {
+    const paths = a.paths === undefined || a.paths === null ? [] : Array.isArray(a.paths) ? a.paths : [a.paths];
+    return [...PATH_KEYS.map((k) => a[k]), ...paths].some(isSecretFile);
+}
+/**
+ * What becomes of a call's answer: 'library' for the Coders Talk library's tools (and a Codex script that calls one),
+ * 'sensitive' when the call names a file that may hold secrets, whatever it does with it (Read, Grep, Edit, `cat .env`,
+ * a script's `exec_command({ cmd: "cat .env" })`); null otherwise. The same rules as the server's SessionSlimmer::callMark.
+ */
+export function callMark(name, input) {
+    const tool = name.toLowerCase().split(/__|[/:]/).pop() ?? '';
+    if (isLibraryTool(name) || (tool === 'exec' && typeof input === 'string' && LIBRARY_SCRIPT.test(input)))
+        return 'library';
+    const shell = SHELL_TOOLS.includes(tool);
+    const a = callArgs(input, shell);
+    if (!a)
+        return null;
+    if (namesSecretPath(a))
+        return 'sensitive';
+    if (!shell && (a.command === undefined || a.command === null) && (a.cmd === undefined || a.cmd === null))
+        return null;
+    let command = a.command ?? a.cmd ?? a.script;
+    if (Array.isArray(command))
+        command = command.filter((c) => typeof c === 'string').join(' ');
+    if (typeof command !== 'string')
+        return null;
+    return command.split(/[\s;|&<>()`"'=,{}[\]]+/).some((word) => word !== '' && isSecretFile(word)) ? 'sensitive' : null;
+}
+/**
+ * A call's input as it goes: a marker for the library; for a call on a secret file only its path keys when they name
+ * it (the file by name, not the values an edit writes), else a marker, since a command or a patch carries what it
+ * prints or writes; otherwise cut.
+ */
+function callInput(mark, input) {
+    if (mark === 'library')
+        return LIBRARY_MARKER;
+    if (mark === 'sensitive') {
+        const a = callArgs(input, false);
+        return a && namesSecretPath(a) ? cut(only(a, [...PATH_KEYS, 'paths']), 40) : WITHHELD_MARKER;
+    }
+    return cut(input, 40);
+}
+/** Remembers what becomes of a call's answer, for the answer on a later line. */
+function remember(ctx, id, mark) {
+    if (typeof id === 'string' && id !== '') {
+        if (mark)
+            (ctx.marks ??= {})[id] = mark;
+    }
+    else {
+        // A call after an answer starts a new round: calls of the last one left without an answer were interrupted.
+        if (ctx.afterResult)
+            ctx.queue = [];
+        (ctx.queue ??= []).push(mark);
+    }
+    ctx.afterResult = false;
+}
+function recall(ctx, id) {
+    ctx.afterResult = true;
+    if (typeof id === 'string' && id !== '') {
+        const mark = ctx.marks?.[id] ?? null;
+        if (ctx.marks)
+            delete ctx.marks[id];
+        return mark;
+    }
+    return ctx.queue?.length ? (ctx.queue.shift() ?? null) : null;
+}
+/** An answer as it goes: a marker, or cut. */
+function answer(mark, value) {
+    if (mark === 'sensitive')
+        return WITHHELD_MARKER;
+    if (mark === 'library')
+        return LIBRARY_MARKER;
+    return cut(value);
 }
 const norm = (p) => p.replace(/\\/g, '/').replace(/\/+$/, '');
 const within = (path, dir) => path.toLowerCase().startsWith(`${dir.toLowerCase()}/`);
@@ -311,37 +432,59 @@ function slimCodexLine(type, timestamp, payload, ctx = {}) {
     // session_meta, turn_context, compacted, world_state, token_usage_record: bookkeeping, some of it huge.
     if (type !== 'response_item')
         return null;
-    // reasoning, compaction, ghost_snapshot, web_search_call and whatever comes next: not read, not sent.
-    if (typeof payload.type !== 'string' || !CODEX_ITEMS.has(payload.type))
+    const p = slimCodexItem(payload, CODEX_KEYS, ctx);
+    return p ? { type, timestamp, payload: p } : null;
+}
+/**
+ * A Codex item, from a response_item's payload or (an older rollout) the line itself, with only the given keys; null
+ * when the server does not read it: reasoning, compaction, ghost_snapshot, web_search_call and whatever comes next.
+ */
+function slimCodexItem(item, keys, ctx) {
+    if (typeof item.type !== 'string' || !CODEX_ITEMS.has(item.type))
         return null;
-    const p = only(payload, CODEX_KEYS);
+    const p = only(item, keys);
     // Developer messages are the app's instructions to the model, not the conversation.
     if (p.type === 'message' && (p.role === 'developer' || p.role === 'system'))
         return null;
     if (Array.isArray(p.content)) {
         p.content = p.content.map((b) => (b?.type === 'input_image' ? { type: 'input_text', text: '[image]' } : b));
     }
+    const call = p.type === 'function_call' || p.type === 'custom_tool_call';
+    // Taken before the input is cut: a patch is usually longer than 40 lines. A line slimmed before (the plugin's, which
+    // the server slims again) has them already, and its input is cut.
+    if (call && !Array.isArray(p.changes)) {
+        const changes = codexChanges(p, ctx);
+        if (changes.length)
+            p.changes = changes;
+    }
+    // A call that names a secret file, or asks the library, has its answer replaced by a marker, and its input too
+    // (callInput). A patch of a secret file carries its values in the raw patch: only its changes go, the file by name.
+    let mark = null;
+    if (call) {
+        const secretPatch = Array.isArray(p.changes) && p.changes.some((c) => c?.withheld === 'sensitive');
+        mark = secretPatch ? 'sensitive' : callMark(typeof p.name === 'string' ? p.name : '', p.arguments ?? p.input ?? null);
+        remember(ctx, item.call_id, mark);
+    }
+    else if (p.type === 'function_call_output' || p.type === 'custom_tool_call_output') {
+        mark = recall(ctx, item.call_id) ?? (p.withheld === 'sensitive' ? 'sensitive' : null);
+    }
+    delete p.withheld;
     if ('output' in p) {
         // The exit code sits inside the output, which is about to be cut: keep it next to it.
         const code = exitCode(p.output);
         if (code !== null)
             p.exit_code = code;
-        p.output = cut(Array.isArray(p.output) ? blockText(p.output) : p.output);
-    }
-    // Taken before the input is cut: a patch is usually longer than 40 lines. A line slimmed before (the plugin's, which
-    // the server slims again) has them already, and its input is cut.
-    if ((p.type === 'function_call' || p.type === 'custom_tool_call') && !Array.isArray(p.changes)) {
-        const changes = codexChanges(p, ctx);
-        if (changes.length)
-            p.changes = changes;
+        p.output = answer(mark, Array.isArray(p.output) ? blockText(p.output) : p.output);
+        if (mark === 'sensitive')
+            p.withheld = 'sensitive';
     }
     if ('arguments' in p)
-        p.arguments = cut(p.arguments, 40);
+        p.arguments = callInput(mark, p.arguments);
     if ('input' in p)
-        p.input = cut(p.input, 40);
-    return { type, timestamp, payload: p };
+        p.input = callInput(mark, p.input);
+    return p;
 }
-function slimBlock(block) {
+function slimBlock(block, ctx) {
     if (!block || typeof block !== 'object')
         return block;
     const b = block;
@@ -351,22 +494,23 @@ function slimBlock(block) {
         case 'thinking':
         case 'redacted_thinking':
             return null;
-        case 'tool_result':
+        case 'tool_result': {
             // is_error marks a failed tool call: the server offers it to the labeller as a possible Fail. A result slimmed
-            // before (the plugin's, which the server slims again) keeps the change it carries.
+            // before (the plugin's, which the server slims again) keeps the change it carries. The answer to a call that
+            // read a secret file, or asked the library, keeps only a marker.
+            const mark = recall(ctx, b.tool_use_id) ?? (b.withheld === 'sensitive' ? 'sensitive' : null);
             return {
                 type: 'tool_result',
-                content: cut(blockText(b.content)),
+                content: answer(mark, blockText(b.content)),
+                ...(mark === 'sensitive' ? { withheld: 'sensitive' } : {}),
                 ...(b.is_error === true ? { is_error: true } : {}),
                 ...(b.change && typeof b.change === 'object' ? { change: b.change } : {}),
             };
+        }
         case 'tool_use': {
-            // An edit of a key or env file carries the old and new values in its input: only the path goes.
-            const input = b.input;
-            if (typeof input?.file_path === 'string' && withheldReason(input.file_path.replace(/\\/g, '/')) === 'sensitive') {
-                return { type: 'tool_use', name: b.name, input: cut({ file_path: input.file_path }, 40) };
-            }
-            return { type: 'tool_use', name: b.name, input: cut(b.input, 40) };
+            const mark = callMark(typeof b.name === 'string' ? b.name : '', b.input);
+            remember(ctx, b.id, mark);
+            return { type: 'tool_use', name: b.name, input: callInput(mark, b.input) };
         }
         default:
             return b;
@@ -418,7 +562,7 @@ export function slimLine(d, ctx = {}) {
         if (type !== undefined && !MESSAGE_TYPES.has(type))
             return null;
         const m = d.message;
-        const content = Array.isArray(m.content) ? m.content.map(slimBlock).filter(Boolean) : m.content;
+        const content = Array.isArray(m.content) ? m.content.map((b) => slimBlock(b, ctx)).filter(Boolean) : m.content;
         // The change an edit made rides on its result; a line carries one tool result, so there is no doubt whose.
         const change = claudeChange(d.toolUseResult, ctx);
         const results = Array.isArray(content) ? content.filter((b) => b?.type === 'tool_result') : [];
@@ -429,6 +573,9 @@ export function slimLine(d, ctx = {}) {
     const own = typeof type === 'string' ? OWN_LINES.get(type) : undefined;
     if (own)
         return only(d, own);
+    // An older Codex rollout: the item is the line itself.
+    if (typeof type === 'string' && CODEX_ITEMS.has(type))
+        return slimCodexItem(d, TURN_KEYS, ctx);
     const speaker = typeof d.role === 'string' ? d.role : type;
     return typeof speaker === 'string' && SPEAKERS.has(speaker.toLowerCase()) ? only(d, TURN_KEYS) : null;
 }

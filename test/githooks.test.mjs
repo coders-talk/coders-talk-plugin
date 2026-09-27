@@ -187,3 +187,30 @@ test('enable puts the hooks in the repository it runs in, status shows them, dis
     assert.match(husky, /Add these lines to the hooks in .+:\n\nprepare-commit-msg:\n# >>> coders-talk/);
     assert.equal(existsSync(join(repo.dir, '.husky')), false);
 });
+
+test('status and the pre-push hook (and build, in a terminal) drop this repository\'s snapshot refs older than 14 days, without git gc', async () => {
+    const repo = makeRepo();
+    const stale = 'a1b2c3d4-0000-4000-8000-0000000000f1';
+    const kept = 'a1b2c3d4-0000-4000-8000-0000000000f2';
+    const store = join(home, 'ct', 'snapshots');
+    mkdirSync(store, { recursive: true });
+    // A session whose snapshot file is still here keeps its ref; one whose file went (14 days) loses it.
+    writeFileSync(join(store, `${kept}.json`), JSON.stringify({ session_id: kept, root: repo.dir, snapshots: [] }));
+    const refs = () => git(repo.dir, 'for-each-ref', '--format=%(refname)', 'refs/coders-talk/').split('\n').filter(Boolean).sort();
+    const reset = () => {
+        for (const id of [stale, kept]) git(repo.dir, 'update-ref', `refs/coders-talk/${id}`, repo.hashes[2]);
+    };
+
+    reset();
+    await run(...coders(['status']), { cwd: repo.dir, env });
+    assert.deepEqual(refs(), [`refs/coders-talk/${kept}`]);
+
+    reset();
+    // What git gives the hook on stdin: nothing to push here.
+    const push = run(...coders(['git-hook', 'pre-push', 'origin', 'git@github.com:mara/shop.git']), { cwd: repo.dir, env });
+    push.child.stdin.end();
+    await push;
+    assert.deepEqual(refs(), [`refs/coders-talk/${kept}`]);
+    // Only refs: the objects stay until the person's own git gc.
+    assert.equal(git(repo.dir, 'cat-file', '-t', repo.hashes[2]), 'commit');
+});

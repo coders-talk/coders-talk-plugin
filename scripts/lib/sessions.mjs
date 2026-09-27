@@ -6,17 +6,18 @@
  *   Codex        the rollouts of the last days whose session_meta names the folder as cwd
  *
  * A folder inside a repository also finds the sessions run at the repository's top. What was sent is remembered in
- * ~/.coders-talk/sent.json (the send step) and in auto mode's auto-sessions.json.
+ * ~/.coders-talk/sent.json (the send step; SENT_DAYS, then forgotten) and in auto mode's auto-sessions.json.
  */
-import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { autoSession } from './auto.mjs';
-import { home } from './credentials.mjs';
+import { home, writePrivate } from './credentials.mjs';
 import { repositoryRoot } from './git.mjs';
 import { codexHome, configDir, isCodexPrompt, promptText } from './session.mjs';
 
 const CODEX_DAYS = 30;
+export const SENT_DAYS = 90;
 const ROLLOUT = /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_[A-Za-z0-9-]+)?\.jsonl$/i;
 
 const sentFile = () => join(home(), 'sent.json');
@@ -130,12 +131,17 @@ export function sentAt(site, id) {
     return Math.max(manual, auto) || null;
 }
 
-/** Remembered after the send step: the draft's link and when. */
+/** Remembered after the send step: the draft's link and when; sends older than SENT_DAYS are forgotten then. */
 export function markSent(site, id, url, now = Date.now()) {
     const all = readSent();
     (all[site] ??= {})[id] = { at: now, url };
-    mkdirSync(home(), { recursive: true });
-    writeFileSync(sentFile(), JSON.stringify(all, null, 2));
+    const since = now - SENT_DAYS * 86_400_000;
+    for (const [where, sent] of Object.entries(all)) {
+        const kept = Object.entries(sent ?? {}).filter(([, s]) => typeof s?.at === 'number' && s.at >= since);
+        if (kept.length) all[where] = Object.fromEntries(kept);
+        else delete all[where];
+    }
+    writePrivate(sentFile(), JSON.stringify(all, null, 2));
 }
 
 function readSent() {

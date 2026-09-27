@@ -24,7 +24,7 @@ import { autoMode, inBackground } from './auto.mjs';
 import { home } from './credentials.mjs';
 import { shCommand } from './plugin.mjs';
 import { rolloutCwd, sentAt } from './sessions.mjs';
-import { readSnapshots, snapshotDir } from './snapshots.mjs';
+import { pruneSnapshots, readSnapshots, snapshotDir } from './snapshots.mjs';
 import { findRollout, findTranscript, SESSION_ID } from './session.mjs';
 
 export const TRAILER = 'Agent-Session';
@@ -118,7 +118,11 @@ export function runGitHook(kind, args, { site, input = '' } = {}) {
         const root = git(process.cwd(), ['rev-parse', '--show-toplevel']);
         if (!root) return;
         if (kind === 'prepare-commit-msg') addTrailers(root, args);
-        else if (kind === 'pre-push') onPush(root, args, input, site);
+        else if (kind === 'pre-push') {
+            onPush(root, args, input, site);
+            // After the sessions behind the push are found: this repository's snapshots older than 14 days go.
+            pruneSnapshots(root);
+        }
     } catch {
         // A commit or a push never fails because of Coders Talk.
     }

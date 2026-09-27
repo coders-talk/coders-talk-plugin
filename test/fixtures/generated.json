@@ -1,0 +1,12 @@
+{
+    "slim/claude-code-folders.jsonl": "d92a85d851d41fe53f7df4470b0a22e9cb01c73ef3034ab077c711e018a87cd6",
+    "slim/claude-code-folders.slim.jsonl": "a7bd3ebc9ab8a8ee559ebce734b12ec6f617832a0c7cc97f3f466be7011a71e3",
+    "slim/claude-code.jsonl": "27a9a4839eec3eb7f1a3854d93d15ae7cdbef79efb6a1e7d57c0e5ebeddb02ae",
+    "slim/claude-code.slim.jsonl": "14367cb7f03667072e4a9abe67072d7d1464b9388cf33ef8876171aee9d8e829",
+    "slim/codex-folders.jsonl": "54aa3c7e0ee55815e6bd1e1ec355ba8d07f1c3257c7ba484c1ada050b3265df7",
+    "slim/codex-folders.slim.jsonl": "34c49478ea80fbe7ce6d61dce96c15c4e6559d62c331f9e88e7a893a3ba47204",
+    "slim/codex.jsonl": "9e498265ef731b84ead78a7fb963a22a1d135ac44d78f7433435a997c7a1e385",
+    "slim/codex.slim.jsonl": "66a64515870a1a2fb510fd9f82ef9d07635de8a67272534e3f9dbd48480a1d5b",
+    "slim/not-jsonl.txt": "21f1a4fab494517752999a22d1420a6c4a5eb9946e70f67471dccbf00b6db9d3",
+    "privacy/cases.json": "ca7e0c11ef16013d77cb0dd1fd61edc78889b5290096efbc16b849673d78d7dd"
+}

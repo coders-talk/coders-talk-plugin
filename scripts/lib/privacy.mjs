@@ -1,4 +1,6 @@
-// Generated from coders.talk resources/js/lib/privacyScan.ts by `npm run plugin:sync`. Do not edit here.
+// Generated from coders.talk resources/js/lib/privacyScan.ts by `npm run plugin:sync`. Do not edit here: change the site's
+// file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
+// sha256:8730aaf653929f9ab6bb977d894d205dd03b65ddf3eae7bd41378063009602fc
 
 /**
  * The privacy check that runs where the session lives (plan: local-first privacy, stage 2): in the browser before an

@@ -18,13 +18,13 @@
  *
  * disable takes all of it off again; the sign-in, the settings and the file itself stay. status says how things are.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { detectAgents, installedPlugins, manualMcpServers, removeMcpServer, runCli } from './agents.mjs';
 import { autoMode, setAutoMode } from './auto.mjs';
 import { hooksOf, installedHooks, installHooks, manualHookLines, removeHooks, TRAILER } from './githooks.mjs';
-import { home, savedUsername } from './credentials.mjs';
+import { home, savedUsername, writePrivate } from './credentials.mjs';
 import { Failure } from './failure.mjs';
 import { MARKETPLACE, PLUGIN_ID, pluginFiles, pluginSources } from './plugin.mjs';
 import { BINARY_VERSION, selfProgram } from './runtime.mjs';
@@ -258,10 +258,7 @@ function chosenAgents(names) {
 function layOut({ site, version, mcp }) {
     const files = pluginFiles(pluginSources(), { program: selfProgram(), version, site, mcp });
     rmSync(pluginDir(), { recursive: true, force: true });
-    for (const [path, text] of Object.entries(files)) {
-        mkdirSync(dirname(join(pluginDir(), path)), { recursive: true });
-        writeFileSync(join(pluginDir(), path), text);
-    }
+    for (const [path, text] of Object.entries(files)) writePrivate(join(pluginDir(), path), text);
 }
 
 /** From the local marketplace: added once, then installed, or updated to the version laid out. */
@@ -308,6 +305,5 @@ function readChoices() {
 }
 
 function writeChoices(choices) {
-    mkdirSync(home(), { recursive: true });
-    writeFileSync(choicesFile(), JSON.stringify(choices, null, 2));
+    writePrivate(choicesFile(), JSON.stringify(choices, null, 2));
 }

@@ -13,6 +13,7 @@
  *                                                 repository: a team's repositories go to the team, the rest stays private
  *   node coders-talk.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
  *     --continues=<slug or link>                  the draft continues that Build of yours: they become a series
+ *   node coders-talk.mjs discard [session-id]   the person said no: deletes what preview saved (it goes after 30 minutes anyway)
  *   node coders-talk.mjs auto [on|team|push|off] auto mode for this computer and agent: send sessions by themselves while
  *                                                 they run and when they end (all of them, or only those in repositories of
  *                                                 teams that ask), or only when their commits are pushed (push, with the git
@@ -50,15 +51,15 @@
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
  * Two steps to send on purpose: the person sees the summary and says yes before anything leaves the machine,
- * and what is sent is exactly what they saw, going where they saw. Secrets are redacted here, before anything is
- * sent (lib/privacy.mjs, the rules the site uses): their values never reach the site, not even for a check. Nothing is published: that happens on the site,
+ * and what is sent is exactly what they saw, going where they saw. The secrets the check recognises are redacted here,
+ * before anything is sent (lib/privacy.mjs, the rules the site uses): those values never reach the site, not even for a
+ * check. What it does not recognise goes as it is, so the output says so. Nothing is published: that happens on the site,
  * and a draft is visible only to its sender, or to the team whose repository the session ran in.
  * The token never passes through the model: the browser sign-in hands it straight to this script.
  * As a script it needs Node.js 20 or newer and nothing else.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
+import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { createInterface as createPrompt } from 'node:readline/promises';
@@ -80,7 +81,8 @@ import { ForkWatch, SESSION_ID, cutOwnCommand, findRollout, findTranscript, form
 import { readSidecar } from './lib/sidecar.mjs';
 import { PRIVACY_LABELS } from './lib/privacy.mjs';
 import { keep, privacyScan, privacySummary, sha256 } from './lib/privacy-settings.mjs';
-import { agentTimes, gitChangeLines, withGitLines } from './lib/snapshots.mjs';
+import { discardPrepared, PREPARED_TTL_MS, prepared, sweepPrepared, writePrepared } from './lib/prepared.mjs';
+import { agentTimes, gitChangeLines, pruneSnapshots, withGitLines } from './lib/snapshots.mjs';
 import { addedFolders, slimLine } from './lib/slim.mjs';
 import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
 import { describeSession, folderSessions, markSent, sentAt } from './lib/sessions.mjs';
@@ -89,7 +91,6 @@ import { UsageCounter } from './lib/usage.mjs';
 
 const VERSION = version();
 const MAX_UPLOAD = 20 * 1024 * 1024;
-const PREPARED_TTL_MS = 30 * 60 * 1000;
 const POLL_MS = Number(process.env.CODERS_TALK_POLL_MS) || 2000;
 const POLL_FOR_MS = 3 * 60 * 1000;
 // Agents stop a command after a couple of minutes; a login still waiting then picks up again on the next run.
@@ -121,6 +122,8 @@ const site = siteUrl(option('site'), CODEX);
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
 
 if (BINARY_VERSION) removeLeftover();
+// Previews nobody sent: gone PREPARED_TTL_MS after they were made, whatever runs next (lib/prepared.mjs).
+sweepPrepared();
 
 try {
     // First and alone: it runs at every connection of the MCP server, and must answer with JSON whatever happens.
@@ -144,6 +147,7 @@ try {
     }
     if (command === 'preview') await preview(sessionId());
     else if (command === 'send') await send(sessionId());
+    else if (command === 'discard') discard(sessionId());
     else if (command === 'auto') await auto(argId);
     else if (command === 'auto-send') await autoSend(argId, { final: !args.includes('--sync'), push: args.includes('--push') });
     else if (command === 'auto-catch-up') await autoCatchUp(argId);
@@ -158,10 +162,13 @@ try {
     else if (command === 'use') await use(argId);
     else if (command === 'enable') await enable({ site, version: VERSION, interactive: TERMINAL, flags: setupFlags() });
     else if (command === 'disable') await disable({ interactive: TERMINAL, flags: setupFlags() });
-    else if (command === 'status') status({ site, version: VERSION });
+    else if (command === 'status') {
+        status({ site, version: VERSION });
+        pruneOwnSnapshots();
+    }
     // What `update` runs with the new file: the plugin laid out again, in the new version.
     else if (command === 'refresh-plugin') refresh({ site, version: VERSION });
-    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | use <build> [--as=skill|rule|prompt] | preview [session-id] | send [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
+    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | use <build> [--as=skill|rule|prompt] | preview [session-id] | send [session-id] | discard [session-id] | auto [on|team|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
     // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
     if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
@@ -192,11 +199,22 @@ function notConnected() {
     return new Failure(`This computer is not connected to ${site} yet. Run ${run('login')} first: it signs you in through the browser.`);
 }
 
-function prepared(id) {
-    const dir = join(tmpdir(), 'coders-talk');
-    mkdirSync(dir, { recursive: true });
+/** The person said no to the preview: what it prepared goes now rather than in 30 minutes. */
+function discard(id) {
+    discardPrepared(id);
+    console.log('Nothing was sent, and the prepared file is deleted.');
+}
 
-    return { file: join(dir, `${id}.jsonl.gz`), meta: join(dir, `${id}.json`) };
+/**
+ * This repository's git snapshots older than 14 days (lib/snapshots.mjs), also when no session starts here any more:
+ * run by build and status, and by the pre-push hook. Only refs/coders-talk/*: git gc, never run here, frees their objects.
+ */
+function pruneOwnSnapshots() {
+    try {
+        pruneSnapshots(process.cwd());
+    } catch {
+        // No git, no repository: nothing to prune.
+    }
 }
 
 /**
@@ -250,10 +268,10 @@ async function preview(id) {
 
     const goesTo = await destination(git);
 
-    writeFileSync(out.file, gz);
+    writePrepared(out.file, gz);
     // Findings by number and hash, for --keep; the values stay in memory only.
     const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
-    writeFileSync(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library }));
+    writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library }));
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
     console.log(`  Project:    ${stats.project ?? 'unknown'}`);
@@ -481,8 +499,8 @@ async function login() {
     if (wait) return waitForApproval();
 
     // Always a fresh request: continuing an earlier one is what --wait is for.
-    const client = TERMINAL ? 'Coders Talk CLI' : AGENT.name;
-    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: `${client} on ${hostname()}`.slice(0, 60), client_version: VERSION }), false);
+    // Only which program asks: never the computer's name.
+    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: TERMINAL ? 'Coders Talk CLI' : AGENT.name, client_version: VERSION }), false);
     const pending = {
         site,
         device_code: codes.device_code,
@@ -604,13 +622,24 @@ async function build(which) {
         return spawnSync(program, programArgs, { stdio: 'inherit' }).status ?? 1;
     };
 
+    pruneOwnSnapshots();
     const previewed = self(['preview', chosen.id, '--whole', ...agentArgs, ...pass(['private', 'team', 'keep', 'site'])]);
     if (previewed !== 0) process.exit(previewed);
 
     const prompt = createPrompt({ input: process.stdin, output: process.stdout });
+    // Ctrl+C at the question is a no too: the prepared file goes with it.
+    prompt.on('SIGINT', () => {
+        prompt.close();
+        discardPrepared(chosen.id);
+        console.log('\nNothing was sent, and the prepared file is deleted.');
+        process.exit(130);
+    });
     const answer = (await prompt.question(`Send this session to ${site}? [y/N] `)).trim().toLowerCase();
     prompt.close();
-    if (!['y', 'yes'].includes(answer)) return console.log('Nothing was sent. The prepared file is deleted within 30 minutes.');
+    if (!['y', 'yes'].includes(answer)) {
+        discardPrepared(chosen.id);
+        return console.log('Nothing was sent, and the prepared file is deleted.');
+    }
 
     const sent = self(['send', chosen.id, ...agentArgs, ...pass(['continues', 'site'])]);
     if (sent !== 0) process.exit(sent);
@@ -882,7 +911,7 @@ async function auto(mode) {
     if (chosen === 'push') {
         console.log(`Auto mode is push. A ${AGENT.name} session is sent to ${site} as @${me.username} when you push its commits, from repositories with the Coders Talk git hooks (coders-talk enable in each repository puts them in): to your team's space when the repository is one of your team's, else to your private Builds. Sessions whose code you never push stay on this computer. Nothing is published.`);
     } else if (chosen === 'all') {
-        console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Secrets are redacted on this computer before a session is sent, and moments are suggested once a session is over.${trust}`);
+        console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before a session is sent; anything it does not recognise goes as it is, so read a draft before you publish it. Moments are suggested once a session is over.${trust}`);
     } else {
         console.log(asking.length
             ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team while they run and ${ends}. Everything else stays on this computer.${trust}`
@@ -998,13 +1027,14 @@ function checkedGit(git, privacy) {
  */
 function describePrivacy(privacy) {
     const findings = privacy.findings();
-    const lines = [findings.length ? 'Privacy check, on this computer (nothing has left yet):' : 'Privacy check, on this computer: no keys, tokens or addresses found.'];
+    const lines = [findings.length ? 'Privacy check, on this computer (nothing has left yet):' : 'Privacy check, on this computer: no keys, tokens or addresses it recognises.'];
     for (const f of findings) {
         const where = f.count > 1 ? `, ${f.count} places` : '';
         lines.push(`  #${f.n} ${PRIVACY_LABELS[f.type] ?? f.type} (${f.preview})${where}: ${f.kept ? 'sent as it is, as you chose' : `goes as [REDACTED:${f.type}]`}`);
     }
     if (privacy.paths) lines.push(`  ${privacy.paths} path${privacy.paths === 1 ? '' : 's'} with your user name: ~ instead`);
     if (findings.some((f) => !f.kept)) lines.push(`To send one as it is, run ${TERMINAL ? 'the same command' : 'the preview'} again with --keep=<numbers>. The values found never reach ${site}.`);
+    lines.push('The check replaces what it recognises; anything else, a secret in an unusual form or a name you would rather keep, goes as it is. Read the draft on the site before you publish it.');
     lines.push(`Words to hide in every session (client names, internal services) go in ${join(credentialsHome(), 'privacy.json')} as {"redact": [...]}.`);
 
     return lines.join('\n');
@@ -1070,7 +1100,7 @@ function uploadByHand(file, cause) {
     openBrowser(`${site}/new`);
     revealFile(file);
 
-    return new Failure(`${cause.message}\nUpload it by hand instead: open ${site}/new and drop this file on the page (its folder should have opened):\n  ${file}\nThe file is kept for ${PREPARED_TTL_MS / 60000} minutes, so running the send step again also works once the site is back.`);
+    return new Failure(`${cause.message}\nUpload it by hand instead: open ${site}/new and drop this file on the page (its folder should have opened):\n  ${file}\nThe file is kept for ${PREPARED_TTL_MS / 60000} minutes, then deleted: until then running the send step again also works once the site is back.`);
 }
 
 /** Best effort: if no browser opens, the printed link is there. */

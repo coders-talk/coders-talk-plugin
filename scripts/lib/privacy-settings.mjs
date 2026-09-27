@@ -9,9 +9,9 @@
  * The check itself is privacy.mjs, generated from coders.talk's resources/js/lib/privacyScan.ts.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { home } from './credentials.mjs';
+import { home, writePrivate } from './credentials.mjs';
 import { PrivacyScan } from './privacy.mjs';
 
 export const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -38,8 +38,7 @@ export function keptHashes() {
 
 export function keep(hashes) {
     const all = [...new Set([...keptHashes(), ...hashes])];
-    mkdirSync(home(), { recursive: true });
-    writeFileSync(join(home(), 'kept.json'), JSON.stringify({ sha256: all }, null, 2) + '\n');
+    writePrivate(join(home(), 'kept.json'), JSON.stringify({ sha256: all }, null, 2) + '\n');
 }
 
 /** A check with the person's words and kept values; kept values are matched by their hash. */

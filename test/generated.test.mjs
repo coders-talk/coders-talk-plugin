@@ -11,7 +11,7 @@ import { test } from 'node:test';
 const digest = (text) => createHash('sha256').update(text.replace(/\r\n/g, '\n')).digest('hex');
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
-for (const file of ['slim.mjs', 'usage.mjs', 'privacy.mjs']) {
+for (const file of ['slim.mjs', 'usage.mjs', 'privacy.mjs', 'grouping.mjs']) {
     test(`scripts/lib/${file} is the site's, as synced`, () => {
         const text = read(`../scripts/lib/${file}`);
         const header = text.match(/^(?:\/\/.*\n)*?\/\/ sha256:([0-9a-f]{64})\n\n/);
@@ -22,7 +22,7 @@ for (const file of ['slim.mjs', 'usage.mjs', 'privacy.mjs']) {
 
 test('the shared fixtures are the site\'s, as synced', () => {
     const hashes = JSON.parse(read('./fixtures/generated.json'));
-    const present = ['slim', 'privacy'].flatMap((kind) => readdirSync(new URL(`./fixtures/${kind}/`, import.meta.url)).map((name) => `${kind}/${name}`));
+    const present = ['slim', 'privacy', 'grouping'].flatMap((kind) => readdirSync(new URL(`./fixtures/${kind}/`, import.meta.url)).map((name) => `${kind}/${name}`));
 
     assert.deepEqual(present.sort(), Object.keys(hashes).sort(), 'fixtures were added or removed here: add them on the site and sync');
     for (const [name, hash] of Object.entries(hashes)) {

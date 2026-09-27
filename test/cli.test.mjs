@@ -275,6 +275,8 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.deepEqual(Object.keys(project).sort(), ['key', 'name']);
     assert.equal(project.key, createHash('sha256').update('remote:github.com/mara/shop').digest('hex'));
     assert.match(project.name, /^ct-repo-/);
+    // No task number in its prompts or commit titles: an empty list, so the site does not look again.
+    assert.match(received.toString('latin1'), /name="task_keys"\r\n\r\n\[\]\r\n/);
     assert.equal(existsSync(prepared), false);
 });
 
@@ -325,7 +327,7 @@ test('a continuation names the session it continues, counts only its own tokens,
     put(next, [
         ...numbered.map((d) => ({ ...d, sessionId: next })),
         { type: 'custom-title', customTitle: 'Rate limits (fork)', sessionId: next },
-        { type: 'user', sessionId: next, uuid: '00000000-0000-4000-8000-000000000901', timestamp: '2026-09-03T09:00:00.000Z', message: { role: 'user', content: 'Carry on with the limiter tests' } },
+        { type: 'user', sessionId: next, uuid: '00000000-0000-4000-8000-000000000901', timestamp: '2026-09-03T09:00:00.000Z', message: { role: 'user', content: 'Carry on with the limiter tests, stage 4 of docs/limits-plan.md' } },
         { type: 'assistant', sessionId: next, uuid: '00000000-0000-4000-8000-000000000902', timestamp: '2026-09-03T09:01:00.000Z', message: { id: 'msg_own', role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'On it.' }], usage: { input_tokens: 7, output_tokens: 0 } } },
     ]);
     // Where the app keeps what it continued: the plugin reads it when it is there.
@@ -345,6 +347,9 @@ test('a continuation names the session it continues, counts only its own tokens,
     assert.equal(continuation.session_id, previous);
     assert.ok(Date.parse(continuation.at) < Date.parse('2026-09-03T09:00:00.000Z'));
     assert.match(body, /name="session_title"\r\n\r\nRate limits\r\n/);
+    // The task number of its own first prompt; the copied prompts are the session before's (grouping plan, 25.2).
+    assert.match(preview.out, /Task: +limits-plan 4:/);
+    assert.deepEqual(JSON.parse(body.match(/name="task_keys"\r\n\r\n(.*)\r\n/)[1]), ['limits-plan 4']);
 
     // The session before continues nothing.
     await cli(['preview', previous], { CODERS_TALK_CLAUDE_APP_DIR: app });

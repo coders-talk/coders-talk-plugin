@@ -8,5 +8,7 @@
     "slim/codex.jsonl": "9e498265ef731b84ead78a7fb963a22a1d135ac44d78f7433435a997c7a1e385",
     "slim/codex.slim.jsonl": "66a64515870a1a2fb510fd9f82ef9d07635de8a67272534e3f9dbd48480a1d5b",
     "slim/not-jsonl.txt": "21f1a4fab494517752999a22d1420a6c4a5eb9946e70f67471dccbf00b6db9d3",
-    "privacy/cases.json": "ca7e0c11ef16013d77cb0dd1fd61edc78889b5290096efbc16b849673d78d7dd"
+    "privacy/cases.json": "ca7e0c11ef16013d77cb0dd1fd61edc78889b5290096efbc16b849673d78d7dd",
+    "grouping/task-keys.json": "2e9b6645164cfd8463bc8d6fc0b3d0a93c6c776a58f08b52066233d8fb94e138",
+    "grouping/task-score.json": "db60ae150330e51d38e00cfa4d40b57709e6e6e5e892786e6a7dcd8039b116a4"
 }

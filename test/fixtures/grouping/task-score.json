@@ -1,0 +1,52 @@
+[
+    {
+        "name": "a plan stage in common, the plan named on one side",
+        "session": { "keys": ["plan 22.1"], "files": [], "branch": "main", "head_start": null, "title": null, "prs": [], "started_at": "2026-09-20T10:00:00Z" },
+        "task": { "keys": ["library-plan 22.1"], "files": [], "branches": ["main"], "head_ends": [], "titles": [], "prs": [], "last_at": "2026-09-18T10:00:00Z" },
+        "score": 0.7,
+        "signals": ["key"]
+    },
+    {
+        "name": "the same stage number of plans nobody named: half, for the model to decide",
+        "session": { "keys": ["plan 3"], "files": [], "branch": null, "head_start": null, "title": null, "prs": [], "started_at": "2026-09-20T10:00:00Z" },
+        "task": { "keys": ["plan 3"], "files": [], "branches": [], "head_ends": [], "titles": [], "prs": [], "last_at": "2026-09-18T10:00:00Z" },
+        "score": 0.35,
+        "signals": ["key"]
+    },
+    {
+        "name": "the git chain and the same feature branch, an hour after; one file in common counts a third",
+        "session": { "keys": [], "files": ["app/A.php"], "branch": "feature/limits", "head_start": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "title": null, "prs": [], "started_at": "2026-09-20T11:00:00Z" },
+        "task": { "keys": [], "files": ["app/A.php", "app/B.php"], "branches": ["feature/limits"], "head_ends": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "titles": [], "prs": [], "last_at": "2026-09-20T10:00:00Z" },
+        "score": 1.3,
+        "signals": ["git", "branch", "files", "recent"]
+    },
+    {
+        "name": "three files in common count in full",
+        "session": { "keys": [], "files": ["a", "b", "c"], "branch": null, "head_start": null, "title": null, "prs": [], "started_at": null },
+        "task": { "keys": [], "files": ["a", "b", "c", "d"], "branches": [], "head_ends": [], "titles": [], "prs": [], "last_at": null },
+        "score": 0.45,
+        "signals": ["files"]
+    },
+    {
+        "name": "the main branch says nothing, nor does the repository's own default",
+        "session": { "keys": [], "files": [], "branch": "trunk-ish", "head_start": null, "title": null, "prs": [], "started_at": null },
+        "task": { "keys": [], "files": [], "branches": ["trunk-ish"], "head_ends": [], "titles": [], "prs": [], "last_at": null },
+        "main_branches": ["trunk-ish"],
+        "score": 0,
+        "signals": []
+    },
+    {
+        "name": "the same title, the same pull request",
+        "session": { "keys": [], "files": [], "branch": null, "head_start": null, "title": "Rate limits (fork)", "prs": [12], "started_at": null },
+        "task": { "keys": [], "files": [], "branches": [], "head_ends": [], "titles": ["rate  limits"], "prs": [12, 13], "last_at": null },
+        "score": 1.4,
+        "signals": ["pr", "title"]
+    },
+    {
+        "name": "a file in common only",
+        "session": { "keys": [], "files": ["a", "b", "c"], "branch": null, "head_start": null, "title": null, "prs": [], "started_at": "2026-09-20T10:00:00Z" },
+        "task": { "keys": [], "files": ["c", "d", "e"], "branches": [], "head_ends": [], "titles": [], "prs": [], "last_at": "2026-09-19T10:00:00Z" },
+        "score": 0.04,
+        "signals": ["files"]
+    }
+]

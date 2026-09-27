@@ -1,0 +1,15 @@
+[
+    { "texts": ["Изучи docs/library-plan.md и приступай к реализации этапа 13"], "keys": ["library-plan 13"] },
+    { "texts": ["Сделай пункт 19 из library-plan"], "keys": ["library-plan 19"] },
+    { "texts": ["feat: playbooks come full circle; plan 22.3–22.6 done"], "keys": ["plan 22.3"] },
+    { "texts": ["Stage 4 of the local-first-plan, then stage 5"], "keys": ["local-first-plan 4", "local-first-plan 5"] },
+    { "texts": ["Этап 13 реализация"], "keys": ["plan 13"] },
+    { "texts": ["Fix ABC-123 and PROJ-42 before the release", "UTF-8, SHA-256 and ISO-8601 are not tickets, nor is GPT-4"], "keys": ["ABC-123", "PROJ-42"] },
+    { "texts": ["Please fix issue #42; see PR #57", "The #1 priority is speed, and we are #2 in #general"], "keys": ["#42", "#57"] },
+    { "texts": ["задача #7: починить логин"], "keys": ["#7"] },
+    { "texts": ["Make the button 13px wider on step 2"], "keys": [] },
+    { "texts": ["Add rate limiting to /api/login. Keep the tests green."], "keys": [] },
+    { "texts": ["этап 1", "этап 2", "этап 3", "этап 4", "этап 5", "этап 6"], "keys": ["plan 1", "plan 2", "plan 3", "plan 4", "plan 5"] },
+    { "texts": ["Сделай этап 3 <pasted_content id=\"9c74\">Этап 1. Проект\nЭтап 2. Связи\nЭтап 3. Задачи</pasted_content> и проверь"], "keys": ["plan 3"] },
+    { "texts": ["План: этап 1 — проект, этап 2 — связи, этап 3 — задачи. Тикет ABC-7"], "keys": ["ABC-7"] }
+]

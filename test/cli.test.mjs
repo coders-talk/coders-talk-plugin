@@ -221,7 +221,8 @@ test('send refuses without a preview', async () => {
 test('preview prints what will go, then send uploads exactly that and waits for the draft', async () => {
     const preview = await cli(['preview', id]);
     assert.equal(preview.ok, true, preview.out);
-    assert.match(preview.out, /Project: +shop/);
+    // The repository the session ran in (the hook's cwd), by its folder's name (grouping plan, 23.1).
+    assert.match(preview.out, /Project: +ct-repo-\w+: its name and a hash that tells it apart go, never its path/);
     assert.match(preview.out, /Prompts: +2, tool calls: 8/);
     assert.match(preview.out, /compressed/);
     // mara/shop is not one of the team's repositories: the draft stays with its sender.
@@ -269,6 +270,11 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     const privacy = JSON.parse(received.toString('utf8').match(/name="privacy"\r\n\r\n(.*)\r\n/)[1]);
     assert.equal(privacy.v, 1);
     assert.deepEqual(privacy.kept, []);
+    // The project: a hash of the remote and the folder's name, no path.
+    const project = JSON.parse(received.toString('utf8').match(/name="project"\r\n\r\n(.*)\r\n/)[1]);
+    assert.deepEqual(Object.keys(project).sort(), ['key', 'name']);
+    assert.equal(project.key, createHash('sha256').update('remote:github.com/mara/shop').digest('hex'));
+    assert.match(project.name, /^ct-repo-/);
     assert.equal(existsSync(prepared), false);
 });
 

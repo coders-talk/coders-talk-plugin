@@ -68,7 +68,7 @@ import { AUTO_MODES, autoMode, autoSession, catchUp, currentSize, logAuto, logFi
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { Failure } from './lib/failure.mjs';
-import { folderGitContexts, gitContext } from './lib/git.mjs';
+import { folderGitContexts, gitContext, projectOf } from './lib/git.mjs';
 import { disable, enable, refresh, status } from './lib/enable.mjs';
 import { runGitHook } from './lib/githooks.mjs';
 import { detectAgents, installedPlugins } from './lib/agents.mjs';
@@ -256,7 +256,11 @@ async function prepare(id, cut = true) {
     // The name goes through the same check as the session's lines, where it names the folder's files.
     const gitFolders = folderGitContexts(session.folders, sidecar?.cwd ?? stats.cwd, startedAt).map((g) => checkedGit({ ...g, folder: privacy.text(g.folder) }, privacy));
 
-    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library };
+    // The project the session belongs to (grouping plan, 23.1): a hash and the folder's name, never the path.
+    const found = projectOf(sidecar?.cwd ?? stats.cwd);
+    const project = found ? { key: found.key, name: privacy.text(found.name).slice(0, 120) } : null;
+
+    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library, project };
 }
 
 async function preview(id) {
@@ -264,17 +268,17 @@ async function preview(id) {
     const out = prepared(id);
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
     // --whole: `build` from a terminal, where the session holds no run of the command to cut off (only earlier ones).
-    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library } = await prepare(id, !args.includes('--whole'));
+    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project } = await prepare(id, !args.includes('--whole'));
 
     const goesTo = await destination(git);
 
     writePrepared(out.file, gz);
     // Findings by number and hash, for --keep; the values stay in memory only.
     const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
-    writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library }));
+    writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library, project }));
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
-    console.log(`  Project:    ${stats.project ?? 'unknown'}`);
+    console.log(`  Project:    ${project?.name ?? stats.project ?? 'unknown'}${project ? ': its name and a hash that tells it apart go, never its path' : ''}`);
     if (session.folders.length) {
         console.log(`  Folders:    ${session.folders.map((f) => f.label).join(', ')} added to the session: files there go under the folder's name, never its path. Rename or hide the names in the draft.`);
     }
@@ -393,7 +397,7 @@ async function send(id) {
     // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
     const continues = option('continues');
     // Only a space the person chose; otherwise the site routes by the repository, as the preview said.
-    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork, library: meta.library });
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project });
 
     let started;
     try {
@@ -838,7 +842,7 @@ async function siteGet(path, { signed = false } = {}) {
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
-function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null } = {}) {
+function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null, project = null } = {}) {
     const form = new FormData();
     form.append('agent', AGENT.id);
     form.append('session_id', id);
@@ -858,6 +862,8 @@ function importForm(id, gz, { git = null, gitFolders = null, usage = null, space
     if (fork) form.append('fork', JSON.stringify(fork));
     // How often the agent called the Coders Talk library and the Builds it got: the site links the draft to them.
     if (library) form.append('library', JSON.stringify(library));
+    // Which project it belongs to, for grouping on the site: a hash and a folder name (grouping plan, 23.1).
+    if (project) form.append('project', JSON.stringify(project));
     form.append('file', new Blob([gz], { type: 'application/gzip' }), `${id}.jsonl.gz`);
 
     return form;
@@ -965,7 +971,7 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
         space = asking[0].slug;
     }
 
-    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork, library: session.library });
+    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork, library: session.library, project: session.project });
     // A sync still being imported holds the draft for a moment; the end of the session waits for it rather than get lost.
     for (let attempt = 1; ; attempt++) {
         try {

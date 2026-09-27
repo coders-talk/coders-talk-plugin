@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { folderGitContexts, gitContext, MAX_SHAS, MAX_SUBJECTS, normalizeRemote, parseShortstat } from '../scripts/lib/git.mjs';
+import { folderGitContexts, gitContext, MAX_SHAS, MAX_SUBJECTS, normalizeRemote, parseShortstat, projectOf, remoteIdentity, worktrees } from '../scripts/lib/git.mjs';
 import { readSidecar } from '../scripts/lib/sidecar.mjs';
 import { hookCommand, makeRepo } from './helpers.mjs';
 
@@ -82,6 +82,44 @@ test('folders added to the session get their own git context, when they are a re
     assert.equal(contexts[0].head_start, api.hashes[0]);
     assert.equal(contexts[0].head_start_estimated, true);
     assert.deepEqual(contexts[0].commits.shas, [api.hashes[2], api.hashes[1]]);
+});
+
+test('a project is keyed by its remote, any host, and a worktree is its repository (grouping plan, 23.1)', () => {
+    const { dir } = makeRepo('git@gitlab.com:Mara/Shop.git');
+    const main = projectOf(dir);
+    assert.match(main.key, /^[0-9a-f]{64}$/);
+    assert.equal(main.name, basename(dir));
+    // Not a GitHub address: nothing to link, but the project is still told apart by it.
+    assert.equal(main.remote, null);
+    assert.equal(remoteIdentity('https://user:secret@gitlab.com:8443/Mara/Shop.git/'), 'gitlab.com/mara/shop');
+    assert.equal(remoteIdentity('git@gitlab.com:Mara/Shop.git'), 'gitlab.com/mara/shop');
+
+    // Another clone of the same remote elsewhere is the same project.
+    assert.equal(projectOf(makeRepo('https://gitlab.com/mara/shop').dir).key, main.key);
+
+    // A worktree under .claude/worktrees, and a folder inside it.
+    const wt = join(dir, '.claude', 'worktrees', 'brave-lamport');
+    execFileSync('git', ['worktree', 'add', '-q', '-b', 'claude/brave-lamport', wt], { cwd: dir, stdio: 'ignore' });
+    mkdirSync(join(wt, 'src'));
+    assert.deepEqual(projectOf(join(wt, 'src')), main);
+    assert.equal(worktrees(dir).length, 2);
+
+    // Removed since: still the repository's, by its path.
+    execFileSync('git', ['worktree', 'remove', '--force', wt], { cwd: dir, stdio: 'ignore' });
+    assert.equal(projectOf(wt).key, main.key);
+});
+
+test('without a remote the root path is the key; outside git the folder; temp folders are no project', () => {
+    const a = makeRepo(null);
+    const b = makeRepo(null);
+    assert.notEqual(projectOf(a.dir).key, projectOf(b.dir).key);
+    assert.equal(projectOf(a.dir).remote, null);
+
+    // A folder outside git under the temp folder: a scratchpad, not a project.
+    const plain = mkdtempSync(join(tmpdir(), 'ct-notes-'));
+    assert.equal(projectOf(plain), null);
+    assert.equal(projectOf(tmpdir()), null);
+    assert.equal(projectOf(null), null);
 });
 
 test('outside a repository there is no git context', () => {

@@ -4,6 +4,10 @@
  * Everything here is best effort: no git, no repository or a failing command gives null, never an error.
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, resolve } from 'node:path';
 
 export const MAX_SUBJECTS = 20;
 // More hashes than titles: the site matches a team repository's commits to the session by them (coders.talk plan, stage 12.1).
@@ -35,6 +39,66 @@ export function normalizeRemote(url) {
     const match = url.trim().match(/^(?:(?:https?|ssh|git):\/\/)?(?:[^@/\s]+@)?(?:www\.)?github\.com[:/]+([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i);
 
     return match ? `https://github.com/${match[1]}/${match[2]}` : null;
+}
+
+/**
+ * Any origin address in one form, for the project key only: host/owner/repo in lower case, without the scheme,
+ * credentials, port or .git. Unlike normalizeRemote it keeps every host; it never leaves the machine but hashed.
+ */
+export function remoteIdentity(url) {
+    if (!url) return null;
+    const match = url.trim().match(/^(?:[a-z+]+:\/\/)?(?:[^@/\s]+@)?([^/:\s]+)(?::\d+)?[:/]+(.+?)(?:\.git)?\/*$/i);
+
+    return match ? `${match[1].replace(/^www\./i, '')}/${match[2]}`.toLowerCase() : null;
+}
+
+const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
+const pathKey = (path) => {
+    const normal = resolve(path).replace(/\\/g, '/').replace(/\/+$/, '');
+    return process.platform === 'win32' ? normal.toLowerCase() : normal;
+};
+/** Claude Code's worktrees: <repository>/.claude/worktrees/<name>. */
+const WORKTREE = /^(.*?)[\\/]\.claude[\\/]worktrees[\\/][^\\/]+(?:[\\/].*)?$/;
+
+/** Folders outside git that are no project: the temp folder (scratchpads), Claude's own session folders, the home folder. */
+function scratch(cwd) {
+    const path = pathKey(cwd);
+    const under = (dir) => dir && (path === pathKey(dir) || path.startsWith(`${pathKey(dir)}/`));
+
+    return under(tmpdir()) || /\/claude-code-sessions(?:\/|$)/.test(path) || path === pathKey(homedir());
+}
+
+/**
+ * The project a session belongs to (grouping plan, stage 23.1): {key, name, root, remote} or null.
+ * A repository is one project whatever worktree the session ran in: the root is the main working tree, found from
+ * git's common dir, not --show-toplevel. The key is a hash of the origin address (any host), or of the root's path
+ * when there is none; outside git, of the folder's path. Only the key and the folder's name leave the machine.
+ * A worktree already removed (auto mode catching up later) still counts as its repository by its path.
+ */
+export function projectOf(cwd) {
+    if (!cwd) return null;
+    let dir = cwd;
+    if (!existsSync(dir)) dir = cwd.match(WORKTREE)?.[1] ?? dir;
+
+    const common = existsSync(dir) ? git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']) : null;
+    if (common) {
+        const root = basename(common) === '.git' ? dirname(common) : common.replace(/\.git$/, '');
+        const origin = git(dir, ['remote', 'get-url', 'origin']);
+        const identity = remoteIdentity(origin);
+
+        return { key: sha256(identity ? `remote:${identity}` : `path:${pathKey(root)}`), name: basename(resolve(root)), root: resolve(root), remote: normalizeRemote(origin) };
+    }
+    const root = cwd.match(WORKTREE)?.[1] ?? cwd;
+    if (scratch(root)) return null;
+
+    return { key: sha256(`path:${pathKey(root)}`), name: basename(resolve(root)), root: resolve(root), remote: null };
+}
+
+/** The working trees of the repository at $root (the main one first), for the sessions list: [path]. */
+export function worktrees(root) {
+    const list = root ? git(root, ['worktree', 'list', '--porcelain']) : null;
+
+    return list ? list.split('\n').filter((l) => l.startsWith('worktree ')).map((l) => resolve(l.slice(9))) : [];
 }
 
 /** "12 files changed, 340 insertions(+), 85 deletions(-)" as numbers. */

@@ -9,11 +9,11 @@
  * ~/.coders-talk/sent.json (the send step; SENT_DAYS, then forgotten) and in auto mode's auto-sessions.json.
  */
 import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { autoSession } from './auto.mjs';
 import { home, writePrivate } from './credentials.mjs';
-import { repositoryRoot } from './git.mjs';
+import { projectOf, repositoryRoot, worktrees } from './git.mjs';
 import { codexHome, configDir, isCodexPrompt, promptText } from './session.mjs';
 
 const CODEX_DAYS = 30;
@@ -24,10 +24,16 @@ const sentFile = () => join(home(), 'sent.json');
 const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 const normal = (path) => resolve(path).replace(/[\\/]+$/, '');
 
-/** Both agents' sessions of $folder (and of its repository's top), newest first: [{agent, id, path, mtimeMs}]. */
+/**
+ * Both agents' sessions of $folder, newest first: [{agent, id, path, mtimeMs}]. In a repository, those of its whole
+ * project (grouping plan, 23.1): the main working tree and every worktree, also Claude Code's .claude/worktrees/*
+ * already removed, whichever of them the command runs in.
+ */
 export function folderSessions(folder, { env = process.env, now = Date.now() } = {}) {
-    const folders = [...new Set([folder, repositoryRoot(folder)].filter(Boolean).map(normal))];
-    const found = [...claudeSessions(folders, configDir(env)), ...codexSessions(folders, codexHome(env), now)];
+    const root = projectOf(folder)?.root ?? repositoryRoot(folder);
+    const folders = [...new Set([folder, repositoryRoot(folder), root, ...worktrees(root)].filter(Boolean).map(normal))];
+    const removed = root ? join(normal(root), '.claude', 'worktrees') : null;
+    const found = [...claudeSessions(folders, configDir(env), removed), ...codexSessions(folders, codexHome(env), now, removed)];
     // A Codex thread reverted has several rollouts: the newest stands for it.
     const newest = new Map();
     for (const s of found.sort((a, b) => b.mtimeMs - a.mtimeMs)) if (!newest.has(`${s.agent}:${s.id}`)) newest.set(`${s.agent}:${s.id}`, s);
@@ -35,7 +41,7 @@ export function folderSessions(folder, { env = process.env, now = Date.now() } =
     return [...newest.values()];
 }
 
-function claudeSessions(folders, dir) {
+function claudeSessions(folders, dir, removed) {
     const projects = join(dir, 'projects');
     let names;
     try {
@@ -43,16 +49,19 @@ function claudeSessions(folders, dir) {
     } catch {
         return [];
     }
-    const wanted = folders.map((f) => f.replace(/[^a-zA-Z0-9]/g, '-'));
+    const encode = (f) => f.replace(/[^a-zA-Z0-9]/g, '-');
+    const wanted = folders.map(encode);
+    const under = removed ? `${encode(removed)}-` : null;
 
     return names
-        .filter((name) => wanted.some((w) => samePath(w, name)))
+        .filter((name) => wanted.some((w) => samePath(w, name)) || (under && samePath(name.slice(0, under.length), under)))
         .flatMap((name) => files(join(projects, name)).filter((f) => f.endsWith('.jsonl')).map((f) => ({ agent: 'claude-code', id: f.slice(0, -6), path: join(projects, name, f) })))
         .map(withTime)
         .filter(Boolean);
 }
 
-function codexSessions(folders, dir, now) {
+function codexSessions(folders, dir, now, removed) {
+    const inRemoved = (cwd) => removed && normal(cwd).length > removed.length && samePath(normal(cwd).slice(0, removed.length + 1), `${removed}${sep}`);
     const oldest = new Date(now - CODEX_DAYS * 86_400_000).toISOString().slice(0, 10);
     const found = [];
     const root = join(dir, 'sessions');
@@ -64,7 +73,7 @@ function codexSessions(folders, dir, now) {
                     const id = name.match(ROLLOUT)?.[1];
                     const path = join(root, year, month, day, name);
                     const cwd = id ? rolloutCwd(path) : null;
-                    if (cwd && folders.some((f) => samePath(f, normal(cwd)))) found.push({ agent: 'codex', id, path });
+                    if (cwd && (folders.some((f) => samePath(f, normal(cwd))) || inRemoved(cwd))) found.push({ agent: 'codex', id, path });
                 }
             }
         }

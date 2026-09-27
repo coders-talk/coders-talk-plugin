@@ -1,0 +1,37 @@
+{
+  "session_id": "20260310_090000_d4e5f6",
+  "model": "hermes-4",
+  "platform": "cli",
+  "session_start": "2026-03-10T09:00:00",
+  "system_prompt": "leak-system-prompt",
+  "tools": [],
+  "messages": [
+    {
+      "role": "user",
+      "content": "Why does the queue worker restart every minute?"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "g1",
+          "type": "function",
+          "function": {
+            "name": "terminal",
+            "arguments": "{\"command\": \"grep -n max-time supervisor.conf\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "{\"output\": \"4:command=php artisan queue:work --max-time=60\", \"exit_code\": 0, \"error\": null}",
+      "tool_call_id": "g1"
+    },
+    {
+      "role": "assistant",
+      "content": "It runs with --max-time=60: the worker stops after a minute by design."
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"Why does the queue worker restart every minute?"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"terminal","input":"{\"command\": \"grep -n max-time supervisor.conf\"}"}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"4:command=php artisan queue:work --max-time=60"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"It runs with --max-time=60: the worker stops after a minute by design."}]}}

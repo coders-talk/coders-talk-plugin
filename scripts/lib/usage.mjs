@@ -1,6 +1,6 @@
 // Generated from coders.talk resources/js/lib/sessionUsage.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:e2e8e762ec4a3b01a11a80168c250f15cb7e447c772a9891ba6ec11201997a79
+// sha256:8b5a06d4d5bf62bd3b105d2703db75b8bf7317af63c0f07941910e65832cb5b1
 
 /**
  * The tokens a session spent, per model (plan: private and team Builds, phase 3). Slimming drops the bookkeeping
@@ -10,6 +10,7 @@
  * Claude Code writes one line per block of an assistant message, each with the message's usage: the last line of
  * a message id counts. Codex writes running totals in token_count events and names the model in turn_context: the
  * last total counts. Codex input includes the cached part; here "input" is what was not read from the cache.
+ * Hermes's session export keeps the session's totals on the session.
  */
 const MAX_MODELS = 10;
 function count(value) {
@@ -26,6 +27,14 @@ export class UsageCounter {
     add(d) {
         if (!d || typeof d !== 'object')
             return;
+        // A line of `hermes sessions export` is a whole session, with its totals and its model.
+        if (Array.isArray(d.messages) && typeof d.input_tokens === 'number') {
+            this.messages.set(`session-${this.messages.size}`, {
+                model: modelName(d.model),
+                usage: { input: count(d.input_tokens), output: count(d.output_tokens), cache_read: count(d.cache_read_tokens), cache_write: count(d.cache_write_tokens) },
+            });
+            return;
+        }
         if (d.type === 'assistant' && d.message && typeof d.message === 'object') {
             const m = d.message;
             const u = m.usage;

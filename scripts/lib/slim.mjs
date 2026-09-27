@@ -1,6 +1,6 @@
 // Generated from coders.talk resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:0a02fc3eb9af0b099a811353d087347c8b5ab742e2d973b49598b501c1e98f3c
+// sha256:8f62965258c930874ae9ca3efbdec6de15a40858abafaeddfe771cc003d07285
 
 /**
  * Claude Code and Codex sessions are mostly weight nobody reads: screenshots as base64, whole files
@@ -121,10 +121,15 @@ const SHELL_TOOLS = ['bash', 'shell', 'sh', 'zsh', 'powershell', 'pwsh', 'cmd', 
 /** Where tools name the file they read, search or change. */
 const PATH_KEYS = ['file_path', 'filePath', 'path', 'notebook_path', 'file', 'filename'];
 const isSecretFile = (path) => typeof path === 'string' && path !== '' && withheldReason(path.replace(/\\/g, '/')) === 'sensitive';
-/** The Coders Talk library's tools: mcp__…coders-talk…__*, plugin_coders-talk*, or one of its tool names however prefixed. */
+/**
+ * The Coders Talk library's tools: mcp__…coders-talk…__*, plugin_coders-talk*, or one of its tool names however
+ * prefixed; older Hermes versions join server and tool with one underscore (mcp_coders_talk_search_…).
+ */
 export function isLibraryTool(name) {
     const lower = name.toLowerCase();
     if (/^mcp__.*coders[-_]?talk.*__/.test(lower) || lower.startsWith('plugin_coders-talk') || lower.startsWith('plugin_coders_talk'))
+        return true;
+    if (lower.startsWith('mcp_') && LIBRARY_TOOLS.some((tool) => lower.endsWith(`_${tool}`)))
         return true;
     return LIBRARY_TOOLS.includes(lower.split(/__|[./:]/).pop() ?? '');
 }
@@ -484,6 +489,200 @@ function slimCodexItem(item, keys, ctx) {
         p.input = callInput(mark, p.input);
     return p;
 }
+/*
+ * Hermes Agent keeps a session as OpenAI chat messages: an assistant message carries tool_calls, and each is answered
+ * by a role "tool" message with its tool_call_id. They go into the shape Claude Code uses, tool_use blocks and a user
+ * message with one tool_result, so the rest of the import reads Hermes like any other session.
+ */
+/** Hermes's file tools: what they changed rides on their answer, like a Claude Code edit's. */
+const HERMES_EDITS = ['write_file', 'patch'];
+/** What Hermes puts before JSON it keeps in a text column (multimodal content in state.db). */
+const JSON_PREFIX = '\u0000json:';
+/** Reasoning some models write into the reply itself; it goes like thinking blocks do. */
+const REASONING = /<(think|REASONING_SCRATCHPAD)>[\s\S]*?<\/\1>/g;
+const IMAGE_PARTS = ['image', 'image_url', 'input_image'];
+function decoded(value) {
+    if (typeof value !== 'string')
+        return value;
+    try {
+        return JSON.parse(value);
+    }
+    catch {
+        return undefined;
+    }
+}
+/** A chat message's content as the server reads it: the text as it is, or text blocks with images as a marker. */
+function chatContent(content) {
+    if (typeof content === 'string' && content.startsWith(JSON_PREFIX))
+        content = decoded(content.slice(JSON_PREFIX.length));
+    if (content && typeof content === 'object' && !Array.isArray(content))
+        content = [content];
+    if (!Array.isArray(content))
+        return typeof content === 'string' ? content : '';
+    return content
+        .map((part) => {
+        if (typeof part === 'string')
+            return { type: 'text', text: part };
+        if (!part || typeof part !== 'object')
+            return null;
+        const p = part;
+        if (IMAGE_PARTS.includes(p.type))
+            return { type: 'text', text: '[image]' };
+        return typeof p.text === 'string' ? { type: 'text', text: p.text } : null;
+    })
+        .filter((b) => b !== null);
+}
+function chatText(content) {
+    const c = chatContent(content);
+    return typeof c === 'string' ? c : c.map((b) => b.text).join('\n');
+}
+/** An assistant message's tool calls: a list, or the JSON of one as state.db keeps it. */
+function chatCalls(value) {
+    const calls = decoded(value);
+    return Array.isArray(calls) ? calls.filter((c) => !!c && typeof c === 'object' && !Array.isArray(c)) : [];
+}
+/** A tool call as a tool_use block. A write_file or patch is kept until its answer says whether it ran. */
+function chatCall(call, ctx) {
+    // {id, type: 'function', function: {name, arguments}}; rows of older versions keep name and arguments on the call.
+    const fn = call.function && typeof call.function === 'object' ? call.function : call;
+    const name = typeof fn.name === 'string' && fn.name !== '' ? fn.name : 'tool';
+    const input = fn.arguments ?? null;
+    const mark = callMark(name, input);
+    remember(ctx, call.id, mark);
+    const args = callArgs(input, false);
+    if (HERMES_EDITS.includes(name) && args && typeof call.id === 'string' && call.id !== '')
+        (ctx.edits ??= {})[call.id] = { name, args };
+    return { type: 'tool_use', name, input: callInput(mark, input) };
+}
+/**
+ * A unified diff as difflib writes it (--- a/path, +++ b/path, then hunks), file by file; /dev/null on one side is a
+ * file added or deleted. Hunk bodies are counted off their headers, so a removed line starting "--" is not a header.
+ */
+function unifiedChanges(diff, ctx) {
+    const changes = [];
+    const side = (line) => line.slice(4).replace(/\t.*$/, '').trim();
+    const unprefixed = (path) => path.replace(/^[ab]\//, '');
+    let file = null;
+    const flush = () => {
+        if (file)
+            changes.push(fileChange(file.path, file.op, file.lines, ctx));
+        file = null;
+    };
+    let removed = 0;
+    let added = 0;
+    const lines = diff.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (file && (removed > 0 || added > 0)) {
+            // "\ No newline at end of file" belongs to the line before it.
+            if (line.startsWith('\\'))
+                continue;
+            file.lines.push(line);
+            if (!line.startsWith('+'))
+                removed--;
+            if (!line.startsWith('-'))
+                added--;
+            continue;
+        }
+        const hunk = line.match(/^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/);
+        if (file && hunk) {
+            file.lines.push(line);
+            removed = hunk[1] !== undefined ? Number(hunk[1]) : 1;
+            added = hunk[2] !== undefined ? Number(hunk[2]) : 1;
+        }
+        else if (line.startsWith('--- ') && lines[i + 1]?.startsWith('+++ ')) {
+            flush();
+            const from = side(line);
+            const to = side(lines[++i]);
+            file = to === '/dev/null' ? { path: unprefixed(from), op: 'delete', lines: [] } : { path: unprefixed(to), op: from === '/dev/null' ? 'add' : 'update', lines: [] };
+        }
+    }
+    flush();
+    return changes;
+}
+/**
+ * What a Hermes write_file (the whole file) or patch did. A patch's answer carries the unified diff it applied, with
+ * line numbers; without one (older versions) the call says what it replaced: old_string with new_string, or a V4A
+ * patch, which is Codex's format.
+ */
+function hermesChanges(edit, result, ctx) {
+    const { name, args } = edit;
+    const path = typeof args.path === 'string' ? args.path : '';
+    if (name === 'write_file') {
+        if (!path || typeof args.content !== 'string')
+            return [];
+        const lines = args.content.split('\n');
+        if (lines[lines.length - 1] === '')
+            lines.pop();
+        return [fileChange(path, 'add', [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)], ctx)];
+    }
+    if (result.no_change === true)
+        return [];
+    if (typeof result.diff === 'string' && result.diff !== '')
+        return unifiedChanges(result.diff, ctx);
+    if (typeof args.patch === 'string')
+        return codexChanges({ input: args.patch }, ctx);
+    if (!path || typeof args.old_string !== 'string' || typeof args.new_string !== 'string')
+        return [];
+    // The call says what to replace, not where: the hunk has no line numbers.
+    const side = (text, sign) => text.replace(/\n+$/, '').split('\n').map((l) => sign + l);
+    return [fileChange(path, 'update', ['@@ @@', ...side(args.old_string, '-'), ...side(args.new_string, '+')], ctx)];
+}
+/**
+ * A tool's answer as a tool_result block. Hermes tools answer in JSON (terminal {output, exit_code, error}, read_file
+ * {content, …}): success false, an error or a non-zero exit_code is a failed call. A write_file or patch that ran carries
+ * its change, or its changes when a patch touched several files.
+ */
+function chatResult(m, ctx) {
+    const id = m.tool_call_id;
+    const mark = recall(ctx, id);
+    const text = chatText(m.content);
+    const edit = typeof id === 'string' ? ctx.edits?.[id] : undefined;
+    if (edit)
+        delete ctx.edits[id];
+    const r = text.trimStart().startsWith('{') ? decoded(text) : null;
+    const result = r && typeof r === 'object' && !Array.isArray(r) ? r : {};
+    const failed = result.success === false || (typeof result.error === 'string' && result.error !== '') || (typeof result.exit_code === 'number' && result.exit_code !== 0);
+    const changes = edit && !failed ? hermesChanges(edit, result, ctx) : [];
+    // What a person reads of the JSON: a command's output, a file's text, or the error.
+    const said = [result.output, result.content, failed ? result.error : null].find((v) => typeof v === 'string' && v !== '');
+    return {
+        type: 'tool_result',
+        content: answer(mark, typeof said === 'string' ? said : text),
+        ...(mark === 'sensitive' ? { withheld: 'sensitive' } : {}),
+        ...(failed ? { is_error: true } : {}),
+        ...(changes.length === 1 ? { change: changes[0] } : changes.length > 1 ? { changes } : {}),
+    };
+}
+/** One Hermes message as a Claude Code line; null for what is not the conversation (system prompts, compacted history). */
+function slimChatMessage(m, ctx) {
+    // Rows a compaction replaced stay in state.db with active 0; the summary that took their place is active.
+    if (m.active === 0 || m.active === false)
+        return null;
+    const at = m.timestamp !== undefined && m.timestamp !== null ? { timestamp: m.timestamp } : {};
+    if (m.role === 'user')
+        return { type: 'user', ...at, message: { role: 'user', content: chatContent(m.content) } };
+    if (m.role === 'tool')
+        return { type: 'user', ...at, message: { role: 'user', content: [chatResult(m, ctx)] } };
+    if (m.role !== 'assistant')
+        return null;
+    const text = chatText(m.content).replace(REASONING, '').trim();
+    const content = [...(text ? [{ type: 'text', text }] : []), ...chatCalls(m.tool_calls).map((call) => chatCall(call, ctx))];
+    return content.length ? { type: 'assistant', ...at, message: { role: 'assistant', content } } : null;
+}
+/**
+ * A Hermes session as one document, its messages as lines in order: a line of `hermes sessions export` (the session
+ * with its folder as cwd), the file /save writes, or an older sessions/session_*.json. null for anything else.
+ */
+function slimChatDocument(d, ctx) {
+    if (!Array.isArray(d.messages) || 'role' in d || 'type' in d || 'message' in d || 'payload' in d)
+        return null;
+    if (typeof d.cwd === 'string' && d.cwd !== '')
+        ctx.cwd ??= d.cwd;
+    return d.messages
+        .map((m) => (m && typeof m === 'object' && !Array.isArray(m) ? slimChatMessage(m, ctx) : null))
+        .filter((line) => line !== null);
+}
 function slimBlock(block, ctx) {
     if (!block || typeof block !== 'object')
         return block;
@@ -505,6 +704,7 @@ function slimBlock(block, ctx) {
                 ...(mark === 'sensitive' ? { withheld: 'sensitive' } : {}),
                 ...(b.is_error === true ? { is_error: true } : {}),
                 ...(b.change && typeof b.change === 'object' ? { change: b.change } : {}),
+                ...(Array.isArray(b.changes) ? { changes: b.changes } : {}),
             };
         }
         case 'tool_use': {
@@ -570,6 +770,9 @@ export function slimLine(d, ctx = {}) {
             results[0].change = change;
         return { type, timestamp: d.timestamp, ...(d.isMeta === true ? { isMeta: true } : {}), message: { role: m.role, content } };
     }
+    // Hermes's gateway transcripts (sessions/<id>.jsonl): a chat message per line, with its tool calls or the call it answers.
+    if (type === undefined && ('tool_calls' in d || 'tool_call_id' in d))
+        return slimChatMessage(d, ctx);
     const own = typeof type === 'string' ? OWN_LINES.get(type) : undefined;
     if (own)
         return only(d, own);
@@ -589,12 +792,14 @@ function only(d, keys) {
  */
 export function slimJsonl(text) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-    // A single JSON document (a chat array or metadata) goes as it is; the server decides.
+    // A single JSON document is slimmed only when it is a Hermes session; anything else (a chat array or metadata)
+    // goes as it is, and the server decides.
     if (lines.length < 2)
-        return null;
+        return slimDocument(text);
     const out = [];
     const ctx = {};
     let parsed = 0;
+    let sessions = 0;
     for (const line of lines) {
         let d;
         try {
@@ -606,11 +811,27 @@ export function slimJsonl(text) {
         parsed++;
         if (!d || typeof d !== 'object' || Array.isArray(d))
             continue;
+        // `hermes sessions export` writes a session per line, its messages inside. Without --session-id it writes every
+        // session, the most recently active first: that one is the session, the others are not part of it.
+        const many = slimChatDocument(d, ctx);
+        if (many) {
+            if (!sessions++)
+                out.push(...many.map((l) => JSON.stringify(l)));
+            continue;
+        }
         const slim = slimLine(d, ctx);
         if (slim)
             out.push(JSON.stringify(slim));
     }
-    return parsed < lines.length * 0.8 ? null : out.join('\n');
+    return parsed < lines.length * 0.8 ? slimDocument(text) : out.join('\n');
+}
+/** A Hermes session kept as one JSON document (pretty-printed, so not JSON lines), as JSON lines; null for anything else. */
+function slimDocument(text) {
+    if (!text.trimStart().startsWith('{'))
+        return null;
+    const d = decoded(text);
+    const lines = d && typeof d === 'object' && !Array.isArray(d) ? slimChatDocument(d, {}) : null;
+    return lines ? lines.map((l) => JSON.stringify(l)).join('\n') : null;
 }
 export async function slimSession(file) {
     if (!/\.jsonl?$/i.test(file.name))

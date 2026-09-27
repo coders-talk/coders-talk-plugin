@@ -6,7 +6,7 @@
  * plugin keeps there is written through privateDir, writePrivate and appendPrivate. Windows ignores the modes: the
  * user profile is private there already.
  */
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 
@@ -30,11 +30,23 @@ export function privateDir(dir, env = process.env) {
     if (resolve(dir).startsWith(own + sep)) chmod(own, 0o700);
 }
 
-/** A file only this user can read, in a folder only this user can open. */
+/**
+ * A file only this user can read, in a folder only this user can open. Whole or not at all: a hook left running in the
+ * background may read the file while another one writes it, and a plain write shows it empty for a moment.
+ */
 export function writePrivate(path, data) {
     privateDir(dirname(path));
-    writeFileSync(path, data, { mode: 0o600 });
-    chmod(path, 0o600);
+    const temp = `${path}.${process.pid}.tmp`;
+    try {
+        writeFileSync(temp, data, { mode: 0o600 });
+        chmod(temp, 0o600);
+        renameSync(temp, path);
+    } catch {
+        // Windows refuses to replace a file another process holds open: write in place then.
+        rmSync(temp, { force: true });
+        writeFileSync(path, data, { mode: 0o600 });
+        chmod(path, 0o600);
+    }
 }
 
 export function appendPrivate(path, data) {

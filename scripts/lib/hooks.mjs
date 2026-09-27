@@ -21,12 +21,15 @@
  */
 import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, sessionAutoMode, settled, stillHeld, syncDue, trackSession, waitForSend } from './auto.mjs';
 import { siteUrl } from './config.mjs';
+import { savedToken } from './credentials.mjs';
 import { currentHead } from './git.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
+import { projectRoot } from './playbooks.mjs';
 import { findRollout, findTranscript, SESSION_ID } from './session.mjs';
 import { pruneSidecars, writeSidecar } from './sidecar.mjs';
 import { pruneSnapshots, takeSnapshot } from './snapshots.mjs';
 import { sweepPrepared } from './prepared.mjs';
+import { rulesCheckDue, rulesNotice, teamRuleUses } from './team-rules.mjs';
 
 export const HOOK_EVENTS = ['session-start', 'prompt', 'stop', 'session-end'];
 
@@ -99,6 +102,7 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
         });
         pruneSidecars();
     }
+    teamRulesAtStart({ event, agent, site, agentArgs });
 
     if (!id) return;
     const running = RUNNING_MODES.includes(autoMode(site, agent));
@@ -107,6 +111,21 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
     if (RUNNING_MODES.includes(sessionAutoMode(site, id, agent))) trackSession(site, id, { path: event.transcript_path, agent });
     // Sessions turned on for themselves are caught up even when the computer's mode is off.
     if (catchUp(site, id, agent, undefined, undefined, running).length) inBackground(['auto-catch-up', id, ...agentArgs]);
+}
+
+/**
+ * A team's rules in this repository (team rules review, stage 33): one line when the team merged a proposal since the
+ * block here was written, from what the last check found; and a new check in the background when it is due. Only for
+ * repositories with a team's block, and only with this site's sign-in. No network here.
+ */
+function teamRulesAtStart({ event, agent, site, agentArgs }) {
+    if (!event.cwd) return;
+    const root = projectRoot(event.cwd);
+    if (!teamRuleUses(root).length) return;
+    const notice = rulesNotice(site, root, agent === 'codex' ? '$coders-talk:use' : '/coders-talk:use');
+    if (notice) console.log(JSON.stringify({ systemMessage: notice }));
+    const signedIn = process.env.CODERS_TALK_TOKEN || process.env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site);
+    if (signedIn && rulesCheckDue(site, root).length) inBackground(['team-rules-check', `--cwd=${root}`, ...agentArgs]);
 }
 
 function stop({ event, agent, site, id, agentArgs }) {

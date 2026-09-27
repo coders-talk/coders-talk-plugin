@@ -26,6 +26,8 @@
  *   coders-talk git-hook <kind> <git's args>    the repository's git hooks (lib/githooks.mjs): prepare-commit-msg, pre-push
  *   node coders-talk.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
  *                                                 they ended (lib/auto.mjs, catchUp), other than the one starting
+ *   node coders-talk.mjs team-rules-check --cwd=<repository>  what the SessionStart hook runs when a team's rules
+ *                                                 in the repository were not checked for a while (lib/team-rules.mjs)
  *   node coders-talk.mjs whoami | logout
  *   node coders-talk.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper; a fixed https://coders.talk/mcp):
  *                                                 prints {"Authorization": "Bearer …"} for the saved sign-in, or {}
@@ -89,6 +91,7 @@ import { addedFolders, slimLine } from './lib/slim.mjs';
 import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
 import { describeSession, folderSessions, markSent, sentAt } from './lib/sessions.mjs';
 import { removeLeftover, update, updateNotice } from './lib/update.mjs';
+import { changesSince, checkRules, saveRulesState } from './lib/team-rules.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
 const VERSION = version();
@@ -153,6 +156,7 @@ try {
     else if (command === 'auto') await auto(argId);
     else if (command === 'auto-send') await autoSend(argId, { final: !args.includes('--sync'), push: args.includes('--push') });
     else if (command === 'auto-catch-up') await autoCatchUp(argId);
+    else if (command === 'team-rules-check') await teamRulesCheck();
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
     else if (command === 'logout') logout();
@@ -756,11 +760,17 @@ async function useTeamRules(team, stack) {
     console.log(`  Goes to: ${shown(root, change.file)}${change.same ? ' (already there, unchanged)' : change.before === null ? (existsSync(change.file) ? ' (added to the file)' : ' (new)') : ` (replaces version ${was})`}`);
     if (change.note) console.log(`  ${change.note}`);
     console.log(`----- ${change.shows} -----\n${change.after.replace(/\n$/, '')}\n----- end -----`);
-    if (change.before !== null && !change.same) console.log(`What changed since the version here (${was}):\n${lineDiff(change.before, change.after)}`);
+    if (change.before !== null && !change.same) {
+        // The proposals the team merged since, when the site still knows the version here (team rules review, 33.2).
+        const merged = change.oldHash ? await changesSince(team, stack, change.oldHash, signedGet) : null;
+        if (merged?.length) console.log(`Merged since the version here: ${merged.map((c) => `#${c.number} ${c.title}`).join('; ')}. ${site}/t/${team}/rules/history`);
+        console.log(`What changed since the version here (${was}):\n${lineDiff(change.before, change.after)}`);
+    }
 
     const note = { slug, hash, format: 'rule', agent, path: shown(root, change.file), team, stack };
     if (change.same) {
         if (write) recordUse(root, note);
+        saveRulesState(site, team, stack, { hash, changes: [] });
         return console.log('Nothing to write: this version is already here.');
     }
     if (!write) {
@@ -773,8 +783,32 @@ async function useTeamRules(team, stack) {
 
     writeText(change.file, change.content);
     recordUse(root, note);
+    // The start of the next session knows this block is current.
+    saveRulesState(site, team, stack, { hash, changes: [] });
     console.log(`Written: the block ${slug} in ${shown(root, change.file)}. The agent reads it at the start of every session. A newer set replaces only that block; the rest of the file is as it was.`);
-    console.log(`Nothing updates by itself: ${run('use')} --team=${team} --stack=${stack} again shows what changed.`);
+    console.log(`Nothing updates by itself: when the team merges a proposal, the next session says so, and ${run('use')} --team=${team} --stack=${stack} shows what changed.`);
+}
+
+/**
+ * `coders-talk team-rules-check --cwd=<repository>`: what the SessionStart hook starts in the background when a team's
+ * block in the repository was not checked for a while (team rules review, stage 33). Asks the site with this site's
+ * sign-in, notes what it found for the next start; prints nothing and never fails.
+ */
+async function teamRulesCheck() {
+    if (!token) return;
+    try {
+        await checkRules(site, projectRoot(option('cwd') || process.cwd()), (path, headers) => signedGet(path, headers, 5000));
+    } catch {
+        // The next start tries again.
+    }
+}
+
+/** A GET of the site with this site's sign-in and the given headers; no error handling beyond a time limit. */
+function signedGet(path, headers = {}, ms = 15000) {
+    return request(site + path, {
+        headers: { 'User-Agent': `${AGENT.client}/${VERSION}`, ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers },
+        signal: AbortSignal.timeout(ms),
+    });
 }
 
 /** The skill's folder: SKILL.md written whole, in place of an earlier version. */

@@ -9,6 +9,9 @@
  *   push  only sessions whose commits are pushed, when they are (plan, stage 13.5: the repository's pre-push hook,
  *         lib/githooks.mjs); the agents' hooks send nothing in this mode
  *
+ * One session can choose for itself (`auto session on|off`, trackSession's `own`): `on` sends it as `all` would even
+ * when the computer's mode is off, `off` never sends it whatever that mode is. Turned on only by the person, like the rest.
+ *
  * A session goes while it runs (the Stop hook syncs it every SYNC_EVERY_MS of work), once more when it ends
  * (SessionEnd), and at the next start if it never said it ended: a crash, a closed terminal (SessionStart catches up).
  * The site asks the model for moments once, when the session is over.
@@ -106,7 +109,20 @@ export function autoMode(site, agent = 'claude-code', dir = home(), env = proces
     return AUTO_MODES.includes(mode) ? mode : null;
 }
 
-/** Turning it off also forgets the agent's sessions it saw: turned on again later, it never sends what grew in between. */
+/** The mode for one session: its own choice (trackSession's `own`) over the computer's; its `on` works as 'all'. */
+export function sessionAutoMode(site, id, agent = 'claude-code', dir = home(), env = process.env) {
+    if (env.CODERS_TALK_AUTO === '0') return null;
+    const own = id ? autoSession(site, id, dir)?.own : null;
+    if (own === 'on') return 'all';
+    if (own === 'off') return null;
+
+    return autoMode(site, agent, dir, env);
+}
+
+/**
+ * Turning it off also forgets the agent's sessions it saw: turned on again later, it never sends what grew in between.
+ * A session that chose for itself is kept: the person asked for that one.
+ */
 export function setAutoMode(site, mode, agent = 'claude-code', dir = home()) {
     const all = read(configFile(dir));
     const choice = mode ? { mode, since: new Date().toISOString() } : null;
@@ -119,7 +135,7 @@ export function setAutoMode(site, mode, agent = 'claude-code', dir = home()) {
     if (!mode) {
         const sessions = read(sessionsFile(dir));
         const seen = Object.entries(sessions[site] ?? {});
-        const kept = Object.fromEntries(seen.filter(([, s]) => (s.agent ?? 'claude-code') !== agent));
+        const kept = Object.fromEntries(seen.filter(([, s]) => (s.agent ?? 'claude-code') !== agent || s.own));
         if (seen.length !== Object.keys(kept).length) {
             if (Object.keys(kept).length) sessions[site] = kept;
             else delete sessions[site];
@@ -143,6 +159,7 @@ export function autoSession(site, id, dir = home()) {
  *   held      {at, size, why} when it was last not sent for what it held then: no prompts yet, not a repository of a
  *             team that asks for it. Looked at again once the file grows: a prompt comes, a team turns it on
  *   skip      why it is never sent again (published, a draft that is not the person's)
+ *   own       'on' or 'off': the person chose for this session (`auto session`), over the computer's mode
  */
 export function trackSession(site, id, patch = {}, dir = home(), now = Date.now()) {
     const all = read(sessionsFile(dir));
@@ -202,15 +219,17 @@ export function syncDue(session, now = Date.now()) {
 /**
  * The sessions to send at a start, other than the one starting: those that grew since their last send and are not
  * being written to. One quiet for IDLE_MS goes as ended; a fresher one as still going, and the site finishes it when
- * nothing more comes. Oldest first, at most CATCH_UP.
+ * nothing more comes. Oldest first, at most CATCH_UP. $running: the computer's mode sends sessions while they run;
+ * when it does not, only the sessions turned on for themselves are caught up.
  *
  * @return {{id: string, final: boolean}[]}
  */
-export function catchUp(site, current, agent = 'claude-code', dir = home(), now = Date.now()) {
+export function catchUp(site, current, agent = 'claude-code', dir = home(), now = Date.now(), running = true) {
     const sessions = read(sessionsFile(dir))[site] ?? {};
 
     return Object.entries(sessions)
         .filter(([id, s]) => id !== current && s.path && !settled(s) && (s.agent ?? 'claude-code') === agent)
+        .filter(([, s]) => (running ? s.own !== 'off' : s.own === 'on'))
         .map(([id, s]) => ({ id, file: fileStat(s.path), done: doneWith(s) }))
         .filter(({ file, done }) => file && file.size > done && now - file.mtimeMs >= BUSY_MS)
         .sort((a, b) => a.file.mtimeMs - b.file.mtimeMs)

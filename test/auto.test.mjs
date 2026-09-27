@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, sta
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { catchUp, logAuto, removeStaleTemps, setAutoMode, settled, stillHeld, syncDue, trackSession } from '../scripts/lib/auto.mjs';
+import { catchUp, logAuto, removeStaleTemps, sessionAutoMode, setAutoMode, settled, stillHeld, syncDue, trackSession } from '../scripts/lib/auto.mjs';
 import { saveToken } from '../scripts/lib/credentials.mjs';
 import { markSent } from '../scripts/lib/sessions.mjs';
 
@@ -93,6 +93,32 @@ test('only a published or foreign draft is skipped for good; the old team skip i
 
     assert.equal(settled(session), false);
     assert.deepEqual(catchUp(SITE, null, 'claude-code', dir).map((s) => s.id), [legacy]);
+});
+
+test('a session\'s own choice wins over the computer\'s mode, and outlives turning auto mode off', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ct-auto-'));
+    const [plain, mine, kept] = ['b1', 'b2', 'b3'].map((n) => `a1b2c3d4-0000-4000-8000-0000000000${n}`);
+    quietSession(dir, plain);
+    quietSession(dir, mine, { own: 'on' });
+    quietSession(dir, kept, { own: 'off' });
+    const env = {};
+
+    assert.equal(sessionAutoMode(SITE, plain, 'claude-code', dir, env), null);
+    assert.equal(sessionAutoMode(SITE, mine, 'claude-code', dir, env), 'all');
+    assert.equal(sessionAutoMode(SITE, kept, 'claude-code', dir, env), null);
+    assert.equal(sessionAutoMode(SITE, mine, 'claude-code', dir, { CODERS_TALK_AUTO: '0' }), null, 'the shell switch still stops everything');
+    assert.deepEqual(catchUp(SITE, null, 'claude-code', dir, Date.now(), false).map((s) => s.id), [mine]);
+
+    setAutoMode(SITE, 'team', 'claude-code', dir);
+    assert.equal(sessionAutoMode(SITE, plain, 'claude-code', dir, env), 'team');
+    assert.equal(sessionAutoMode(SITE, mine, 'claude-code', dir, env), 'all');
+    assert.equal(sessionAutoMode(SITE, kept, 'claude-code', dir, env), null);
+    assert.deepEqual(catchUp(SITE, null, 'claude-code', dir).map((s) => s.id).sort(), [plain, mine].sort());
+
+    // Off for the computer: it forgets the sessions it saw, but not those the person chose for.
+    setAutoMode(SITE, null, 'claude-code', dir);
+    const left = JSON.parse(readFileSync(join(dir, 'auto-sessions.json'), 'utf8'))[SITE];
+    assert.deepEqual(Object.keys(left).sort(), [mine, kept].sort());
 });
 
 test('temp files of writes that died are removed, fresh ones are not', () => {

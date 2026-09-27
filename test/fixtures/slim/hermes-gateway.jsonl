@@ -1,0 +1,5 @@
+{"role":"session_meta","tools":[{"name":"terminal"}],"model":"kimi-k3","platform":"telegram","timestamp":"2026-09-01T10:00:00.000Z"}
+{"role":"user","content":"Why does the queue worker restart every minute?","timestamp":"2026-09-01T10:00:01.000Z"}
+{"role":"assistant","content":null,"tool_calls":[{"id":"g1","type":"function","function":{"name":"terminal","arguments":"{\"command\": \"grep -n max-time supervisor.conf\"}"}}],"timestamp":"2026-09-01T10:00:08.000Z"}
+{"role":"tool","content":"{\"output\": \"4:command=php artisan queue:work --max-time=60\", \"exit_code\": 0, \"error\": null}","tool_call_id":"g1","timestamp":"2026-09-01T10:00:08.000Z"}
+{"role":"assistant","content":"It runs with --max-time=60: the worker stops after a minute by design.","timestamp":"2026-09-01T10:00:12.000Z"}

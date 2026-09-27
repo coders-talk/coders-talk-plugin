@@ -39,6 +39,8 @@ let importsDown = false;
 let alreadyPublished = false;
 // The next import request finds the session's last sync still being imported.
 let busyOnce = false;
+// The site finds nothing in the next session sent and deletes the draft made for it.
+let discardOnce = false;
 let polls = 0;
 let tokenPolls = 0;
 // What the sign-in asked for codes with.
@@ -95,6 +97,11 @@ const server = createServer((req, res) => {
             return reply(202, { status: 'queued', stage: null, reused: false, series, space, forked_from: forkedFrom, ...links });
         }
         if (req.method === 'GET' && req.url === '/api/v1/imports/imp1') {
+            if (discardOnce) {
+                discardOnce = false;
+                const error = 'Only the coders.talk plugin was used in it: nothing was asked of the agent. No draft was kept.';
+                return reply(200, { status: 'failed', stage: null, error, result: { discarded: 'empty', title: null }, ...links, build_slug: null, edit_url: null });
+            }
             polls++;
             return reply(200, polls < 2
                 ? { status: 'running', stage: 'labeling', ...links }
@@ -278,6 +285,15 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     // No task number in its prompts or commit titles: an empty list, so the site does not look again.
     assert.match(received.toString('latin1'), /name="task_keys"\r\n\r\n\[\]\r\n/);
     assert.equal(existsSync(prepared), false);
+});
+
+test('a session the site does not keep says so, without pointing at a draft that is gone', async () => {
+    assert.equal((await cli(['preview', id])).ok, true);
+    discardOnce = true;
+    const send = await cli(['send', id]);
+    assert.equal(send.ok, false, send.out);
+    assert.match(send.out, /Not saved: Only the coders\.talk plugin was used in it: nothing was asked of the agent\. No draft was kept\./);
+    assert.doesNotMatch(send.out, /The draft is still there/);
 });
 
 test('a fork says which session it came from, and the site links the two', async () => {
@@ -532,6 +548,39 @@ function sawSession(sessionId, path, agoMs) {
     all[env.CODERS_TALK_URL] = { ...all[env.CODERS_TALK_URL], [sessionId]: { path, seen: Date.now() - agoMs } };
     writeFileSync(file, JSON.stringify(all));
 }
+
+test('auto mode for one session: on sends it with the computer\'s mode off, off keeps it with the mode on', async () => {
+    await cli(['auto', 'off']);
+    const end = { session_id: id, transcript_path: transcript, hook_event_name: 'SessionEnd' };
+    assert.match((await cli(['auto', 'session', id])).out, /This session follows the auto mode for this computer \(off\)/);
+    assert.match((await cli(['auto', 'session', 'sometimes', id])).out, /Use \/coders-talk:auto session on/);
+
+    const on = await cli(['auto', 'session', 'on', id]);
+    assert.match(on.out, /Auto mode is on for this session\. It is sent to .* as @mara by itself/);
+    assert.match(on.out, /Other sessions follow the auto mode for this computer \(off\)/);
+    assert.equal(sessionsState()[id].own, 'on');
+    assert.equal(sessionsState()[id].path, transcript);
+    assert.match((await cli(['auto', 'session', id])).out, /Auto mode is on for this session: it is sent while it runs and when it ends, whatever the mode for this computer \(off\)/);
+
+    bodies.length = 0;
+    await hookRun('session-end', end);
+    await waitFor(() => bodies.length === 1);
+    assert.match(bodies[0], /name="trigger"\r\n\r\nauto/);
+    assert.match(bodies[0], /name="final"\r\n\r\n1/);
+
+    // Off for this session: nothing goes, even with auto mode on for the computer.
+    await cli(['auto', 'on']);
+    assert.match((await cli(['auto', 'session', 'off', id])).out, /Auto mode is off for this session: it is not sent by itself any more, whatever the mode for this computer \(on\)/);
+    await hookRun('session-end', end);
+    await cli(['auto-send', id]);
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(bodies.length, 1);
+
+    // Turned off for the computer, the session's own choice stays.
+    await cli(['auto', 'off']);
+    assert.equal(sessionsState()[id].own, 'off');
+    writeFileSync(join(home, 'ct', 'auto-sessions.json'), '{}');
+});
 
 test('the Stop hook syncs a running session every ten minutes of work, as still going', async () => {
     await cli(['auto', 'on']);

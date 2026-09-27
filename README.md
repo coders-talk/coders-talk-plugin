@@ -65,6 +65,7 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 | `/coders-talk:auto on` | From now on every session of this agent on this computer is sent by itself while it runs and when it ends (see Auto mode). |
 | `/coders-talk:auto team` | The same, only for sessions in repositories of teams that ask for it. |
 | `/coders-talk:auto off` | Stops it. `/coders-talk:auto` alone says whether it is on and what it last sent. |
+| `/coders-talk:auto session on` | Only this session is sent by itself, even with auto mode off. `session off` keeps this session on the computer whatever the mode; `session` alone says which applies. |
 | `/coders-talk:login` | Connects this computer through the browser, or says which account it is connected to. |
 | `/coders-talk:logout` | Forgets the token on this computer (revoke it on the site under Settings → Agent plugins). |
 | `/coders-talk:lookup <task>` | Searches the Coders Talk library for sessions of a similar task and shows what came back. The agent also does this by itself (see below). |
@@ -88,11 +89,13 @@ If coders.talk cannot be reached or answers with a server error, the send step o
 
 Off until you turn it on, per computer, per site and per agent: `/coders-talk:auto on` in Claude Code never sends Codex sessions, and `$coders-talk:auto on` in Codex never sends Claude Code ones. With it on, each session is sent the way `/coders-talk:build` would send it, without asking: to your team's space when the repository is one of your team's, else to your private Builds. With `/coders-talk:auto team`, only sessions in repositories of teams that ask for it (a team setting) are sent, and nothing else leaves the machine. A team can ask; it can never switch this on for you.
 
+One session can choose for itself. `/coders-talk:auto session on` sends the current session the way `on` would, even while auto mode is off for the computer; other sessions are not touched. `/coders-talk:auto session off` keeps the current session on the computer whatever the mode, the git hooks' push included (what it already sent stays a draft). The choice is kept in `auto-sessions.json` with the session, so a resumed session keeps it, and `/coders-talk:auto off` does not forget it. `CODERS_TALK_AUTO=0` still stops everything.
+
 Three hooks do the sending, each in a background process so the agent never waits for an upload:
 
 - `Stop`, after an answer of the agent: when the session grew and the last send is ten minutes old, it is sent as still going. The draft stays up to date, and a crash loses at most those minutes. A session shorter than ten minutes is only sent at its end.
 - `SessionEnd`: the session is sent once more, as ended. Codex also ends a session after 30 idle minutes, which is what ends one in its desktop app.
-- `SessionStart`: sessions that never said they ended (a crash, a closed terminal) and grew since their last send are sent at the next start, up to three at a time. One quiet for half an hour goes as ended; a fresher one as still going. Only sessions auto mode saw while it was on are considered, never older history.
+- `SessionStart`: sessions that never said they ended (a crash, a closed terminal) and grew since their last send are sent at the next start, up to three at a time. One quiet for half an hour goes as ended; a fresher one as still going. Only sessions auto mode saw while it was on, or turned on for themselves, are considered, never older history.
 
 The site asks the model for moments once per session, when it is over: when the plugin says it ended, or after half an hour without anything new. Sending a session that is still going costs nothing and does not count against the daily limit.
 
@@ -136,7 +139,8 @@ A published Build can come with a playbook: what its session taught, written for
 - `.coders-talk/uses.json` in the repository notes what was written: the Build, the version, the format and the agent. Nothing updates by itself: `use` again shows what changed and asks again.
 - In a terminal it asks `[y/N]` before writing, and asks for which agent when both are on this computer. For scripts, `--agent=claude|codex` and `--write` answer both.
 - It asks the site for one public file, `/b/<slug>/use/<format>.md`, with `via=cli` and the agent; the request that goes with writing adds `write=1`, which the site counts as a use (once a day). Nothing about your repository goes with it, and no token: only when the file is not public (a Build of your team that is not published) does it ask again with your sign-in, and only this site ever gets it. A team's own Build is not counted.
-- Your team's rules: `use --team=<team> --stack=<stack>`, as the team's page shows it. The pitfalls of the team's own playbooks on that stack, the same one gathered from several sessions once, in one block in `CLAUDE.md` or `AGENTS.md` (`<!-- coders-talk:team-<team>-<stack>@<version> -->`), written the same way as a rule. For members only, so it needs the sign-in; each member gets the sessions they can see.
+- Your team's rules: `use --team=<team> --stack=<stack>`, as the team's page shows it. The rules the team merged for that stack, in one block in `CLAUDE.md` or `AGENTS.md` (`<!-- coders-talk:team-<team>-<stack>@<version> -->`), written the same way as a rule. A rule changes only when the team merges a proposal on the site, so every member gets the same block. For members only, so it needs the sign-in. When the block here is older, `use --team` names the proposals merged since.
+- Kept up with: at the start of a session in a repository with a team's block, the `SessionStart` hook says in one line when the team merged a proposal since the block was written, from what the last check found. It never goes to the network itself: when the last check is over six hours old it starts one in the background (`GET /t/<team>/rules/<stack>.md` with `If-None-Match` and your sign-in; the site answers 304 until a merge), and notes the result in `~/.coders-talk/team-rules.json`. It never rewrites the block: `use --team` does, when you run it.
 - Once written, it prints the Build's link with `?ref=use`: open it after your agent has worked with the playbook and say whether it worked for you.
 
 ### Git hooks
@@ -174,6 +178,7 @@ Each network call, and what goes with it:
 | `POST /api/v1/imports`, `GET /api/v1/imports/{id}` | `build`/`send` after your yes; auto mode | The slimmed, checked session; `agent`, `session_id`, `client_version`, `trigger`; the git context (GitHub `origin`, branch, commit titles, hashes and sizes); token counts; the privacy summary (counts by type, hashes of kept values); `space`, `continues`, `fork`, `library` (count and up to 20 slugs). The token. |
 | `/mcp` | the agent searches the library | The query and the stack the agent writes, and the token. Never the session. |
 | `GET /b/<slug>/use/<format>.md`, `/t/<team>/rules/<stack>.md` | `use` | `via=cli`, the agent, `write=1` when it writes. The token only for a team's own Build or rules. |
+| `GET /t/<team>/rules/<stack>.md`, `/t/<team>/rules/<stack>.json?since=<version>` | `SessionStart` (in the background, at most every six hours), `use --team` | `via=hook`, `If-None-Match` with the version in the repository, the token. Only for repositories with a team's block. |
 | GitHub Releases | `update`, and a background check at most once a day from a terminal | The request for the release, with `coders-talk/<version>` as its user agent; nothing about you or your sessions. |
 
 ## What the plugin keeps on your computer

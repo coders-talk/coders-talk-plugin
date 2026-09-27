@@ -11,7 +11,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { promisify } from 'node:util';
 import { buildSlug, findBlock, lineDiff, withBlock } from '../scripts/lib/playbooks.mjs';
 import { pluginFiles, pluginSources } from '../scripts/lib/plugin.mjs';
-import { coders, inTerminal } from './helpers.mjs';
+import { coders, hookCommand, inTerminal, waitFor } from './helpers.mjs';
 
 const run = promisify(execFile);
 const SLUG = 'move-queues-to-horizon-k3x9q';
@@ -48,8 +48,18 @@ const server = createServer((req, res) => {
     auths.push(req.headers.authorization ?? null);
     const member = req.headers.authorization === `Bearer ${MEMBER}`;
     const md = { 'Content-Type': 'text/markdown; charset=utf-8' };
-    const rules = req.url.match(/^\/t\/([a-z0-9-]+)\/rules\/([a-z0-9-]+)\.md(\?.*)?$/);
-    if (rules && member && rules[1] === 'acme' && rules[2] === 'laravel') return res.writeHead(200, md).end(teamRules(rulesVersion));
+    const rules = req.url.match(/^\/t\/([a-z0-9-]+)\/rules\/([a-z0-9-]+)\.(md|json)(\?.*)?$/);
+    if (rules && member && rules[1] === 'acme' && rules[2] === 'laravel') {
+        const hash = `${rulesVersion}${rulesVersion}`;
+        // What the team merged since a version (team rules review, 33.2): the site knows a1a1 only.
+        if (rules[3] === 'json') {
+            const since = new URL(req.url, 'http://x').searchParams.get('since');
+            const changes = since === hash ? [] : since === 'a1a1' ? [{ number: 14, title: 'Retries after deploys', merged_at: '2026-10-01T09:00:00Z', url: 'http://x/t/acme/rules/proposals/14' }] : null;
+            return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ team: 'acme', stack: 'laravel', hash, changes }));
+        }
+        if (req.headers['if-none-match'] === `"${hash}"`) return res.writeHead(304, { ETag: `"${hash}"` }).end();
+        return res.writeHead(200, { ...md, ETag: `"${hash}"` }).end(teamRules(rulesVersion));
+    }
     const m = req.url.match(/^\/b\/([a-z0-9-]+)\/use\/(skill|rule|prompt)\.md(\?.*)?$/);
     // A team's own Build: only a member's token gets it.
     if (!m || !(m[1] === SLUG || (m[1] === TEAM_SLUG && member))) return res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not Found');
@@ -80,6 +90,12 @@ const cli = (args, extra = {}) => run(...coders(['use', ...args]), { env: { ...e
 const signedIn = { CODERS_TALK_TOKEN: MEMBER };
 const read = (...path) => readFileSync(join(repo, ...path), 'utf8');
 const uses = () => JSON.parse(read('.coders-talk', 'uses.json'));
+
+const rulesState = () => (existsSync(join(home, 'ct', 'team-rules.json')) ? JSON.parse(readFileSync(join(home, 'ct', 'team-rules.json'), 'utf8')) : {});
+const startHook = (extra = {}) => new Promise((resolve, reject) => {
+    const child = execFile(...hookCommand('session-start'), { env: { ...env, ...extra } }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+    child.stdin.end(JSON.stringify({ session_id: '0b5e2c1a-7d4f-4e2b-9a3c-6f1d8e2b4a70', cwd: join(repo, 'app'), hook_event_name: 'SessionStart', source: 'startup' }));
+});
 
 test('a skill for Claude Code: shown first, written only with --write, noted, and left alone when unchanged', async () => {
     const shown = await cli([SLUG, '--agent=claude']);
@@ -280,4 +296,51 @@ test('the plugin coders-talk enable lays out carries use for both agents, and th
     assert.match(files['codex/skills/use/SKILL.md'], /'\/home\/mara\/\.coders-talk\/bin\/coders-talk' use --team=<team> --stack=<stack> --agent=codex/);
     assert.match(files['codex/skills/use/SKILL.md'], /^Run them outside the sandbox/m, 'the sentence about <plugin> is gone');
     assert.match(files['codex/skills/use/agents/openai.yaml'], /allow_implicit_invocation: false/);
+});
+
+test("a team's rules are kept up with: a check in the background, one line at the next start, the proposals merged since", async () => {
+    rmSync(join(home, 'ct', 'team-rules.json'), { force: true });
+    const key = `${env.CODERS_TALK_URL}|acme|laravel`;
+    // No block here: the start says nothing and asks nothing.
+    assert.equal(await startHook(signedIn), '');
+    assert.equal(requests.length, 0);
+
+    await cli(['--team=acme', '--stack=laravel', '--agent=claude', '--write'], signedIn);
+    assert.equal(rulesState()[key].hash, 'a1a1', 'writing it notes it as current');
+    requests.length = 0;
+
+    // Checked a moment ago: the start asks nothing.
+    assert.equal(await startHook(signedIn), '');
+    assert.equal(requests.length, 0);
+
+    // Due: the check goes in the background with the version here, and the site says 304.
+    writeFileSync(join(home, 'ct', 'team-rules.json'), JSON.stringify({ [key]: { hash: 'a1a1', changes: [], checked_at: 0 } }));
+    assert.equal(await startHook(signedIn), '', 'nothing to say yet');
+    await waitFor(() => rulesState()[key].checked_at > 0);
+    assert.equal(requests[0], '/t/acme/rules/laravel.md?via=hook');
+    assert.equal(auths[0], `Bearer ${MEMBER}`);
+    assert.equal(rulesState()[key].hash, 'a1a1');
+
+    // The team merged a proposal: the next check finds it, and the start after it says so, once per block.
+    rulesVersion = 'b2';
+    writeFileSync(join(home, 'ct', 'team-rules.json'), JSON.stringify({ [key]: { hash: 'a1a1', changes: [], checked_at: 0 } }));
+    await startHook(signedIn);
+    await waitFor(() => rulesState()[key].hash === 'b2b2');
+    assert.deepEqual(rulesState()[key].changes, [{ number: 14, title: 'Retries after deploys' }]);
+    const said = JSON.parse(await startHook(signedIn));
+    assert.equal(said.systemMessage, 'The acme team changed its rules for laravel since the block in CLAUDE.md: #14 Retries after deploys. To see and write the new one: /coders-talk:use --team=acme --stack=laravel');
+    assert.equal(read('CLAUDE.md'), teamRules('a1'), 'nothing rewrites the block by itself');
+
+    // `use --team` names the proposals, and once written the start is quiet again.
+    const shown = await cli(['--team=acme', '--stack=laravel', '--agent=claude'], signedIn);
+    assert.match(shown.out, /Merged since the version here: #14 Retries after deploys\. http:\/\/127\.0\.0\.1:\d+\/t\/acme\/rules\/history/);
+    await cli(['--team=acme', '--stack=laravel', '--agent=claude', '--write'], signedIn);
+    assert.equal(await startHook(signedIn), '');
+
+    // Signed out: no check at all.
+    writeFileSync(join(home, 'ct', 'team-rules.json'), JSON.stringify({}));
+    requests.length = 0;
+    await startHook();
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(requests.length, 0);
 });

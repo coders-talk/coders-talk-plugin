@@ -68,6 +68,9 @@ function scratch(cwd) {
     return under(tmpdir()) || /\/claude-code-sessions(?:\/|$)/.test(path) || path === pathKey(homedir());
 }
 
+/** The last folder of a path, / or \ alike: a session recorded on Windows names C:\Users\… wherever it is sent from. */
+const folderName = (path) => resolve(path).split(/[\\/]+/).filter(Boolean).pop() ?? '';
+
 /**
  * The project a session belongs to (grouping plan, stage 23.1): {key, name, root, remote} or null.
  * A repository is one project whatever worktree the session ran in: the root is the main working tree, found from
@@ -86,12 +89,12 @@ export function projectOf(cwd) {
         const origin = git(dir, ['remote', 'get-url', 'origin']);
         const identity = remoteIdentity(origin);
 
-        return { key: sha256(identity ? `remote:${identity}` : `path:${pathKey(root)}`), name: basename(resolve(root)), root: resolve(root), remote: normalizeRemote(origin) };
+        return { key: sha256(identity ? `remote:${identity}` : `path:${pathKey(root)}`), name: folderName(root), root: resolve(root), remote: normalizeRemote(origin) };
     }
     const root = cwd.match(WORKTREE)?.[1] ?? cwd;
     if (scratch(root)) return null;
 
-    return { key: sha256(`path:${pathKey(root)}`), name: basename(resolve(root)), root: resolve(root), remote: null };
+    return { key: sha256(`path:${pathKey(root)}`), name: folderName(root), root: resolve(root), remote: null };
 }
 
 /** The working trees of the repository at $root (the main one first), for the sessions list: [path]. */

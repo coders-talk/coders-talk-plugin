@@ -113,7 +113,7 @@ test('build in a terminal: the preview, the question, and only a yes sends', asy
     assert.match(imports[0], /name="session_id"\r\n\r\na1b2c3d4-0000-4000-8000-0000000000c1/);
 
     const listed = await cli(['sessions']);
-    assert.match(listed.out.split('\n').find((l) => l.includes('Claude Code')), / yes +Add rate limiting/);
+    assert.match(listed.out.split('\n').find((l) => l.includes('Claude Code')), / yes +rate limits$/);
 
     const codex = await inTerminal(['build'], 'y\n');
     assert.match(codex.out, /Session #1: Codex/);

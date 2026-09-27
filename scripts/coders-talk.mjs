@@ -431,7 +431,11 @@ async function send(id) {
         }
     }
 
-    if (state.status === 'failed') throw new Failure(`The import failed: ${state.error} The draft is still there: ${started.edit_url}`);
+    if (state.status === 'failed') {
+        // A session with nothing in it, or an import that left its draft empty, keeps no draft (the site's notification says so too).
+        if (state.result?.discarded) throw new Failure(`Not saved: ${state.error}`);
+        throw new Failure(`The import failed: ${state.error} The draft is still there: ${started.edit_url}`);
+    }
 
     const r = state.result ?? {};
     const secrets = (r.secrets ?? 0) + (r.warnings ?? 0);

@@ -39,6 +39,8 @@ let importsDown = false;
 let alreadyPublished = false;
 // The next import request finds the session's last sync still being imported.
 let busyOnce = false;
+// The site finds nothing in the next session sent and deletes the draft made for it.
+let discardOnce = false;
 let polls = 0;
 let tokenPolls = 0;
 // What the sign-in asked for codes with.
@@ -95,6 +97,11 @@ const server = createServer((req, res) => {
             return reply(202, { status: 'queued', stage: null, reused: false, series, space, forked_from: forkedFrom, ...links });
         }
         if (req.method === 'GET' && req.url === '/api/v1/imports/imp1') {
+            if (discardOnce) {
+                discardOnce = false;
+                const error = 'Only the coders.talk plugin was used in it: nothing was asked of the agent. No draft was kept.';
+                return reply(200, { status: 'failed', stage: null, error, result: { discarded: 'empty', title: null }, ...links, build_slug: null, edit_url: null });
+            }
             polls++;
             return reply(200, polls < 2
                 ? { status: 'running', stage: 'labeling', ...links }
@@ -270,6 +277,15 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.equal(privacy.v, 1);
     assert.deepEqual(privacy.kept, []);
     assert.equal(existsSync(prepared), false);
+});
+
+test('a session the site does not keep says so, without pointing at a draft that is gone', async () => {
+    assert.equal((await cli(['preview', id])).ok, true);
+    discardOnce = true;
+    const send = await cli(['send', id]);
+    assert.equal(send.ok, false, send.out);
+    assert.match(send.out, /Not saved: Only the coders\.talk plugin was used in it: nothing was asked of the agent\. No draft was kept\./);
+    assert.doesNotMatch(send.out, /The draft is still there/);
 });
 
 test('a fork says which session it came from, and the site links the two', async () => {

@@ -9,25 +9,53 @@
  * The check itself is privacy.mjs, generated from coders.talk's resources/js/lib/privacyScan.ts.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { home, writePrivate } from './credentials.mjs';
+import { Failure } from './failure.mjs';
 import { PrivacyScan } from './privacy.mjs';
 
 export const sha256 = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
+/**
+ * A file written by hand on Windows: Notepad and PowerShell 5.1 put a BOM in front, and PowerShell's `>` and
+ * Out-File write UTF-16. JSON.parse fails on all of these, so they are decoded here first.
+ */
+export function decodeText(bytes) {
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) return bytes.subarray(2).toString('utf16le');
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) return Buffer.from(bytes.subarray(2)).swap16().toString('utf16le');
+
+    return bytes.toString('utf8').replace(/^﻿/, '');
+}
+
 function read(name) {
     try {
-        return JSON.parse(readFileSync(join(home(), name), 'utf8'));
+        return JSON.parse(decodeText(readFileSync(join(home(), name))));
     } catch {
         return {};
     }
 }
 
+/**
+ * The words to hide. A privacy.json that is there but cannot be read stops the send: going on as if it were
+ * empty would send the very words the person asked to hide.
+ */
 export function terms() {
-    const list = read('privacy.json').redact;
+    const path = join(home(), 'privacy.json');
+    if (!existsSync(path)) return [];
 
-    return Array.isArray(list) ? list.filter((t) => typeof t === 'string') : [];
+    let settings;
+    try {
+        settings = JSON.parse(decodeText(readFileSync(path)));
+    } catch (e) {
+        throw new Failure(`Could not read ${path} (${e.message}), so the words it lists would not be hidden. Fix the file or remove it, then send again.`);
+    }
+    const list = settings?.redact;
+    if (list !== undefined && !Array.isArray(list)) {
+        throw new Failure(`${path}: "redact" must be a list of words, like {"redact": ["Globex"]}. Fix the file, then send again.`);
+    }
+
+    return (list ?? []).filter((t) => typeof t === 'string' && t.trim() !== '');
 }
 
 export function keptHashes() {

@@ -43,6 +43,8 @@ let busyOnce = false;
 let discardOnce = false;
 let polls = 0;
 let tokenPolls = 0;
+// The next request is throttled: {retryAfter, header} say how the site says how long to wait.
+let limitedOnce = null;
 // What the sign-in asked for codes with.
 const deviceRequests = [];
 const server = createServer((req, res) => {
@@ -67,6 +69,12 @@ const server = createServer((req, res) => {
         });
     }
 
+    if (limitedOnce) {
+        const { retryAfter, header } = limitedOnce;
+        limitedOnce = null;
+        res.writeHead(429, { 'Content-Type': 'application/json', ...(header ? { 'Retry-After': header } : {}) });
+        return res.end(JSON.stringify({ error: { code: 'rate_limited', message: 'Too many requests. Wait a moment and try again.', reason: 'rate_limit', ...(retryAfter ? { retry_after: retryAfter } : {}) } }));
+    }
     if (req.headers.authorization !== `Bearer ${TOKEN}`) return reply(401, { error: { code: 'invalid_token', message: 'The token is missing, revoked or wrong.' } });
 
     const chunks = [];
@@ -117,6 +125,8 @@ before(async () => {
     env = { ...process.env, CLAUDE_CONFIG_DIR: home, TMPDIR: temp, TEMP: temp, TMP: temp, CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`, CODERS_TALK_POLL_MS: '10', CODERS_TALK_HOME: join(home, 'ct'), CODERS_TALK_NO_BROWSER: '1', CODERS_TALK_LOGIN_WAIT_MS: '5000' };
     delete env.CODERS_TALK_TOKEN;
     delete env.CLAUDE_PLUGIN_OPTION_TOKEN;
+    // Run inside Claude Code or Codex, the tests would pass for the agent: each test that needs one sets it.
+    for (const name of ['CLAUDECODE', 'CODEX_THREAD_ID', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID']) delete env[name];
     // The machine's own proxy stays out of these; the proxy test sets one.
     for (const name of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY']) {
         delete env[name];
@@ -136,7 +146,12 @@ test('login opens the approval link, --wait collects the token and saves it for 
     assert.match(notYet.out, /not connected .* yet\. Run \/coders-talk:login/);
 
     // Step one returns at once with the link, so Claude can show it before anything waits.
-    const r = await cli(['login']);
+    // Without a terminal and without an agent's marks (SSH, a script) it is the CLI that asks.
+    const bare = await cli(['login']);
+    assert.equal(bare.ok, true, bare.out);
+    assert.equal(deviceRequests.at(-1).client_name, 'Coders Talk CLI');
+
+    const r = await cli(['login'], { CLAUDECODE: '1' });
     assert.equal(r.ok, true, r.out);
     assert.match(r.out, /Opened http:\/\/127\.0\.0\.1:\d+\/connect\/01request in the browser\. Check that the page shows the code WDJB-MJHT and press Connect\./);
     assert.doesNotMatch(r.out, /Connected to/);
@@ -145,9 +160,14 @@ test('login opens the approval link, --wait collects the token and saves it for 
     assert.deepEqual(Object.keys(deviceRequests.at(-1)), ['client_name', 'client_version']);
     assert.equal(deviceRequests.at(-1).client_name, 'Claude Code');
 
-    const waited = await cli(['login', '--wait']);
+    // Claude Code started before the sign-in noted the server's 401: the sign-in takes that note out, and only that.
+    const needsAuth = join(home, 'mcp-needs-auth-cache.json');
+    writeFileSync(needsAuth, JSON.stringify({ 'plugin:coders-talk:coders-talk': { timestamp: Date.now() }, 'plugin:other:server': { timestamp: 1 } }));
+    const waited = await cli(['login', '--wait'], { CLAUDECODE: '1' });
     assert.equal(waited.ok, true, waited.out);
     assert.match(waited.out, /Connected to http:\/\/127\.0\.0\.1:\d+ as @mara/);
+    assert.match(waited.out, /If Claude Code is open, run \/mcp → Reconnect for coders-talk, or start a new session/);
+    assert.deepEqual(JSON.parse(readFileSync(needsAuth, 'utf8')), { 'plugin:other:server': { timestamp: 1 } });
     assert.doesNotMatch(r.out + waited.out, new RegExp(TOKEN), 'the token is never printed');
 
     const saved = JSON.parse(readFileSync(join(home, 'ct', 'credentials.json'), 'utf8'));
@@ -288,12 +308,18 @@ test('preview prints what will go, then send uploads exactly that and waits for 
 });
 
 test('a session the site does not keep says so, without pointing at a draft that is gone', async () => {
-    assert.equal((await cli(['preview', id])).ok, true);
+    // Sent before: the preview says the send updates that draft, so nobody expects a second one.
+    const again = await cli(['preview', id]);
+    assert.equal(again.ok, true, again.out);
+    assert.match(again.out, /Updates your draft: http:\/\/127\.0\.0\.1:\d+\/b\/draft-x\/edit \(sent before; while it is a draft, no second one is made\)/);
     discardOnce = true;
     const send = await cli(['send', id]);
     assert.equal(send.ok, false, send.out);
     assert.match(send.out, /Not saved: Only the coders\.talk plugin was used in it: nothing was asked of the agent\. No draft was kept\./);
     assert.doesNotMatch(send.out, /The draft is still there/);
+    // That draft is gone: the next preview does not point at it.
+    assert.doesNotMatch((await cli(['preview', id])).out, /Updates your draft/);
+    await cli(['discard', id]);
 });
 
 test('a fork says which session it came from, and the site links the two', async () => {
@@ -474,10 +500,21 @@ test('auto mode is off until the person turns it on, and then sends a session th
     assert.match(body, /name="trigger"\r\n\r\nauto/);
     assert.match(body, /name="final"\r\n\r\n1/);
     assert.doesNotMatch(body, /name="space"/);
-    // The session ended by itself: nothing is cut off its end.
+    // The session ended by itself: only the plugin's own runs go from it (lib/session.mjs, cutOwnCommand).
     const gz = received.subarray(received.indexOf(Buffer.from([0x1f, 0x8b])), received.lastIndexOf('\r\n--'));
-    assert.match(gunzipSync(gz).toString('utf8'), /SKILL BODY MARKER/);
+    assert.match(gunzipSync(gz).toString('utf8'), /Keep the tests green/);
+    assert.doesNotMatch(gunzipSync(gz).toString('utf8'), /SKILL BODY MARKER|coders-talk:build/);
     assert.match(readFileSync(logPath, 'utf8'), new RegExp(`${id} sent to your private Builds: http`));
+    assert.match(sessionsState()[id].sent.url, /\/b\/draft-x\/edit$/);
+
+    // The site found nothing in it and kept no draft: the log says so, with no link to a draft that is gone.
+    discardOnce = true;
+    await cli(['auto-send', id]);
+    assert.equal(discardOnce, false);
+    const last = readFileSync(logPath, 'utf8').trim().split('\n').at(-1);
+    assert.match(last, new RegExp(`${id} not saved: Only the coders\\.talk plugin was used in it`));
+    assert.doesNotMatch(last, /http/);
+    assert.equal(sessionsState()[id].sent.url, undefined);
 
     alreadyPublished = true;
     await cli(['auto-send', id]).finally(() => (alreadyPublished = false));
@@ -708,6 +745,39 @@ test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_
     assert.ok(received.includes(gz));
 });
 
+test('a throttled request says how long to wait, from the body or the Retry-After header', async () => {
+    limitedOnce = { retryAfter: 42 };
+    const body = await cli(['whoami']);
+    assert.equal(body.ok, false);
+    assert.match(body.out, /^Too many requests\. Try again in 42 seconds\.$/m);
+    limitedOnce = { header: '1' };
+    assert.match((await cli(['whoami'])).out, /Too many requests\. Try again in 1 second\./);
+    // Nothing says how long: the site's own words.
+    limitedOnce = {};
+    assert.match((await cli(['whoami'])).out, /Too many requests\. Wait a moment and try again\./);
+});
+
+test('help lists the commands one a line, each with what it does', async () => {
+    const r = await cli(['help']);
+    assert.equal(r.ok, true, r.out);
+    const lines = r.out.trim().split('\n');
+    assert.match(lines[0], /^Usage: coders-talk <command>/);
+    assert.ok(lines.length > 10, r.out);
+    assert.ok(lines.some((l) => /^  login +sign in through the browser$/.test(l)), r.out);
+    assert.ok(lines.some((l) => /^  auto \[on\|team\|push\|off\] +\S/.test(l)), r.out);
+    const unknown = await cli(['frobnicate']);
+    assert.equal(unknown.ok, false);
+    assert.match(unknown.out, /Unknown command "frobnicate"\.\nUsage: coders-talk <command>/);
+});
+
+test('auto session run by the model, without the session id the skill passes, says who can run it', async () => {
+    const r = await cli(['auto', 'session', 'off']);
+    assert.equal(r.ok, false);
+    assert.match(r.out, /Could not tell which session this is\. Run \/coders-talk:auto session off yourself: only the skill knows this session's id\./);
+    // Codex puts the session in the environment: without it, this is not a Codex session.
+    assert.match((await cli(['auto', 'session', 'on', '--agent=codex'])).out, /Run \$coders-talk:auto session on from inside a Codex session\./);
+});
+
 test('whoami reports the account, or explains a bad token', async () => {
     assert.match((await cli(['whoami'])).out, /as @mara \(token "laptop"\)/);
 
@@ -805,6 +875,8 @@ test('secrets are redacted before anything leaves, and --keep sends a chosen val
     const kept = await cli(['preview', sid, '--keep=2']);
     assert.equal(kept.ok, true, kept.out);
     assert.match(kept.out, /#2 email address \(op…\), 2 places: sent as it is, as you chose/);
+    assert.ok(kept.out.includes(`Kept for every session on this computer; remove it from ${join(home, 'ct', 'kept.json')} to undo`), kept.out);
+    assert.doesNotMatch(preview.out, /Kept for every session/);
     assert.match(sent(), /mail ops@acme\.io when done/);
     assert.doesNotMatch(sent(), new RegExp(token));
     const hash = createHash('sha256').update('ops@acme.io').digest('hex');

@@ -50,7 +50,7 @@
  *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
  *     --yes  --agent=claude-code,codex  --auto=off|on|team|push  --mcp=remove|keep
  *     --git-hooks | --no-git-hooks | --no-trailers   this repository's git hooks (lib/githooks.mjs)
- *   coders-talk version
+ *   coders-talk version | help
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
@@ -75,7 +75,7 @@ import { Failure } from './lib/failure.mjs';
 import { folderGitContexts, gitContext, projectOf, worktrees } from './lib/git.mjs';
 import { disable, enable, refresh, status } from './lib/enable.mjs';
 import { runGitHook } from './lib/githooks.mjs';
-import { detectAgents, installedPlugins } from './lib/agents.mjs';
+import { detectAgents, forgetMcpNeedsAuth, installedPlugins } from './lib/agents.mjs';
 import { AGENTS as USE_AGENTS, FORMATS as USE_FORMATS, agentOf, buildSlug, findBlock, lineDiff, projectRoot, readUses, recordUse, ruleTarget, shown, skillName, withBlock, writeText } from './lib/playbooks.mjs';
 import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { request } from './lib/http.mjs';
@@ -176,12 +176,41 @@ try {
     }
     // What `update` runs with the new file: the plugin laid out again, in the new version.
     else if (command === 'refresh-plugin') refresh({ site, version: VERSION });
-    else throw new Failure('Usage: coders-talk login | enable | disable | status | sessions | build [number] | use <build> [--as=skill|rule|prompt] | preview [session-id] | send [session-id] | discard [session-id] | auto [on|team|push|off] | auto session [on|off] | whoami | logout | nudge [on|off] | update | version [--site=URL]');
+    else if (command === 'help' || command === '-h' || args.includes('--help')) console.log(help());
+    else throw new Failure(`${command ? `Unknown command "${command}".\n` : ''}${help()}`);
     // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
     if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
     console.error(e instanceof Failure ? e.message : `Unexpected error: ${e?.message ?? e}`);
     process.exit(1);
+}
+
+/** `coders-talk help`: the commands a person runs, one a line; the ones hooks run are left out. */
+function help() {
+    const commands = [
+        ['login', 'sign in through the browser'],
+        ['enable', 'connect Claude Code and Codex to Coders Talk'],
+        ['disable', 'take that off again'],
+        ['status', 'how things are: sign-in, agents, auto mode'],
+        ['sessions [--limit=N]', "this folder's sessions, newest first"],
+        ['build [number|session-id]', 'preview a session, ask, then send it as a draft'],
+        ['use <build> [--as=skill|rule|prompt]', "a published Build's playbook for this repository"],
+        ['use --team=<team> --stack=<stack>', "a team's rules for a stack"],
+        ['preview [session-id]', 'what would be sent, and where'],
+        ['send [session-id]', 'send what preview prepared'],
+        ['discard [session-id]', 'delete what preview prepared'],
+        ['auto [on|team|push|off]', 'send sessions by themselves, or stop'],
+        ['auto session [on|off] <session-id>', 'the same for one session'],
+        ['whoami', 'the account this computer is signed in to'],
+        ['logout', 'forget the sign-in on this computer'],
+        ['nudge [on|off]', 'the suggestion to share a session that used the library'],
+        ['update [version]', 'update to the latest release (the installed coders-talk only)'],
+        ['version', 'the version of coders-talk'],
+        ['help', 'this list'],
+    ];
+    const width = Math.max(...commands.map(([c]) => c.length));
+
+    return ['Usage: coders-talk <command> [--site=URL] [--agent=codex]', ...commands.map(([c, what]) => `  ${c.padEnd(width)}  ${what}`)].join('\n');
 }
 
 /** The options of enable and disable. */
@@ -227,8 +256,9 @@ function pruneOwnSnapshots() {
 
 /**
  * The session read, slimmed and packed, with what goes along with it: the git context and the tokens it spent.
- * The preview and auto mode send the same thing. A command run cuts itself off the end ($cut); a session that ended
- * by itself has no command in it to cut, and cutting at an earlier /coders-talk:build would lose the rest.
+ * The preview and auto mode send the same thing. Earlier runs of the plugin's commands never go; a command run also
+ * cuts itself off the end ($cut). A session that ended by itself has no run in progress, and cutting at an earlier
+ * /coders-talk:build would lose the rest.
  */
 async function prepare(id, cut = true) {
     const path = CODEX ? findRollout(id) : findTranscript(id);
@@ -245,7 +275,7 @@ async function prepare(id, cut = true) {
     if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
     // A fork is a fork: its copied lines say so themselves.
     session.continuation = session.fork ? null : continued ? { session_id: continued.session_id, at: continued.at } : session.continuation;
-    const kept = cut ? cutOwnCommand(session.lines.join('\n')).text : session.lines.join('\n');
+    const kept = cutOwnCommand(session.lines.join('\n'), { tail: cut }).text;
     // What the git snapshots saw at each turn (Claude Code hooks, lib/snapshots.mjs), put into the session by time.
     const gitLines = CODEX ? [] : gitChangeLines(id, agentTimes(session.lines));
     // The privacy check, on this computer: what leaves is the checked text, and the values found never do.
@@ -313,6 +343,9 @@ async function preview(id) {
     if (fork) console.log(`  Fork of:    session ${fork.session_id}: the draft and that session's Build link to each other once both are on the site`);
     if (continuation) console.log(`  Continues:  session ${continuation.session_id}: its lines at the start are that session's, counted there; the two Builds are linked on the site`);
     console.log(`  Goes to:    ${goesTo}`);
+    // Sent before, by hand or by auto mode: the site updates that draft rather than make a second one.
+    const draft = sentUrl(site, id) ?? autoSession(site, id)?.sent?.url;
+    if (draft) console.log(`  Updates your draft: ${draft} (sent before; while it is a draft, no second one is made)`);
     console.log(describePrivacy(privacy));
     if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
 }
@@ -468,7 +501,11 @@ async function send(id) {
 
     if (state.status === 'failed') {
         // A session with nothing in it, or an import that left its draft empty, keeps no draft (the site's notification says so too).
-        if (state.result?.discarded) throw new Failure(`Not saved: ${state.error}`);
+        if (state.result?.discarded) {
+            // No draft to update any more: the next preview must not point at it.
+            markSent(site, id, null);
+            throw new Failure(`Not saved: ${state.error}`);
+        }
         throw new Failure(`The import failed: ${state.error} The draft is still there: ${started.edit_url}`);
     }
 
@@ -541,7 +578,7 @@ async function login() {
 
     // Always a fresh request: continuing an earlier one is what --wait is for.
     // Only which program asks: never the computer's name.
-    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: TERMINAL ? 'Coders Talk CLI' : AGENT.name, client_version: VERSION }), false);
+    const codes = await api('POST', '/api/v1/device/codes', json({ client_name: clientName(), client_version: VERSION }), false);
     const pending = {
         site,
         device_code: codes.device_code,
@@ -563,6 +600,17 @@ async function login() {
     if (TERMINAL) return waitForApproval(pending.expires_at);
 }
 
+/**
+ * The name the token gets on the site: the agent that runs the command, told by the flag its skills pass or by what
+ * it puts in the environment of its commands (CLAUDECODE, CODEX_THREAD_ID). A terminal, SSH or a script: the CLI.
+ */
+function clientName() {
+    if (TERMINAL) return 'Coders Talk CLI';
+    if (CODEX || env.CODEX_THREAD_ID) return 'Codex';
+
+    return env.CLAUDECODE ? 'Claude Code' : 'Coders Talk CLI';
+}
+
 /** Polls until Connect, a refusal, or $until: in an agent, less than its command timeout; in a terminal, the code's life. */
 async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
     const pending = pendingLogin(site);
@@ -578,7 +626,10 @@ async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
         if (state.status === 'approved') {
             saveToken(site, state.token, state.username);
             clearPendingLogin();
+            // A Claude Code started before the sign-in noted the server's 401 and keeps it for about 15 minutes.
+            forgetMcpNeedsAuth();
             console.log(`Connected to ${site} as @${state.username}. ${run('build')} can send sessions now.`);
+            if (!CODEX) console.log('If Claude Code is open, run /mcp → Reconnect for coders-talk, or start a new session: its library tools connect then.');
             return;
         }
         if (state.status !== 'pending') {
@@ -1027,7 +1078,19 @@ async function autoForSession(endsOne, trust) {
     // What is left is the session id (the skill adds it; Codex has it in the environment). A word is an id to SESSION_ID too.
     const words = rest.filter((a) => a !== choice);
     if (words.length > 1 || rest.filter((a) => a === choice).length > 1) throw new Failure(`Use ${run('auto')} session on or ${run('auto')} session off.`);
-    const id = sessionId(words[0]);
+    let id;
+    try {
+        id = sessionId(words[0]);
+    } catch {
+        // Claude Code gives the commands it runs no session id: only the skill, which the person types, passes it.
+        // Codex does (CODEX_THREAD_ID), so there it is not a Codex session at all.
+        const asked = `auto session${choice ? ` ${choice}` : ''}`;
+        throw new Failure(TERMINAL
+            ? `Which session? Add its id: coders-talk ${asked} <session-id>.`
+            : CODEX
+              ? `Could not tell which session this is. Run $coders-talk:${asked} from inside a Codex session.`
+              : `Could not tell which session this is. Run /coders-talk:${asked} yourself: only the skill knows this session's id.`);
+    }
     const computer = autoMode(site, AGENT.id);
     const computerSays = computer === 'all' ? 'on' : computer ?? 'off';
 
@@ -1108,9 +1171,23 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
                 remember({ skip: r.reason });
                 return log(`skipped: ${r.reason === 'published' ? 'already published' : 'its draft is not yours to change'}`);
             }
-            remember({ sent: { at: Date.now(), size: session.session.bytes, final }, held: null, skip: null });
+            const sent = { at: Date.now(), size: session.session.bytes, final };
+            remember({ sent: { ...sent, url: r.edit_url ?? undefined }, held: null, skip: null });
             const where = r.space?.type === 'team' ? r.space.name : 'your private Builds';
-            return log(`${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : push ? ' at a push' : ''}: ${r.edit_url}`);
+            const sentLine = `${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : push ? ' at a push' : ''}: ${r.edit_url}`;
+            // Codex ends the session-end hook's processes when it exits, maybe before the import is done: said at once.
+            const early = CODEX && final && !caughtUp && !push;
+            if (early) log(sentLine);
+            // The site may still find nothing in it and keep no draft (EmptyDrafts): the log says what it answered.
+            const state = await importOutcome(r);
+            if (state?.status === 'failed') {
+                if (state.result?.discarded) {
+                    remember({ sent });
+                    return log(`not saved: ${state.error}`);
+                }
+                return log(`import failed: ${state.error} The draft is still there: ${r.edit_url}`);
+            }
+            return early ? undefined : log(sentLine);
         } catch (e) {
             if (final && attempt < AUTO_TRIES && (['import_running', 'rate_limited'].includes(e.code) || e.unavailable)) {
                 await sleep(RETRY_MS[Math.min(attempt, RETRY_MS.length) - 1]);
@@ -1119,6 +1196,27 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
             return giveUp(`failed: ${e.message}`);
         }
     }
+}
+
+/**
+ * How an import auto mode started ended: the site's last answer, or null when it cannot tell within POLL_FOR_MS (the
+ * site is slow or gone, an older site). Auto mode's own imports are not labelled at once, so they finish in seconds.
+ */
+async function importOutcome(started) {
+    if (!started.status_url) return null;
+    let state = started;
+    const deadline = Date.now() + POLL_FOR_MS;
+    try {
+        while (state.status === 'queued' || state.status === 'running') {
+            if (Date.now() > deadline) return null;
+            await sleep(POLL_MS);
+            state = await api('GET', new URL(started.status_url).pathname, undefined, true, 15000);
+        }
+    } catch {
+        return null;
+    }
+
+    return state;
 }
 
 /**
@@ -1168,6 +1266,8 @@ function describePrivacy(privacy) {
         lines.push(`  #${f.n} ${PRIVACY_LABELS[f.type] ?? f.type} (${f.preview})${where}: ${f.kept ? 'sent as it is, as you chose' : `goes as [REDACTED:${f.type}]`}`);
     }
     if (privacy.paths) lines.push(`  ${privacy.paths} path${privacy.paths === 1 ? '' : 's'} with your user name: ~ instead`);
+    // --keep is remembered by the value's hash, for every session: said wherever a kept value turns up.
+    if (findings.some((f) => f.kept)) lines.push(`Kept for every session on this computer; remove it from ${join(credentialsHome(), 'kept.json')} to undo (the file holds hashes only: delete it to undo them all).`);
     if (findings.some((f) => !f.kept)) lines.push(`To send one as it is, run ${TERMINAL ? 'the same command' : 'the preview'} again with --keep=<numbers>. The values found never reach ${site}.`);
     lines.push('The check replaces what it recognises; anything else, a secret in an unusual form or a name you would rather keep, goes as it is. Read the draft on the site before you publish it.');
     lines.push(`Words to hide in every session (client names, internal services) go in ${join(credentialsHome(), 'privacy.json')} as {"redact": [...]}.`);
@@ -1302,9 +1402,20 @@ async function api(method, path, body, authorized = true, timeoutMs = null) {
     const error = data.error ?? {};
     const link = error.edit_url ? ` ${error.edit_url}` : '';
     if (response.status === 401) throw new Failure(`The saved token was not accepted (revoked or from another site). Run ${run('login')} to connect again.`);
-    const message = `${error.message ?? `The site answered ${response.status}.`}${link}`;
+    const wait = response.status === 429 && error.code !== 'limit_reached' ? retryAfter(error.retry_after ?? response.headers.get('retry-after')) : null;
+    // A daily limit says in its own words when it resets; the per-minute one gets the wait the site asked for.
+    const message = wait ? `Too many requests. Try again in ${wait}.` : `${error.message ?? `The site answered ${response.status}.`}${link}`;
     // The status and code say whether trying again later can help (auto mode does).
     throw Object.assign(response.status >= 500 ? unavailable(message) : new Failure(message), { status: response.status, code: error.code });
+}
+
+/** retry_after or Retry-After in seconds as "N seconds" or "N minutes"; null when missing or not a number. */
+function retryAfter(value) {
+    const seconds = Math.ceil(Number(value));
+    if (!Number.isFinite(seconds) || seconds <= 0 || String(value ?? '').trim() === '') return null;
+    if (seconds < 120) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+
+    return `${Math.ceil(seconds / 60)} minutes`;
 }
 
 /** The request did not go through for reasons on the way or on the server's side, not because of what was sent. */

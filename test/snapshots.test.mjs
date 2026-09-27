@@ -71,6 +71,27 @@ test('an answer the person interrupted is still the agent\'s work', () => {
     assert.equal(block.by, 'agent');
 });
 
+test('an edit made while the session was closed is the person\'s, after --resume too', () => {
+    const { dir, store, at, snap } = setup();
+    snap('start', 0);
+    snap('prompt', 5);
+    writeFileSync(join(dir, 'app.txt'), 'by the agent\n');
+    snap('stop', 20);
+    // The session is closed; the person edits README; `claude --resume` fires SessionStart before the next prompt.
+    writeFileSync(join(dir, 'README.md'), 'by hand\n');
+    snap('start', 100);
+    snap('prompt', 110);
+    writeFileSync(join(dir, 'app.txt'), 'by the agent again\n');
+    snap('stop', 130);
+
+    const lines = gitChangeLines(ID, [at(15), at(120)], store);
+    assert.deepEqual(lines.map((l) => [l.by, l.timestamp, l.changes.map((c) => c.path).join()]), [
+        ['agent', new Date(at(20)).toISOString(), 'app.txt'],
+        ['human', new Date(at(100)).toISOString(), 'README.md'],
+        ['agent', new Date(at(130)).toISOString(), 'app.txt'],
+    ]);
+});
+
 test('the git lines go where they happened in the session', () => {
     const line = (d) => JSON.stringify(d);
     const session = [

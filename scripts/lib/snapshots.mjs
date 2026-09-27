@@ -196,7 +196,8 @@ function commitsBetween(root, from, to) {
 /**
  * The "git-changes" lines for a session: one per pair of neighbouring snapshots that differ. Up to a stop it is the
  * agent's work; up to a prompt, the person's edits between answers, unless the agent was still writing in between
- * (an interrupted answer calls no Stop, so its work shows up at the next prompt).
+ * (an interrupted answer calls no Stop, so its work shows up at the next prompt). Up to a start, the same: a session
+ * resumed with --resume or -c starts again with SessionStart, so an edit made while it was closed lands there.
  *
  * @param agentTimes  timestamps (ms) of the agent's lines in the session
  */
@@ -213,7 +214,7 @@ export function gitChangeLines(sessionId, agentTimes = [], dir = snapshotDir()) 
         const start = Date.parse(a.at);
         const end = Date.parse(b.at);
         const agentWrote = agentTimes.some((t) => t > start && t <= end);
-        const by = b.kind === 'prompt' && !agentWrote ? 'human' : 'agent';
+        const by = (b.kind === 'prompt' || b.kind === 'start') && !agentWrote ? 'human' : 'agent';
         const changes = a.tree === b.tree ? [] : diffTrees(state.root, a.tree, b.tree);
         const commits = a.head && b.head && a.head !== b.head ? commitsBetween(state.root, a.head, b.head) : [];
         if (changes.length || commits.length) lines.push({ type: 'git-changes', timestamp: b.at, by, changes, commits });

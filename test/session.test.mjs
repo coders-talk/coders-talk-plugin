@@ -13,12 +13,65 @@ test('the plugin run and everything after it is cut from the session', () => {
     const text = [prompt('Fix the tests', 0), command('coders-talk:build'), line({ type: 'user', isMeta: true, message: { role: 'user', content: 'skill body' } })].join('\n');
     assert.deepEqual(cutOwnCommand(text), { text: prompt('Fix the tests', 0), cut: true });
 
-    // Only the last run is cut: an earlier /coders-talk:share stays part of the work.
+    // An earlier run goes too, up to the next prompt.
     const twice = [prompt('a', 0), command('coders-talk:share'), prompt('b', 5), command('coders-talk:build')].join('\n');
-    assert.equal(cutOwnCommand(twice).text.split('\n').length, 3);
+    assert.deepEqual(cutOwnCommand(twice).text.split('\n'), [prompt('a', 0), prompt('b', 5)]);
 
     // Other commands are not ours.
     assert.equal(cutOwnCommand([prompt('a', 0), command('loop')].join('\n')).cut, false);
+});
+
+// Claude Code: a tool call and its result.
+const bash = (command, s) => line({ type: 'assistant', timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:00Z`, message: { role: 'assistant', content: [{ type: 'tool_use', id: `t${s}`, name: 'Bash', input: { command } }] } });
+const result = (text, s) => line({ type: 'user', timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:30Z`, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `t${s}`, content: text }] } });
+const answer = (text, s) => line({ type: 'assistant', timestamp: `2026-09-01T10:${String(s).padStart(2, '0')}:40Z`, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+const meta = (text) => line({ type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text }] } });
+
+test('every run of a plugin command goes, with its output and the replies the agent answered with the script', () => {
+    const script = (sub) => `node "/p/coders-talk/scripts/coders-talk.mjs" ${sub} a1b2c3d4-0000-4000-8000-000000000001`;
+    const work = [prompt('Fix the tests', 0), bash('npm test', 1), result('ok', 1), answer('Fixed.', 1)];
+    const later = [prompt('Now the docs', 20), bash('cat README.md', 21), result('# Shop', 21), answer('Updated.', 21)];
+    const text = [
+        ...work,
+        // An early build the person turned down.
+        command('coders-talk:build'), meta('Send the current session to Coders Talk as a draft.'),
+        bash(script('preview'), 10), result('Ready to send to https://coders.talk.', 10), answer('Send it?', 10),
+        prompt('No, do not send it', 12), bash(script('discard'), 12), result('Nothing was sent, and the prepared file is deleted.', 12), answer('Nothing was sent.', 12),
+        // A lookup: the plugin's too.
+        line({ type: 'user', message: { role: 'user', content: '<command-message>coders-talk:lookup</command-message>\n<command-name>/coders-talk:lookup</command-name>\n<command-args>horizon queues</command-args>' } }),
+        meta('Coders Talk is a library…'), answer('Nothing close in the library.', 15),
+        ...later,
+        // The run in progress.
+        command('coders-talk:build'), meta('Send the current session…'), bash(script('preview'), 30),
+    ].join('\n');
+
+    assert.deepEqual(cutOwnCommand(text), { text: [...work, ...later].join('\n'), cut: true });
+    // A session sent without a run of its own (auto mode, `build` from a terminal): only the finished runs go.
+    const sentLater = [...work, command('coders-talk:build'), meta('Send…'), bash(script('preview'), 10), result('Ready to send to https://coders.talk.', 10), prompt('Yes', 11), bash(script('send'), 11), answer('Draft: https://coders.talk/b/x/edit', 11), ...later].join('\n');
+    assert.deepEqual(cutOwnCommand(sentLater, { tail: false }), { text: [...work, ...later].join('\n'), cut: true });
+
+    // The person's own /build is work, unless it ran the plugin's script (an older plugin's name).
+    const mine = [prompt('a', 0), command('build'), meta('Build the app'), bash('npm run build', 1), answer('Built.', 1), prompt('b', 5), command('coders-talk:build')].join('\n');
+    assert.deepEqual(cutOwnCommand(mine).text.split('\n'), [prompt('a', 0), command('build'), meta('Build the app'), bash('npm run build', 1), answer('Built.', 1), prompt('b', 5)]);
+});
+
+test('a skill or command with a task after it is a prompt; Claude Code\'s own commands and the plugin\'s are not', () => {
+    const run = (name, args) => `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>`;
+    assert.equal(promptText(run('ct-horizon-queues-ab12', 'migrate the queues to Horizon')), '/ct-horizon-queues-ab12 migrate the queues to Horizon');
+    assert.equal(promptText([{ type: 'text', text: run('review', 'the order scope') }]), '/review the order scope');
+    assert.equal(promptText(run('ct-horizon-queues-ab12', '')), null);
+    assert.equal(promptText(run('model', 'opus')), null);
+    assert.equal(promptText(run('coders-talk:build', '--private')), null);
+    assert.equal(promptText(run('coders-talk:lookup', 'horizon queues')), null);
+
+    // A session started with a playbook skill has something to send.
+    const text = [
+        line({ type: 'user', cwd: '/home/you/code/shop', timestamp: '2026-09-01T10:00:00Z', message: { role: 'user', content: run('ct-horizon-queues-ab12', 'migrate the queues to Horizon') } }),
+        meta('A playbook from coders.talk…'),
+        bash('composer require laravel/horizon', 1),
+        command('coders-talk:build'),
+    ].join('\n');
+    assert.equal(summarize(cutOwnCommand(text).text).prompts, 1);
 });
 
 test('the summary counts prompts typed by the person, tool calls and the time span', () => {
@@ -95,11 +148,41 @@ test('in Codex the skill message and what the person typed to call it are cut', 
     assert.deepEqual(summarize(text), {
         cwd: '/home/you/shop',
         project: 'shop',
-        prompts: 2,
+        // "$coders-talk:build" calls the plugin: not a prompt.
+        prompts: 1,
         toolCalls: 2,
         startedAt: Date.parse('2026-09-01T10:00:00Z'),
         durationSec: 240,
     });
+});
+
+test('in Codex an earlier $coders-talk run goes too; a playbook skill with a task is a prompt', () => {
+    const env = said('<environment_context>\n<cwd>/home/you/shop</cwd>\n</environment_context>', 0);
+    const call = (command, s) => codex({ type: 'function_call', name: 'shell', arguments: JSON.stringify({ command: ['bash', '-lc', command] }), call_id: `c${s}` }, s);
+    const output = (text, s) => codex({ type: 'function_call_output', call_id: `c${s}`, output: text }, s);
+    const reply = (text, s) => codex({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }, s);
+    const script = (sub) => `node "/p/coders-talk/scripts/coders-talk.mjs" ${sub} --agent=codex`;
+
+    // Started with a playbook: what the person typed, and the skill Codex put next to it.
+    const start = [codex({ id: 't1', cwd: '/home/you/shop' }, 0, 'session_meta'), env, said('$ct-horizon-queues-ab12 migrate the queues to Horizon', 0), skill('ct-horizon-queues-ab12')];
+    const work = [call('composer require laravel/horizon', 1), output('ok', 1), reply('Migrated.', 2)];
+    const later = [env, said('Now the docs', 20), call('cat README.md', 21), output('# Shop', 21), reply('Updated.', 22)];
+    const text = [
+        ...start, ...work,
+        // Called before there was anything to send: it said so, and the person went on.
+        env, said('$coders-talk:build', 5), skill('coders-talk:build'), call(script('preview'), 6), output('Ready to send to https://coders.talk.', 6), reply('Send it?', 6),
+        env, said('No, do not send it', 8), call(script('discard'), 8), output('Nothing was sent.', 8), reply('Nothing was sent.', 8),
+        ...later,
+        env, said('$coders-talk:build', 30), skill('coders-talk:build'), call(script('preview'), 31),
+    ].join('\n');
+
+    const kept = cutOwnCommand(text).text;
+    assert.equal(kept, [...start, ...work, ...later].join('\n'));
+    assert.equal(summarize(kept).prompts, 2);
+
+    // The skill block and the task in one message.
+    assert.equal(summarize(codex({ type: 'message', role: 'user', content: [{ type: 'input_text', text: '<skill>\n<name>ct-x</name>\nbody\n</skill>\nmigrate the queues' }] })).prompts, 1);
+    assert.equal(summarize([said('$ct-horizon-queues-ab12 migrate the queues', 0), skill('ct-horizon-queues-ab12')].join('\n')).prompts, 1);
 });
 
 test('the Codex rollout is found by thread id, a reverted one too', () => {

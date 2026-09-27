@@ -10,7 +10,7 @@
  * own, the agent would see the same tools twice, and the desktop app mixes up their sign-ins.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { codexHome, configDir } from './session.mjs';
@@ -133,4 +133,36 @@ export function removeMcpServer(agent, server, env = process.env) {
     if (agent.id === 'claude-code') return runCli(agent.cli, ['mcp', 'remove', server.name, '--scope', server.scope], { env, cwd: server.project });
 
     return runCli(agent.cli, ['mcp', 'remove', server.name], { env });
+}
+
+/** The plugin's MCP server as Claude Code names it: plugin:<plugin>:<server>. */
+export const PLUGIN_MCP_SERVER = 'plugin:coders-talk:coders-talk';
+
+/**
+ * Claude Code remembers for about 15 minutes that a server answered 401, in <config>/mcp-needs-auth-cache.json
+ * ({"<server>": {"timestamp": …}}), and until then shows it as "needs authorization" in every session, even once
+ * mcp-headers has a token. After a sign-in that note is wrong: this takes the plugin's server out of it and leaves the
+ * rest of the file as it was. Only a file it can read and understand is written back. Whether it took one out.
+ */
+export function forgetMcpNeedsAuth(env = process.env, server = PLUGIN_MCP_SERVER) {
+    const file = join(configDir(env), 'mcp-needs-auth-cache.json');
+    try {
+        const cache = JSON.parse(readFileSync(file, 'utf8'));
+        let kept;
+        if (Array.isArray(cache)) {
+            kept = cache.filter((e) => e !== server && e?.name !== server && e?.server !== server && e?.serverName !== server);
+            if (kept.length === cache.length) return false;
+        } else if (cache && typeof cache === 'object' && Object.hasOwn(cache, server)) {
+            kept = { ...cache };
+            delete kept[server];
+        } else {
+            return false;
+        }
+        writeFileSync(file, JSON.stringify(kept));
+
+        return true;
+    } catch {
+        // No such file, or one this does not understand: nothing to take out.
+        return false;
+    }
 }

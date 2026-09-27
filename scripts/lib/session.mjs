@@ -8,10 +8,19 @@ import { basename, join } from 'node:path';
 /** Claude Code session ids and Codex thread ids are UUIDs; anything else never becomes part of a path. */
 export const SESSION_ID = /^[A-Za-z0-9-]{8,100}$/;
 
-/** The invocation of this plugin inside the transcript; it and everything after it is not part of the session. */
-const OWN_COMMAND = /<command-name>\/(?:coders-talk:)?(?:build|share)<\/command-name>/;
+/**
+ * The plugin's own commands inside the transcript: /coders-talk:build, :auto, :lookup… are not part of the work. An
+ * older plugin went by /build and /share, without the prefix.
+ */
+const OWN_COMMAND = /<command-name>\/(coders-talk:[a-z-]+|build|share)<\/command-name>/;
 /** Codex puts the body of a skill it runs into a user message: "<skill>\n<name>coders-talk:build</name>…". */
-const OWN_SKILL = /<skill>(?:\\n|\s)*<name>(?:coders-talk:)?(?:build|share)<\/name>/;
+const OWN_SKILL = /<skill>\s*<name>(coders-talk:[a-z-]+|build|share)<\/name>/;
+/** What the person types in Codex to call one: "$coders-talk:build". */
+const OWN_MENTION = /(?:^|\s)\$(coders-talk:[a-z-]+)/;
+/** The command that sends a session: the last run of it, and everything after, is the run in progress. */
+const OWN_SEND = /^(?:coders-talk:)?(?:build|share)$/;
+/** A tool call that runs the plugin's script: the preview, discard, send… of a command run. */
+const OWN_SCRIPT = /coders-talk\.mjs/;
 
 export function configDir(env = process.env) {
     return env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
@@ -67,35 +76,91 @@ export function findRollout(threadId, dir = codexHome()) {
 }
 
 /**
- * Drops the plugin's own run: the last /coders-talk:build (or :share) prompt and everything after it.
- * In Codex that is the message carrying the skill, and the person's messages right before it (what they typed
- * to call it, the environment note Codex adds at the start of a turn).
+ * Drops the plugin's own runs from the session: every /coders-talk:* command (in Codex the message carrying the
+ * skill, and the person's messages right before it: what they typed to call it, the environment note Codex adds at the
+ * start of a turn), what the agent did for it, and the replies it asked for: a run goes on past the person's next
+ * prompt while the agent answers it with the plugin's script ("No, do not send it" and the discard it runs).
+ * With $tail, the run in progress goes too: the last /coders-talk:build (or :share) and everything after it.
  */
-export function cutOwnCommand(text) {
+export function cutOwnCommand(text, { tail = true } = {}) {
     const lines = text.split(/\r?\n/);
-    for (let i = lines.length - 1; i >= 0; i--) {
-        if (OWN_COMMAND.test(lines[i])) {
-            return { text: lines.slice(0, i).join('\n'), cut: true };
-        }
-        if (OWN_SKILL.test(lines[i])) {
-            let start = i;
-            while (start > 0 && isCodexUserLine(lines[start - 1])) start--;
+    const kinds = lines.map(kindOf);
+    const drop = new Array(lines.length).fill(false);
+    const opens = (k) => Boolean(k.own || k.prompt);
+    // The next line that opens a turn: a prompt, or a plugin command.
+    const next = (at) => {
+        let j = at + 1;
+        while (j < lines.length && !opens(kinds[j])) j++;
 
-            return { text: lines.slice(0, start).join('\n'), cut: true };
+        return j;
+    };
+    let cut = false;
+
+    const last = tail ? kinds.findLastIndex((k) => k.own && OWN_SEND.test(k.own)) : -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (!kinds[i].own) continue;
+        let from = i;
+        while (from > 0 && kinds[from - 1].codexUser && !opens(kinds[from - 1])) from--;
+
+        let to = lines.length;
+        if (i !== last) {
+            // The command's own turn, then each reply the agent answered by running the script again.
+            to = next(i);
+            while (to < lines.length && !kinds[to].own) {
+                const after = next(to);
+                if (!kinds.slice(to, after).some((k) => k.script)) break;
+                to = after;
+            }
+            // An older plugin's /build is ours only when it ran the script; the person's own /build is work.
+            if (!kinds[i].own.startsWith('coders-talk:') && !kinds.slice(i, to).some((k) => k.script)) continue;
+            // The environment note in front of the next Codex prompt belongs to that prompt.
+            while (to < lines.length && to > i + 1 && kinds[to - 1].codexUser && !opens(kinds[to - 1])) to--;
         }
+        drop.fill(true, from, to);
+        cut = true;
+        if (i === last) break;
+        i = to - 1;
     }
 
-    return { text, cut: false };
+    return cut ? { text: lines.filter((_, i) => !drop[i]).join('\n'), cut } : { text, cut };
 }
 
-function isCodexUserLine(line) {
+/** What a transcript line is to cutOwnCommand: a plugin command (own), a prompt, a call of the plugin's script. */
+function kindOf(line) {
+    let d;
     try {
-        const d = JSON.parse(line);
-
-        return d?.type === 'response_item' && d.payload?.type === 'message' && d.payload.role === 'user';
+        d = JSON.parse(line);
     } catch {
-        return false;
+        return {};
     }
+    if (!d || typeof d !== 'object') return {};
+
+    const content = d.message?.content;
+    if (d.type === 'user' && !d.isMeta) {
+        const own = textOf(content).match(OWN_COMMAND)?.[1];
+
+        return own ? { own } : { prompt: isPrompt(content) };
+    }
+    if (d.type === 'assistant' && Array.isArray(content)) {
+        return { script: content.some((b) => b?.type === 'tool_use' && OWN_SCRIPT.test(JSON.stringify(b.input ?? ''))) };
+    }
+
+    const p = d.type === 'response_item' ? d.payload : null;
+    if (p?.type === 'message' && p.role === 'user') {
+        const text = textOf(p.content);
+        const own = text.match(OWN_SKILL)?.[1] ?? text.match(OWN_MENTION)?.[1];
+
+        return { codexUser: true, ...(own ? { own } : { prompt: isCodexPrompt(p.content) }) };
+    }
+    if (CODEX_CALLS.has(p?.type)) return { script: OWN_SCRIPT.test(JSON.stringify(p)) };
+
+    return {};
+}
+
+function textOf(content) {
+    if (typeof content === 'string') return content;
+
+    return Array.isArray(content) ? content.map((b) => (typeof b?.text === 'string' ? b.text : '')).join('\n') : '';
 }
 
 /**
@@ -147,9 +212,17 @@ export function summarize(text, cwd = null) {
 
 const CODEX_CALLS = new Set(['function_call', 'custom_tool_call', 'local_shell_call']);
 
-/** Typed by the person in Codex: some text that is not one of the blocks Codex adds (<environment_context>, <skill>, <image …>). */
+/**
+ * Typed by the person in Codex: some text that is not one of the blocks Codex adds (<environment_context>, <skill>,
+ * <image …>). "$ct-horizon migrate the queues" is a prompt; "$coders-talk:build" calls the plugin and is not.
+ */
 export function isCodexPrompt(content) {
-    return Array.isArray(content) && content.some((b) => typeof b?.text === 'string' && b.text.trim() !== '' && b.text.trim() !== '[image]' && !b.text.trimStart().startsWith('<'));
+    return Array.isArray(content) && content.some((b) => {
+        if (typeof b?.text !== 'string') return false;
+        const text = b.text.replace(/^\s*(?:<skill>[\s\S]*?<\/skill>\s*)+/, '').trim();
+
+        return text !== '' && text !== '[image]' && !text.startsWith('<') && !text.startsWith('$coders-talk:');
+    });
 }
 
 /** What Claude Code itself writes as a "user" message: slash commands, their output, background task notices. */
@@ -164,9 +237,31 @@ const WRAPPER_BLOCK = /<(command-(?:name|message|args)|local-command-[a-z]+|task
  */
 export function promptText(content) {
     const text = typeof content === 'string' ? content : Array.isArray(content) && !content.some((b) => b?.type === 'tool_result') ? content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : '';
+    const command = commandPrompt(text);
+    if (command) return command;
     const typed = text.replace(WRAPPER_BLOCK, '').trim();
 
     return typed !== '' && !WRAPPER.test(typed) && !typed.startsWith('[Request interrupted') ? typed : null;
+}
+
+/** Claude Code's own commands run the session, not the agent (the site's TurnParser::SESSION_COMMANDS): /model opus is not a prompt. */
+const SESSION_COMMANDS = new Set([
+    'add-dir', 'agents', 'bashes', 'clear', 'compact', 'config', 'context', 'copy', 'cost', 'doctor', 'effort', 'exit', 'export',
+    'fast', 'feedback', 'help', 'hooks', 'ide', 'login', 'logout', 'mcp', 'memory', 'model', 'output-style', 'permissions',
+    'plugin', 'privacy-settings', 'release-notes', 'resume', 'rewind', 'skills', 'status', 'statusline', 'tasks', 'terminal-setup',
+    'theme', 'todos', 'upgrade', 'usage', 'vim',
+]);
+
+/**
+ * A skill or command with a task after it, as the person typed it: "/ct-horizon-queues migrate the queues". Null for
+ * one without a task, for Claude Code's own commands and for the plugin's (/coders-talk:*).
+ */
+function commandPrompt(text) {
+    const name = text.match(/<command-name>\s*\/?([^<\s]+)\s*<\/command-name>/)?.[1];
+    const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim();
+    if (!name || !args || name.startsWith('coders-talk:') || SESSION_COMMANDS.has(name)) return null;
+
+    return `/${name} ${args}`;
 }
 
 /** Typed by the person: not a tool result, not a wrapper Claude Code added, not an interruption notice. */

@@ -183,3 +183,28 @@ test('disable takes it all off and keeps the sign-in; refresh lays it out again 
     assert.deepEqual(calls(), []);
     assert.match((await cli(['disable', '--yes'])).out, /is not installed here; nothing to take off/);
 });
+
+test("a sign-in takes the plugin's server out of Claude Code's needs-authorization note, and nothing else", async () => {
+    const { forgetMcpNeedsAuth, PLUGIN_MCP_SERVER } = await import('../scripts/lib/agents.mjs');
+    const config = mkdtempSync(join(tmpdir(), 'ct-needs-auth-'));
+    const file = join(config, 'mcp-needs-auth-cache.json');
+    const claude = { CLAUDE_CONFIG_DIR: config };
+
+    // No file, or one it does not understand: left as it is.
+    assert.equal(forgetMcpNeedsAuth(claude), false);
+    assert.equal(existsSync(file), false);
+    writeFileSync(file, 'not json');
+    assert.equal(forgetMcpNeedsAuth(claude), false);
+    assert.equal(readFileSync(file, 'utf8'), 'not json');
+
+    // The shape Claude Code writes: servers by name.
+    writeFileSync(file, JSON.stringify({ [PLUGIN_MCP_SERVER]: { timestamp: 1 }, 'plugin:other:x': { timestamp: 2 } }));
+    assert.equal(forgetMcpNeedsAuth(claude), true);
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { 'plugin:other:x': { timestamp: 2 } });
+    assert.equal(forgetMcpNeedsAuth(claude), false, 'once gone, the file is not written again');
+
+    // A list, should it ever be one.
+    writeFileSync(file, JSON.stringify([PLUGIN_MCP_SERVER, { name: PLUGIN_MCP_SERVER }, 'plugin:other:x']));
+    assert.equal(forgetMcpNeedsAuth(claude), true);
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), ['plugin:other:x']);
+});

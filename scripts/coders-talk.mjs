@@ -315,8 +315,10 @@ async function preview(id) {
     if (SPACE && !/^[a-z0-9-]{1,40}$/.test(SPACE)) throw new Failure(`"${SPACE}" is not a team address. Use the part after /t/ in the team's link.`);
     const out = prepared(id);
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
-    // --whole: `build` from a terminal, where the session holds no run of the command to cut off (only earlier ones).
-    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project, continuation, title, taskKeys } = await prepare(id, !args.includes('--whole'));
+    // Only the agent's /coders-talk:build is a run of the command inside the session. From a terminal, SSH or a script
+    // (--whole: `build` in a terminal) the session holds no run to cut off, only earlier ones.
+    const inAgent = Boolean(env.CLAUDECODE || env.CODEX_THREAD_ID);
+    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project, continuation, title, taskKeys } = await prepare(id, inAgent && !args.includes('--whole'));
 
     const goesTo = await destination(git);
 

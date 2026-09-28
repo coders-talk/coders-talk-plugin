@@ -55,6 +55,32 @@ test('every run of a plugin command goes, with its output and the replies the ag
     assert.deepEqual(cutOwnCommand(mine).text.split('\n'), [prompt('a', 0), command('build'), meta('Build the app'), bash('npm run build', 1), answer('Built.', 1), prompt('b', 5)]);
 });
 
+test('a run the person left goes alone, also as the last one: the work after it stays (QA 27.09, № 21)', () => {
+    // The plugin `coders-talk enable` lays out runs the installed program, in PowerShell with & in front.
+    const program = (sub) => `& 'C:\\Users\\qa\\.coders-talk\\bin\\coders-talk.exe' ${sub} a1b2c3d4-0000-4000-8000-000000000001`;
+    const edit = (s) => line({ type: 'assistant', timestamp: `2026-09-01T10:${s}:00Z`, message: { role: 'assistant', content: [{ type: 'tool_use', id: `t${s}`, name: 'Edit', input: { file_path: 'calc.ps1' } }] } });
+    const work = [prompt('Add a Median helper comment', 0), edit(10), result('updated', 10), answer('Added.', 10)];
+    const later = [prompt('Add a Max helper comment', 20), edit(21), result('updated', 21), answer('Added.', 21)];
+    const text = [
+        ...work,
+        command('coders-talk:build'), meta('Send the current session…'),
+        bash(program('preview'), 11), result('Ready to send to https://coders.talk.', 11), answer('Send it?', 11),
+        prompt('No, do not send it.', 12), bash(program('discard'), 12), result('Nothing was sent, and the prepared file is deleted.', 12), answer('Nothing was sent.', 12),
+        ...later,
+    ].join('\n');
+
+    for (const tail of [true, false]) assert.deepEqual(cutOwnCommand(text, { tail }), { text: [...work, ...later].join('\n'), cut: true });
+
+    // The run in progress takes a question about a finding with it: the agent did no work for it.
+    const asked = [
+        ...work,
+        command('coders-talk:build'), meta('Send…'), bash(program('preview'), 11), result('1. email address', 11), answer('Keep any?', 11),
+        prompt('What is finding 1?', 12), answer('An email address in a test fixture.', 12),
+        prompt('Keep 1', 13), bash(program('preview --keep=1'), 13),
+    ].join('\n');
+    assert.equal(cutOwnCommand(asked).text, work.join('\n'));
+});
+
 test('a skill or command with a task after it is a prompt; Claude Code\'s own commands and the plugin\'s are not', () => {
     const run = (name, args) => `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>\n<command-args>${args}</command-args>`;
     assert.equal(promptText(run('ct-horizon-queues-ab12', 'migrate the queues to Horizon')), '/ct-horizon-queues-ab12 migrate the queues to Horizon');

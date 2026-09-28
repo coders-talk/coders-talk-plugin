@@ -17,10 +17,13 @@ const OWN_COMMAND = /<command-name>\/(coders-talk:[a-z-]+|build|share)<\/command
 const OWN_SKILL = /<skill>\s*<name>(coders-talk:[a-z-]+|build|share)<\/name>/;
 /** What the person types in Codex to call one: "$coders-talk:build". */
 const OWN_MENTION = /(?:^|\s)\$(coders-talk:[a-z-]+)/;
-/** The command that sends a session: the last run of it, and everything after, is the run in progress. */
+/** The command that sends a session: the last run of it may be the run in progress. */
 const OWN_SEND = /^(?:coders-talk:)?(?:build|share)$/;
-/** A tool call that runs the plugin's script: the preview, discard, send… of a command run. */
-const OWN_SCRIPT = /coders-talk\.mjs/;
+/**
+ * A tool call that runs the plugin's script: the preview, discard, send… of a command run. The plugin laid out by
+ * `coders-talk enable` calls the installed program instead: "& '…\bin\coders-talk.exe' preview <id>".
+ */
+const OWN_SCRIPT = /coders-talk\.mjs|coders-talk(?:\.exe|\.cmd)?[\\"']*\s+(?:preview|send|discard|auto|login|logout|use)\b/;
 
 export function configDir(env = process.env) {
     return env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
@@ -80,7 +83,9 @@ export function findRollout(threadId, dir = codexHome()) {
  * skill, and the person's messages right before it: what they typed to call it, the environment note Codex adds at the
  * start of a turn), what the agent did for it, and the replies it asked for: a run goes on past the person's next
  * prompt while the agent answers it with the plugin's script ("No, do not send it" and the discard it runs).
- * With $tail, the run in progress goes too: the last /coders-talk:build (or :share) and everything after it.
+ * With $tail, the run in progress goes to the end: the last /coders-talk:build (or :share) also takes the replies the
+ * agent did no work for (a question about a finding). A reply the agent did other work for ends even that run: the
+ * command was left, and what came after is part of the session.
  */
 export function cutOwnCommand(text, { tail = true } = {}) {
     const lines = text.split(/\r?\n/);
@@ -102,30 +107,30 @@ export function cutOwnCommand(text, { tail = true } = {}) {
         let from = i;
         while (from > 0 && kinds[from - 1].codexUser && !opens(kinds[from - 1])) from--;
 
-        let to = lines.length;
-        if (i !== last) {
-            // The command's own turn, then each reply the agent answered by running the script again.
-            to = next(i);
-            while (to < lines.length && !kinds[to].own) {
-                const after = next(to);
-                if (!kinds.slice(to, after).some((k) => k.script)) break;
-                to = after;
-            }
-            // An older plugin's /build is ours only when it ran the script; the person's own /build is work.
-            if (!kinds[i].own.startsWith('coders-talk:') && !kinds.slice(i, to).some((k) => k.script)) continue;
-            // The environment note in front of the next Codex prompt belongs to that prompt.
-            while (to < lines.length && to > i + 1 && kinds[to - 1].codexUser && !opens(kinds[to - 1])) to--;
+        // The command's own turn, then each reply the agent answered by running the script again.
+        let to = next(i);
+        while (to < lines.length && !kinds[to].own) {
+            const after = next(to);
+            const turn = kinds.slice(to, after);
+            if (!turn.some((k) => k.script) && !(i === last && !turn.some((k) => k.work))) break;
+            to = after;
         }
+        // An older plugin's /build is ours only when it ran the script; the person's own /build is work.
+        if (i !== last && !kinds[i].own.startsWith('coders-talk:') && !kinds.slice(i, to).some((k) => k.script)) continue;
+        // The environment note in front of the next Codex prompt belongs to that prompt.
+        while (to < lines.length && to > i + 1 && kinds[to - 1].codexUser && !opens(kinds[to - 1])) to--;
         drop.fill(true, from, to);
         cut = true;
-        if (i === last) break;
         i = to - 1;
     }
 
     return cut ? { text: lines.filter((_, i) => !drop[i]).join('\n'), cut } : { text, cut };
 }
 
-/** What a transcript line is to cutOwnCommand: a plugin command (own), a prompt, a call of the plugin's script. */
+/**
+ * What a transcript line is to cutOwnCommand: a plugin command (own), a prompt, a call of the plugin's script, any
+ * other tool call (work).
+ */
 function kindOf(line) {
     let d;
     try {
@@ -142,7 +147,9 @@ function kindOf(line) {
         return own ? { own } : { prompt: isPrompt(content) };
     }
     if (d.type === 'assistant' && Array.isArray(content)) {
-        return { script: content.some((b) => b?.type === 'tool_use' && OWN_SCRIPT.test(JSON.stringify(b.input ?? ''))) };
+        const calls = content.filter((b) => b?.type === 'tool_use').map((b) => OWN_SCRIPT.test(JSON.stringify(b.input ?? '')));
+
+        return { script: calls.includes(true), work: calls.includes(false) };
     }
 
     const p = d.type === 'response_item' ? d.payload : null;
@@ -152,7 +159,11 @@ function kindOf(line) {
 
         return { codexUser: true, ...(own ? { own } : { prompt: isCodexPrompt(p.content) }) };
     }
-    if (CODEX_CALLS.has(p?.type)) return { script: OWN_SCRIPT.test(JSON.stringify(p)) };
+    if (CODEX_CALLS.has(p?.type)) {
+        const script = OWN_SCRIPT.test(JSON.stringify(p));
+
+        return { script, work: !script };
+    }
 
     return {};
 }

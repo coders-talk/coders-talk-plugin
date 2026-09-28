@@ -18,8 +18,10 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { findProgram } from './agents.mjs';
 import { home, writePrivate } from './credentials.mjs';
+import { cmdCommand } from './plugin.mjs';
 
 /** A repository is checked at most this often while auto mode is on. */
 export const CHECK_EVERY_MS = 60 * 60_000;
@@ -78,12 +80,16 @@ export function readText(path) {
 }
 
 /**
- * The GitHub CLI: {ok, out, err, missing}. CODERS_TALK_GH names another program (the tests' stand-in). Nothing here
- * passes through a shell: the arguments go as they are.
+ * The GitHub CLI: {ok, out, err, missing}. Found in PATH the way the agents' CLIs are (lib/agents.mjs, findProgram):
+ * gh.exe, or on Windows a gh.cmd, which runs only through a shell (plugin.mjs, cmdCommand: every argument here is ours
+ * or a GitHub address, and the description goes on stdin). CODERS_TALK_GH names another program: the tests' stand-in.
  */
 export function gh(args, { cwd = process.cwd(), input = undefined, env = process.env, timeout = 30_000 } = {}) {
-    const program = env.CODERS_TALK_GH || 'gh';
-    const r = spawnSync(program, args, { cwd, input, env, encoding: 'utf8', timeout, windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
+    const given = env.CODERS_TALK_GH;
+    const program = given ? (isAbsolute(given) ? (existsSync(given) ? given : null) : findProgram(given, env)) : findProgram('gh', env);
+    if (!program) return { ok: false, out: '', err: 'gh is not in PATH.', missing: true };
+    const options = { cwd, input, env, encoding: 'utf8', timeout, windowsHide: true, maxBuffer: 16 * 1024 * 1024 };
+    const r = /\.(cmd|bat)$/i.test(program) ? spawnSync(cmdCommand([program, ...args]), { ...options, shell: true }) : spawnSync(program, args, options);
     if (r.error) return { ok: false, out: '', err: r.error.message, missing: r.error.code === 'ENOENT' };
 
     return { ok: r.status === 0, out: r.stdout ?? '', err: (r.stderr ?? '').trim(), missing: false };

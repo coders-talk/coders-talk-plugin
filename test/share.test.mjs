@@ -3,13 +3,13 @@
 // And the share auto mode: the SessionStart hook puts published Builds into their pull requests in the background.
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, delimiter, join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
 import { promisify } from 'node:util';
-import { shareCheckDue, withPrBlock, withReadmeBlock } from '../scripts/lib/share.mjs';
+import { ghProblem, shareCheckDue, withPrBlock, withReadmeBlock } from '../scripts/lib/share.mjs';
 import { coders, hookCommand, waitFor } from './helpers.mjs';
 
 const run = promisify(execFile);
@@ -65,10 +65,11 @@ const server = createServer(async (req, res) => {
     send(404, { error: { code: 'not_found', message: 'Not found' } });
 });
 
-// The GitHub CLI's stand-in: pull requests in a JSON file, every call noted.
+// The GitHub CLI's stand-in: pull requests in a JSON file, every call noted. On Windows a .cmd, which runs only through a
+// shell, as the enable tests stand in for claude and codex.
 const home = mkdtempSync(join(tmpdir(), 'ct-share-'));
 const ghState = join(home, 'gh.json');
-const ghBin = join(home, 'gh');
+const ghBin = join(home, process.platform === 'win32' ? 'gh.cmd' : 'gh');
 writeFileSync(join(home, 'gh.mjs'), `
 import { readFileSync, writeFileSync } from 'node:fs';
 const file = ${JSON.stringify(ghState)};
@@ -98,8 +99,11 @@ if (args[0] === 'pr' && args[1] === 'edit') {
 }
 save(); process.exit(1);
 `);
-writeFileSync(ghBin, `#!/bin/sh\nexec "${process.execPath}" "${join(home, 'gh.mjs')}" "$@"\n`);
-chmodSync(ghBin, 0o755);
+if (process.platform === 'win32') writeFileSync(ghBin, `@"${process.execPath}" "${join(home, 'gh.mjs')}" %*\r\n`);
+else {
+    writeFileSync(ghBin, `#!/bin/sh\nexec "${process.execPath}" "${join(home, 'gh.mjs')}" "$@"\n`);
+    chmodSync(ghBin, 0o755);
+}
 const gh = () => JSON.parse(readFileSync(ghState, 'utf8'));
 
 let repo;
@@ -141,6 +145,19 @@ test('blocks go between their markers: replaced when there, added after a blank 
     const readme = withReadmeBlock('# Shop\n', readmeBlock);
     assert.equal(readme, `# Shop\n\n${readmeBlock}\n`);
     assert.equal(withReadmeBlock(readme.replace('Built with AI', 'Old'), readmeBlock), readme);
+});
+
+test("gh is found in PATH as the agents' CLIs are: on Windows by PATHEXT, a .cmd through a shell", () => {
+    const bin = join(home, 'bin');
+    mkdirSync(bin, { recursive: true });
+    copyFileSync(ghBin, join(bin, basename(ghBin)));
+    chmodSync(join(bin, basename(ghBin)), 0o755);
+    // Only PATH says where gh is: no CODERS_TALK_GH, and Windows' own Path out of the way.
+    const pathEnv = Object.fromEntries(Object.entries(env).filter(([key]) => key.toUpperCase() !== 'PATH' && key !== 'CODERS_TALK_GH'));
+
+    assert.equal(ghProblem({ env: { ...pathEnv, PATH: [bin, process.env.PATH].join(delimiter) } }), null);
+    assert.deepEqual(gh().calls, ['--version', 'auth status']);
+    assert.match(ghProblem({ env: { ...pathEnv, PATH: join(home, 'nothing-here') } }) ?? '', /install gh \(https:\/\/cli\.github\.com\)/);
 });
 
 test('alone it shows the Build and what can go where; a draft is not shared', async () => {

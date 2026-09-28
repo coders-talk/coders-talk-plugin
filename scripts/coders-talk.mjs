@@ -46,6 +46,14 @@
  *                                                 A team's own Build needs the sign-in: the token goes to the site then only
  *   coders-talk use --team=<team> --stack=<stack>  the team's rules for a stack (22.5): its pitfalls, one block in
  *                                                 CLAUDE.md or AGENTS.md; --agent and --write as above
+ *   coders-talk share [build link or slug]      a published Build on GitHub (lib/share.mjs): without one, this session's
+ *     --pr[=<pull request link>]                  the block "How this change was built" in the session's pull request,
+ *                                                 with the person's own gh
+ *     --readme                                    the "Built with AI" section in the repository's README (not committed)
+ *     --write                                     changes them (a terminal asks instead)
+ *   coders-talk share auto [on|off]             attach published Builds to their pull requests by itself: the site's
+ *                                                 setting (Settings → GitHub), run by the SessionStart hook
+ *   coders-talk share-auto --cwd=<repository>   what the SessionStart hook runs in the background for that
  *   coders-talk enable | disable | status       connects Claude Code and Codex to this coders-talk through their plugin
  *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
  *     --yes  --agent=claude-code,codex  --auto=off|on|team|push  --mcp=remove|keep
@@ -63,7 +71,7 @@
  * As a script it needs Node.js 20 or newer and nothing else.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { createReadStream, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { createInterface as createPrompt } from 'node:readline/promises';
@@ -72,7 +80,7 @@ import { AUTO_MODES, autoMode, autoSession, catchUp, currentSize, logAuto, logFi
 import { siteUrl } from './lib/config.mjs';
 import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
 import { Failure } from './lib/failure.mjs';
-import { folderGitContexts, gitContext, projectOf, worktrees } from './lib/git.mjs';
+import { folderGitContexts, gitContext, normalizeRemote, projectOf, repositoryRoot, worktrees } from './lib/git.mjs';
 import { disable, enable, refresh, status } from './lib/enable.mjs';
 import { runGitHook } from './lib/githooks.mjs';
 import { detectAgents, forgetMcpNeedsAuth, installedPlugins } from './lib/agents.mjs';
@@ -94,6 +102,7 @@ import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
 import { describeSession, folderSessions, markSent, sentAt, sentUrl } from './lib/sessions.mjs';
 import { removeLeftover, update, updateNotice } from './lib/update.mjs';
 import { changesSince, checkRules, saveRulesState } from './lib/team-rules.mjs';
+import { addNotice, editPullRequest, findPullRequest, ghProblem, markShareChecked, readmeFile, readText, rememberAuto, withPrBlock, withReadmeBlock } from './lib/share.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
 const VERSION = version();
@@ -168,6 +177,8 @@ try {
     else if (command === 'sessions') await sessions();
     else if (command === 'build') await build(argId);
     else if (command === 'use') await use(argId);
+    else if (command === 'share') await share(argId);
+    else if (command === 'share-auto') await shareAuto();
     else if (command === 'enable') await enable({ site, version: VERSION, interactive: TERMINAL, flags: setupFlags() });
     else if (command === 'disable') await disable({ interactive: TERMINAL, flags: setupFlags() });
     else if (command === 'status') {
@@ -196,6 +207,8 @@ function help() {
         ['build [number|session-id]', 'preview a session, ask, then send it as a draft'],
         ['use <build> [--as=skill|rule|prompt]', "a published Build's playbook for this repository"],
         ['use --team=<team> --stack=<stack>', "a team's rules for a stack"],
+        ['share [build] [--pr] [--readme]', 'a published Build in its pull request or the README'],
+        ['share auto [on|off]', 'attach published Builds to their pull requests by itself'],
         ['preview [session-id]', 'what would be sent, and where'],
         ['send [session-id]', 'send what preview prepared'],
         ['discard [session-id]', 'delete what preview prepared'],
@@ -519,6 +532,7 @@ async function send(id) {
     // The site checks again with the same rules; what it finds is what the check here let through.
     if (secrets) console.log(`The site's own check redacted ${secrets} more possible secret${secrets === 1 ? '' : 's'}; the draft shows where.`);
     console.log(`${team ? 'Review it' : 'Review and publish'}: ${started.edit_url}`);
+    if (!team) console.log(`Once it is published, ${run('share')} puts it into the pull request: how the change was built, for the reviewer.`);
 }
 
 /**
@@ -533,7 +547,10 @@ async function destination(git) {
     let teams = null;
     if (token) {
         try {
-            teams = (await api('GET', '/api/v1/me', undefined, true, 5000)).teams ?? [];
+            const me = await api('GET', '/api/v1/me', undefined, true, 5000);
+            teams = me.teams ?? [];
+            // Settings → GitHub on the site: the SessionStart hook's share auto mode starts or stops from here (lib/share.mjs).
+            if (me.share) rememberAuto(site, Boolean(me.share.auto_pr));
         } catch {
             // The send step talks to the site anyway; here the rule is enough.
         }
@@ -906,6 +923,163 @@ async function teamRulesCheck() {
         await checkRules(site, projectRoot(option('cwd') || process.cwd()), (path, headers) => signedGet(path, headers, 5000));
     } catch {
         // The next start tries again.
+    }
+}
+
+/**
+ * `coders-talk share` (coders.talk github-distribution-plan, stage 39): a published Build on GitHub. Without --pr or
+ * --readme it shows what there is; with them, what would change, and changes it with --write (a terminal asks). The
+ * blocks are the site's; the pull request is changed with the person's own gh, the README in the working tree only.
+ * Nothing is published here: a draft gets its link, to publish it first.
+ */
+async function share(what) {
+    if (what === 'auto') return shareAutoMode(positional[2]);
+    if (!token) throw notConnected();
+    const slug = what ? buildSlug(what) : null;
+    if (what && !slug) throw new Failure(`Which Build? Give its link or its slug: ${run('share')} <link> [--pr] [--readme].`);
+    let query = slug ? `build=${encodeURIComponent(slug)}` : null;
+    if (!query) {
+        const id = CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID;
+        if (!id || !SESSION_ID.test(id)) throw new Failure(`Which Build? Give its link or its slug: ${run('share')} <link>. Inside a ${AGENT.name} session, the session's own Build is the default.`);
+        query = `session_id=${encodeURIComponent(id)}`;
+    }
+
+    let kit;
+    try {
+        kit = await api('GET', `/api/v1/share?${query}`);
+    } catch (e) {
+        if (e.status === 404 && !slug) throw new Failure(`This session is not on Coders Talk yet. Send it with ${run('build')}, publish it on the site, then share it.`);
+        throw e;
+    }
+    if (!kit.published) {
+        throw new Failure(`"${kit.title ?? kit.slug}" is not published yet, so nothing goes to GitHub. Publish it first: ${kit.edit_url}`);
+    }
+
+    const pr = args.includes('--pr') || option('pr') !== undefined;
+    const readme = args.includes('--readme');
+    if (!pr && !readme) return describeShare(kit);
+    if (pr) await sharePr(kit, option('pr') || null);
+    if (readme) await shareReadme(kit);
+}
+
+/** What there is to put on GitHub, and how. */
+function describeShare(kit) {
+    console.log(`"${kit.title}" · ${kit.share.numbers.join(' · ')}\n  ${kit.url}`);
+    for (const a of kit.attachments ?? []) console.log(`  Already in: ${a.url}${a.auto ? ' (auto mode)' : ''}`);
+    console.log(`----- for the pull request -----\n${kit.share.pr}\n----- end -----`);
+    console.log(`Put it into the pull request of this session's branch: ${run('share')} ${kit.slug} --pr`);
+    console.log(`The "Built with AI" section of the README${kit.repo ? ', a badge that counts the repository\'s sessions by itself' : ''}: ${run('share')} ${kit.slug} --readme`);
+    if (kit.share.profile) console.log(`Your profile README, a badge that counts your public sessions:\n  ${kit.share.profile}`);
+}
+
+/** The person's yes: --write, or the question in a terminal. */
+async function confirmed(question, what) {
+    if (args.includes('--write')) return true;
+    if (!TERMINAL) {
+        console.log(`Nothing is changed yet: the same command with --write ${what}.`);
+        return false;
+    }
+    const prompt = createPrompt({ input: process.stdin, output: process.stdout });
+    const answer = (await prompt.question(`${question} [y/N] `)).trim().toLowerCase();
+    prompt.close();
+    if (['y', 'yes'].includes(answer)) return true;
+    console.log('Nothing was changed.');
+
+    return false;
+}
+
+async function sharePr(kit, named) {
+    const paste = `Or paste the block into the description by hand:\n${kit.share.pr}`;
+    const problem = ghProblem();
+    if (problem) throw new Failure(`${problem}\n${paste}`);
+
+    const pr = findPullRequest({ url: named || kit.pr_url, repo: kit.repo, branch: kit.branch });
+    if (!pr) {
+        throw new Failure(`No pull request found for this session${kit.branch ? ` (branch ${kit.branch})` : ''}. Open one first (gh pr create), or name it: ${run('share')} ${kit.slug} --pr=<link>.\n${paste}`);
+    }
+    const body = withPrBlock(pr.body, kit.slug, kit.share.pr);
+    const same = body.replace(/\r\n/g, '\n').trim() === (pr.body ?? '').replace(/\r\n/g, '\n').trim();
+    const had = (pr.body ?? '').includes(`<!-- coders-talk:build ${kit.slug} -->`);
+    console.log(`The pull request: ${pr.url}${pr.title ? ` (#${pr.number} ${pr.title})` : ''}`);
+
+    if (same) {
+        console.log('The block is already there, unchanged.');
+    } else {
+        console.log(`  ${had ? 'Replaces the block' : 'Adds the block'} "How this change was built"; the rest of the description stays as it is:`);
+        console.log(`----- block -----\n${kit.share.pr}\n----- end -----`);
+        if (!(await confirmed('Change the description?', 'changes the description'))) return;
+        const failed = editPullRequest(pr.url, body);
+        if (failed) throw new Failure(`gh could not change the description: ${failed}\n${paste}`);
+    }
+
+    const done = await api('POST', '/api/v1/share/attachments', json({ build: kit.slug, target: 'pr', url: pr.url })).catch(() => null);
+    if (!same) console.log(`Done: ${pr.url}. Reviewers see how the change was built.`);
+    if (done?.linked) console.log(`The Build links to the pull request now: ${kit.url}`);
+}
+
+async function shareReadme(kit) {
+    const root = repositoryRoot(process.cwd());
+    if (!root) throw new Failure(`Not in a git repository: run it in the repository whose README gets the section.\nOr paste it by hand:\n${kit.share.readme}`);
+    const file = readmeFile(root);
+    const before = readText(file);
+    const after = withReadmeBlock(before, kit.share.readme);
+    const name = file.slice(root.length + 1);
+
+    if (after === before) {
+        console.log(`${name} already has the section, unchanged.`);
+    } else {
+        console.log(`Goes to: ${name}${before ? (before.includes('<!-- coders-talk:repo -->') ? ' (replaces the section)' : ' (added at the end)') : ' (new)'}`);
+        console.log(`----- section -----\n${kit.share.readme}\n----- end -----`);
+        if (kit.repo) console.log('The badge counts the public sessions of this repository by itself: once is enough.');
+        if (!(await confirmed(`Write it to ${name}?`, `writes it to ${name}`))) return;
+        writeFileSync(file, after);
+        console.log(`Written: ${name}. Nothing is committed: commit it when you are ready.`);
+    }
+
+    const origin = normalizeRemote(spawnSync('git', ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', windowsHide: true }).stdout ?? '');
+    const repo = kit.repo ?? origin;
+    if (repo) await api('POST', '/api/v1/share/attachments', json({ build: kit.slug, target: 'readme', url: repo })).catch(() => null);
+}
+
+/** `share auto [on|off]`: the site's setting, the same as Settings → GitHub. */
+async function shareAutoMode(mode) {
+    if (!token) throw notConnected();
+    if (mode && !['on', 'off'].includes(mode)) throw new Failure(`Use: ${run('share')} auto on, or ${run('share')} auto off.`);
+    const on = mode
+        ? (await api('PATCH', '/api/v1/share/settings', json({ auto_pr: mode === 'on' }))).auto_pr
+        : Boolean((await api('GET', '/api/v1/me')).share?.auto_pr);
+    rememberAuto(site, on);
+    console.log(on
+        ? `On: when a session starts in a public repository on github.com, the plugin puts each Build you published from it in the last two weeks into its pull request, with your gh, and tells you at the next start. Only you publish a session. Turn it off with: ${run('share')} auto off`
+        : `Off: Builds go into pull requests only when you run ${run('share')} --pr. Turn it on with: ${run('share')} auto on`);
+}
+
+/**
+ * `share-auto --cwd=<repository>`: what the SessionStart hook starts in the background when auto mode may be on. Asks
+ * the site for the Builds published from this repository and not yet in a pull request, and puts each into its open
+ * pull request. Prints nothing and never fails: what it did goes to the next start's notice and to auto.log.
+ */
+async function shareAuto() {
+    const root = repositoryRoot(option('cwd') || process.cwd());
+    if (!token || !root) return;
+    try {
+        const origin = normalizeRemote(spawnSync('git', ['-C', root, 'remote', 'get-url', 'origin'], { encoding: 'utf8', windowsHide: true }).stdout ?? '');
+        if (!origin) return markShareChecked(site, root, undefined);
+        const pending = await api('GET', `/api/v1/share/pending?repo=${encodeURIComponent(origin)}`, undefined, true, 10_000);
+        markShareChecked(site, root, Boolean(pending.auto_pr));
+        if (!pending.auto_pr || !pending.builds?.length || ghProblem({ cwd: root })) return;
+
+        for (const kit of pending.builds) {
+            const pr = findPullRequest({ url: kit.pr_url, repo: kit.repo, branch: kit.branch, openOnly: !kit.pr_url }, { cwd: root });
+            if (!pr || (pr.state && pr.state.toUpperCase() !== 'OPEN')) continue;
+            const body = withPrBlock(pr.body, kit.slug, kit.share.pr);
+            if (body.trim() !== (pr.body ?? '').trim() && editPullRequest(pr.url, body, { cwd: root })) continue;
+            await api('POST', '/api/v1/share/attachments', json({ build: kit.slug, target: 'pr', url: pr.url, auto: true }), true, 10_000);
+            addNotice(`Coders Talk put your Build "${kit.title}" into ${pr.url} (auto mode; ${run('share')} auto off turns it off).`);
+            logAuto(`share ${kit.slug}: attached to ${pr.url}`);
+        }
+    } catch {
+        // Offline, a slow site, gh failing: the next start tries again.
     }
 }
 
@@ -1326,6 +1500,7 @@ function nudge(mode) {
 async function whoami() {
     if (!token) throw notConnected();
     const me = await api('GET', '/api/v1/me');
+    if (me.share) rememberAuto(site, Boolean(me.share.auto_pr));
     console.log(`Connected to ${site} as @${me.username} (token "${me.token.name}").`);
 }
 

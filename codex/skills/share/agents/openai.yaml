@@ -1,0 +1,3 @@
+policy:
+  # Runs only when the person asks for it: it changes their pull request on GitHub.
+  allow_implicit_invocation: false

@@ -4,11 +4,14 @@
  * (plan, stage 13.1), one command per event, git snapshot included.
  *
  * Every event the agent writes on stdin carries the same fields that matter here: session_id, transcript_path and cwd.
- * A hook prints nothing but the Stop hook's one suggestion, and never fails the session: every error is swallowed.
+ * A hook prints nothing but one JSON systemMessage (the Stop hook's suggestion; at the start, a team's rules and what
+ * the share auto mode did), and never fails the session: every error is swallowed.
  *
  *   session-start  Claude Code: HEAD at the start of the session, so /coders-talk:build can tell which commits it made
  *                  (Codex writes HEAD into the session itself). Auto mode: catches up in the background on this agent's
- *                  sessions that never said they ended (a crash, a closed terminal) and remembers this one.
+ *                  sessions that never said they ended (a crash, a closed terminal) and remembers this one. In a
+ *                  repository on github.com, the share auto mode's check in the background when due (lib/share.mjs),
+ *                  and one line on what it put into pull requests since the last start.
  *   stop           after each answer. Auto mode: sends the session in the background as still going when it grew and
  *                  the last send is ten minutes old (lib/auto.mjs, syncDue). Otherwise, once per session that used
  *                  Builds from the library and changed code, one line suggesting to share it (lib/nudge.mjs): a JSON
@@ -22,7 +25,6 @@
 import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, sessionAutoMode, settled, stillHeld, syncDue, trackSession, waitForSend } from './auto.mjs';
 import { siteUrl } from './config.mjs';
 import { savedToken } from './credentials.mjs';
-import { currentHead } from './git.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
 import { projectRoot } from './playbooks.mjs';
 import { findRollout, findTranscript, SESSION_ID } from './session.mjs';
@@ -30,6 +32,8 @@ import { pruneSidecars, writeSidecar } from './sidecar.mjs';
 import { pruneSnapshots, takeSnapshot } from './snapshots.mjs';
 import { sweepPrepared } from './prepared.mjs';
 import { rulesCheckDue, rulesNotice, teamRuleUses } from './team-rules.mjs';
+import { shareCheckDue, takeNotices } from './share.mjs';
+import { currentHead, repositoryRoot } from './git.mjs';
 
 export const HOOK_EVENTS = ['session-start', 'prompt', 'stop', 'session-end'];
 
@@ -102,7 +106,9 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
         });
         pruneSidecars();
     }
-    teamRulesAtStart({ event, agent, site, agentArgs });
+    // One systemMessage for everything the start has to say: the agents take one JSON object from a hook.
+    const messages = [teamRulesAtStart({ event, agent, site, agentArgs }), ...shareAtStart({ event, site, agentArgs })].filter(Boolean);
+    if (messages.length) console.log(JSON.stringify({ systemMessage: messages.join('\n') }));
 
     if (!id) return;
     const running = RUNNING_MODES.includes(autoMode(site, agent));
@@ -119,14 +125,30 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
  * repositories with a team's block, and only with this site's sign-in. No network here.
  */
 function teamRulesAtStart({ event, agent, site, agentArgs }) {
-    if (!event.cwd) return;
+    if (!event.cwd) return null;
     const root = projectRoot(event.cwd);
-    if (!teamRuleUses(root).length) return;
+    if (!teamRuleUses(root).length) return null;
     const notice = rulesNotice(site, root, agent === 'codex' ? '$coders-talk:use' : '/coders-talk:use');
-    if (notice) console.log(JSON.stringify({ systemMessage: notice }));
-    const signedIn = process.env.CODERS_TALK_TOKEN || process.env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site);
-    if (signedIn && rulesCheckDue(site, root).length) inBackground(['team-rules-check', `--cwd=${root}`, ...agentArgs]);
+    if (signedIn(site) && rulesCheckDue(site, root).length) inBackground(['team-rules-check', `--cwd=${root}`, ...agentArgs]);
+
+    return notice;
 }
+
+/**
+ * The share auto mode (coders.talk github-distribution-plan, stage 39): what it put into pull requests since the last
+ * start, once; and in a repository, its check in the background when one is due (at most hourly, daily while the site
+ * says it is off). No network here: `share-auto` asks the site. Returns the lines to show.
+ */
+function shareAtStart({ event, site, agentArgs }) {
+    if (!signedIn(site)) return [];
+    const notices = takeNotices();
+    const root = event.cwd ? repositoryRoot(event.cwd) : null;
+    if (root && shareCheckDue(site, root)) inBackground(['share-auto', `--cwd=${root}`, ...agentArgs]);
+
+    return notices;
+}
+
+const signedIn = (site) => process.env.CODERS_TALK_TOKEN || process.env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site);
 
 function stop({ event, agent, site, id, agentArgs }) {
     const mode = sessionAutoMode(site, id, agent);

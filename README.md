@@ -143,6 +143,16 @@ A published Build can come with a playbook: what its session taught, written for
 - Kept up with: at the start of a session in a repository with a team's block, the `SessionStart` hook says in one line when the team merged a proposal since the block was written, from what the last check found. It never goes to the network itself: when the last check is over six hours old it starts one in the background (`GET /t/<team>/rules/<stack>.md` with `If-None-Match` and your sign-in; the site answers 304 until a merge), and notes the result in `~/.coders-talk/team-rules.json`. It never rewrites the block: `use --team` does, when you run it.
 - Once written, it prints the Build's link with `?ref=use`: open it after your agent has worked with the playbook and say whether it worked for you.
 
+### On GitHub
+
+A published Build can tell whoever reviews the pull request how the change was built: `/coders-talk:share` (`$coders-talk:share` in Codex, `coders-talk share` in a terminal).
+
+- `share` alone shows this session's Build (or the one you name by link or slug): the numbers, where it already is, and the block for the pull request. A Build that is still a draft is not shared: the command gives you its link to publish it first.
+- `share --pr` puts the block "How this change was built" into the description of the session's pull request: the one the Build links to, else the open one of the session's branch, else the one of the branch checked out here; `--pr=<link>` names it. The block sits between `<!-- coders-talk:build <slug> -->` and `<!-- /coders-talk:build -->`, so running it again replaces it; the rest of the description stays as it is. It uses your own GitHub CLI (`gh`, signed in): Coders Talk never writes to GitHub. If the Build had no pull request yet, it links to this one.
+- `share --readme` writes the "Built with AI" section into the repository's README, between `<!-- coders-talk:repo -->` markers. For a public repository its badge counts the repository's public sessions and leads to them, so it stays up to date without another edit. Nothing is committed.
+- Both show what would change first. The agent's skill asks you; in a terminal it asks `[y/N]`; scripts pass `--write`.
+- **Auto mode for pull requests**: `share auto on` (or Settings → GitHub on the site) and each session that starts in a repository on github.com checks, at most once an hour and in the background, for the Builds you published from that repository in the last two weeks that are not in a pull request yet, and puts each into its open pull request with your `gh`. The next session start says in one line what it did. Off by default; `share auto off` turns it off. Until this computer knows it is on (`share auto on`, or the site said so to `whoami` or a preview), no repository's address goes to the site for it.
+
 ### Git hooks
 
 Only in a repository where you said yes to `coders-talk enable` (or `--git-hooks`); never globally. Two hooks, each a block between `# >>> coders-talk` and `# <<< coders-talk` right after the first line, so a hook already there keeps its own lines and `disable` leaves it as it was:
@@ -166,6 +176,7 @@ A repository whose hooks live elsewhere (`core.hooksPath`: husky, lefthook, a sh
 - The number of tokens the session spent per model (input, output, cache reads and writes), counted from the session file before it is slimmed. Only the counts; they show on the Build and in your team's numbers.
 - For a forked session, the id of the session it was forked from and the time of the fork, so the site can link the two Builds.
 - If the agent used the Coders Talk library in the session: how many times it called it, and the slugs of the Builds it got (up to 20).
+- With `share`, only what goes to GitHub: the block with the Build's link, written by your `gh`. The site hears where it went (the pull request's or the repository's address). With the share auto mode on, the `origin` address of a GitHub repository a session starts in, at most once an hour.
 - Apart from sessions: the library searches the agent makes by itself (a short task description and the stack; see [The library in your agent](#the-library-in-your-agent)), and `use`, which only fetches a public playbook ([Playbooks](#playbooks)).
 - The token can start imports and read the library. Revoke it in Settings at any time.
 
@@ -174,11 +185,14 @@ Each network call, and what goes with it:
 | Call | When | What goes |
 | --- | --- | --- |
 | `POST /api/v1/device/codes`, `/device/token` | `login` | The program's name (`Claude Code`, `Codex` or `Coders Talk CLI`) and version; then the device code. No token, no computer name. |
-| `GET /api/v1/me` | `whoami`, `auto`, the preview (to say where the draft goes) | The token. |
+| `GET /api/v1/me` | `whoami`, `auto`, `share auto`, the preview (to say where the draft goes) | The token. |
 | `POST /api/v1/imports`, `GET /api/v1/imports/{id}` | `build`/`send` after your yes; auto mode | The slimmed, checked session; `agent`, `session_id`, `client_version`, `trigger`; the git context (GitHub `origin`, branch, commit titles, hashes and sizes); token counts; the privacy summary (counts by type, hashes of kept values); `space`, `continues`, `fork`, `library` (count and up to 20 slugs). The token. |
 | `/mcp` | the agent searches the library | The query and the stack the agent writes, and the token. Never the session. |
 | `GET /b/<slug>/use/<format>.md`, `/t/<team>/rules/<stack>.md` | `use` | `via=cli`, the agent, `write=1` when it writes. The token only for a team's own Build or rules. |
 | `GET /t/<team>/rules/<stack>.md`, `/t/<team>/rules/<stack>.json?since=<version>` | `SessionStart` (in the background, at most every six hours), `use --team` | `via=hook`, `If-None-Match` with the version in the repository, the token. Only for repositories with a team's block. |
+| `GET /api/v1/share`, `POST /api/v1/share/attachments` | `share` | The Build's slug or this session's id; after a change, the pull request's or the repository's address. The token. |
+| `PATCH /api/v1/share/settings`, `GET /api/v1/share/pending` | `share auto on\|off`; `SessionStart` with the share auto mode on (in the background, at most hourly per repository) | The switch; the GitHub `origin` address of the repository. The token. |
+| `gh pr view`, `gh pr list`, `gh pr edit` (your GitHub CLI) | `share --pr` after your yes; the share auto mode | The pull request's new description, with the block. Your own GitHub sign-in: the plugin never sees it. |
 | GitHub Releases | `update`, and a background check at most once a day from a terminal | The request for the release, with `coders-talk/<version>` as its user agent; nothing about you or your sessions. |
 
 ## What the plugin keeps on your computer
@@ -194,6 +208,7 @@ Each network call, and what goes with it:
 | `snapshots/<id>.json`, `.index` | The git snapshots of a Claude Code session | 14 days |
 | `nudges/` | Where the Stop hook stopped reading, and the counts and slugs it found | 14 days |
 | `kept.json`, `privacy.json` | Hashes of values you chose to send; your words to hide | Until you edit them |
+| `share.json` | Whether the share auto mode is on, when each repository was last checked, what it did since the last start | Checks 30 days; the notes until the next start shows them |
 | `enable.json`, `plugin/`, `update.json`, `nudge.json` | `enable`'s answers, the plugin it lays out, the update check, the suggestion switch | Until `disable` or the next `enable`/`update` |
 
 The preview writes `<temp folder>/coders-talk/<session>.jsonl.gz` and `.json` (a private folder, private files): deleted after a send, when you say no (`build`, or the `discard` step of the agent's build skill), and otherwise 30 minutes after the preview, by the next run of `coders-talk` or the next session start.
@@ -202,6 +217,7 @@ The preview writes `<temp folder>/coders-talk/<session>.jsonl.gz` and `.json` (a
 
 - **Git hooks and the `Agent-Session` trailer**: only with `coders-talk enable --git-hooks` (or a yes to `enable`'s question) in that repository. `.git/hooks/prepare-commit-msg` and `pre-push` get a block between `# >>> coders-talk` and `# <<< coders-talk`; the trailer goes into the commits you make from then on. `disable` takes the blocks out; trailers already in commits stay in history.
 - **Snapshot refs** (Claude Code): `refs/coders-talk/<session>` in the repository's `.git`, one per session, pointing at snapshot commits made from temporary indexes. Never pushed by a plain `git push`. The refs go after 14 days (see above); their objects stay in `.git` until your own `git gc` prunes them, which the plugin never runs.
+- **`share --readme --write`**: the "Built with AI" section of `README.md`, between `<!-- coders-talk:repo -->` markers. Not committed.
 - **`use --write`**: the skill (`.claude/skills/ct-<slug>/SKILL.md` or `.agents/skills/ct-<slug>/SKILL.md`) or the rule block in `CLAUDE.md`/`AGENTS.md`, and `.coders-talk/uses.json`: one entry per Build, format, agent and path, with the Build's slug, the version (`hash`), the format (`skill` or `rule`), the agent (`claude` or `codex`), the path written, the time (`at`), and for a team's rules the team and the stack. Nothing else: no user name, no token. Commit it or add it to `.gitignore`, as you like.
 
 ## Configuration

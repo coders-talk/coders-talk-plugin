@@ -51,6 +51,9 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/api/v1/share/attachments') {
         attachments.push(JSON.parse(body));
+        // Answered after a moment, as a real site does: the auto mode test must wait for what its background run does
+        // once the answer is in, not only for the request.
+        await new Promise((r) => setTimeout(r, 300));
         return send(201, { attachment: JSON.parse(body), linked: JSON.parse(body).target === 'pr' });
     }
     if (url.pathname === '/api/v1/share/settings') {
@@ -252,10 +255,12 @@ test('auto mode: off, nothing leaves; on, the session start puts the Build into 
     assert.equal(shareCheckDue(env.CODERS_TALK_URL, repo, join(home, 'ct')), true);
 
     assert.equal(await start(), '');
-    await waitFor(() => attachments.length > 0);
+    // The background run tells the site, then notes the notice and, last, the log line: wait for that one.
+    const log = join(home, 'ct', 'auto.log');
+    await waitFor(() => existsSync(log) && readFileSync(log, 'utf8').includes(`share ${SLUG}: attached to ${PR}`));
+    assert.match(readFileSync(log, 'utf8'), new RegExp(`share ${SLUG}: attached to ${PR}`));
     assert.deepEqual(attachments, [{ build: SLUG, target: 'pr', url: PR, auto: true }]);
     assert.ok(gh().prs[0].body.includes(`<!-- coders-talk:build ${SLUG} -->`));
-    assert.match(readFileSync(join(home, 'ct', 'auto.log'), 'utf8'), new RegExp(`share ${SLUG}: attached to ${PR}`));
 
     // The next start tells, once, and does not check again within the hour.
     const said = JSON.parse(await start());

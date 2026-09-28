@@ -82,4 +82,11 @@ jobs:
             echo 'Then `coders-talk login` and `coders-talk enable`. Already installed: `coders-talk update`. From inside the agent: https://coders.talk/plugins#from-the-agent'
           } > notes.md
           cat notes.md
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "coders-talk $version" --notes-file notes.md
+          # A tag moved to a fixed commit finds its release already there: that release gets the new files and notes. A
+          # download while they upload fails its SHA256SUMS check and is refused (install.sh, update); the next try gets them.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "coders-talk $version" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "coders-talk $version" --notes-file notes.md
+          fi

@@ -47,6 +47,23 @@ export function findTranscript(sessionId, dir = configDir()) {
     return found[0] ?? null;
 }
 
+/**
+ * The newest session in the config folder: a cloud session (Claude Code on the web) runs alone in its machine, and
+ * its skills get no ${CLAUDE_SESSION_ID} when they come from claude.ai. Subagents' files live a folder deeper.
+ */
+export function newestSessionId(dir = configDir()) {
+    const projects = join(dir, 'projects');
+    if (!existsSync(projects)) return null;
+
+    const found = readdirSync(projects, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry) => readdirSync(join(projects, entry.name)).filter((name) => name.endsWith('.jsonl')).map((name) => join(projects, entry.name, name)))
+        .filter((path) => SESSION_ID.test(basename(path, '.jsonl')))
+        .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+
+    return found[0] ? basename(found[0], '.jsonl') : null;
+}
+
 export function codexHome(env = process.env) {
     return env.CODEX_HOME || join(homedir(), '.codex');
 }

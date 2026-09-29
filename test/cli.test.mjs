@@ -863,6 +863,58 @@ test('a proxy that refuses the site says how to let it through, in Claude Code o
     }
 });
 
+test('a cloud session goes through the connector: the preview says so, and send puts it at the upload link', async () => {
+    const sid = 'a1b2c3d4-0000-4000-8000-00000000c10d';
+    const file = join(home, 'projects', 'C--code-shop', `${sid}.jsonl`);
+    const line = (type, content, at) => JSON.stringify({ type, timestamp: `2026-09-29T10:0${at}:00Z`, cwd: '/home/user/shop', message: { role: type, content } });
+    writeFileSync(file, [line('user', 'Add the checkout page.', 0), line('assistant', [{ type: 'text', text: 'Added it.' }], 1)].join('\n') + '\n');
+    // The newest session in the machine: a cloud session's skill from claude.ai names none.
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(file, later, later);
+
+    // What the bucket got; a 403 the second time, as an expired link.
+    const puts = [];
+    const bucket = createServer((req, res) => {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+            puts.push({ method: req.method, path: req.url, type: req.headers['content-type'], body: Buffer.concat(chunks).toString('utf8') });
+            res.writeHead(puts.length === 1 ? 200 : 403).end();
+        });
+    });
+    await new Promise((resolve) => bucket.listen(0, '127.0.0.1', resolve));
+    try {
+        const link = `http://127.0.0.1:${bucket.address().port}/cloud-uploads/abc.json?X-Amz-Signature=x`;
+        const preview = await cli(['preview', '--connector'], { CLAUDE_CODE_REMOTE: 'true' });
+        assert.equal(preview.ok, true, preview.out);
+        assert.match(preview.out, /Goes through the Coders Talk connector/);
+        assert.doesNotMatch(preview.out, /Not connected/);
+
+        // No token on this machine, and none needed: the link is the permission.
+        const sent = await cli(['send', `--upload=${link}`], { CLAUDE_CODE_REMOTE: 'true' });
+        assert.equal(sent.ok, true, sent.out);
+        assert.match(sent.out, /Uploaded the session .*call finish_session_upload/);
+        assert.equal(puts[0].method, 'PUT');
+        assert.equal(puts[0].path, '/cloud-uploads/abc.json?X-Amz-Signature=x');
+        assert.equal(puts[0].type, 'application/json');
+        const envelope = JSON.parse(puts[0].body);
+        assert.equal(envelope.fields.agent, 'claude-code');
+        assert.equal(envelope.fields.session_id, sid);
+        assert.equal(envelope.fields.trigger, 'manual');
+        assert.match(gunzipSync(Buffer.from(envelope.file, 'base64')).toString('utf8'), /Add the checkout page\./);
+
+        // Sent: nothing prepared is left, and an expired link says what to do.
+        assert.match((await cli(['send', sid, `--upload=${link}`])).out, /Nothing prepared to send/);
+        await cli(['preview', sid, '--connector']);
+        const expired = await cli(['send', sid, `--upload=${link}`]);
+        assert.equal(expired.ok, false);
+        assert.match(expired.out, /answered 403\. The link works for 15 minutes: call start_session_upload again/);
+        assert.match((await cli(['send', sid, '--upload=not a link'])).out, /not a link/);
+    } finally {
+        bucket.close();
+    }
+});
+
 test('secrets are redacted before anything leaves, and --keep sends a chosen value as it is, by its hash', async () => {
     const sid = 'a1b2c3d4-0000-4000-8000-00000000c0de';
     const token = 'ghp_16C7e42F292c6912E7710c838347Ae178B4a';

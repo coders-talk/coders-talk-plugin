@@ -57,20 +57,15 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 
 ### Claude Code on the web
 
-A session on claude.ai/code keeps its whole transcript in its cloud container (`~/.claude/projects/…` there). Teleporting it to your computer brings only the part after its last compaction, so `/coders-talk:build` there sends a long session without its beginning. Send it from the cloud session instead:
+A session on claude.ai/code keeps its whole transcript in its cloud machine (`~/.claude/projects/…` there). Teleporting it to your computer brings only the part after its last compaction, so `/coders-talk:build` there sends a long session without its beginning. The cloud machine installs no plugins, though, and reaches coders.talk only when its environment allows it. So a cloud session sends itself another way, with nothing to set up in the environment:
 
-1. A cloud session does not install the plugins a repository names in `.claude/settings.json`, so the cloud environment installs it. In its settings (at claude.ai/code, the cloud button with the environment's name above the message box, then the environment's settings icon) add to the Setup script:
+1. Connect the Coders Talk connector in claude.ai (connector settings). The same connector gives the agent the library. A connection made before connectors could send sessions can only read: disconnect and connect it again (the upload tools say so).
+2. Add the Coders Talk skill: download `coders-talk-skill.zip` from the [latest release](https://github.com/coders-talk/coders-talk-plugin/releases/latest/download/coders-talk-skill.zip) and upload it in claude.ai's skills settings. Cloud sessions load the skills you enable on claude.ai by themselves.
+3. In a cloud session, ask: "send this session to Coders Talk". The skill runs this plugin's script in the cloud machine: it finds the session (the newest transcript there), shows what goes and what the privacy check found, and asks. Then the connector's `start_session_upload` hands out a one-time upload link (15 minutes) in the site's storage (Cloudflare R2, which the cloud's default network list allows), `coders-talk send --connector --upload=<link>` puts the session there, and `finish_session_upload` makes the draft and returns its link.
 
-   ```bash
-   claude plugin marketplace add coders-talk/coders-talk-plugin || true
-   claude plugin install coders-talk@coders-talk || true
-   ```
+The skill is built by `node scripts/skill.mjs` (dist/coders-talk-skill.zip: its SKILL.md is `web-skill/SKILL.md`), and each release carries it.
 
-2. In the same dialog set Network access to Custom, put `coders.talk` in Allowed domains and check "Also include default list of common package managers". The session reaches the site through the environment's proxy; while the domain is not allowed, the plugin says the proxy refused it and what to change (it knows the cloud by `CLAUDE_CODE_REMOTE=true`).
-3. `/coders-talk:login`: with no browser in the container it prints the link and the code to open on any device. The token stays in that container's `~/.coders-talk`; a new cloud session may ask again.
-4. `/coders-talk:build`.
-
-The proxy there looks inside TLS with its own CA. The plugin trusts it from `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, the system store (Node 22.15 and newer) or `~/.ccr/ca-bundle.crt`, where Claude Code on the web keeps it, on top of Node's own CAs and `NODE_EXTRA_CA_CERTS`.
+The proxy of a cloud machine looks inside TLS with its own CA. The plugin trusts it from `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, the system store (Node 22.15 and newer) or `~/.ccr/ca-bundle.crt`, where Claude Code on the web keeps it, on top of Node's own CAs and `NODE_EXTRA_CA_CERTS`. Where coders.talk itself is refused by a proxy, the plugin says so and, in Claude Code on the web, which environment setting lets it through.
 
 ## Use
 

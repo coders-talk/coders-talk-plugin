@@ -13,11 +13,11 @@ export const BINARY_VERSION = typeof CODERS_TALK_VERSION === 'string' ? CODERS_T
 
 const SCRIPTS = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** The plugin's version: built into the file, or read from whichever manifest the installed copy has (both carry it). */
+/** The plugin's version: built into the file, or read from whichever manifest the installed copy has (the claude.ai skill's plugin.json too). */
 export function version() {
     if (BINARY_VERSION) return BINARY_VERSION;
     const root = join(SCRIPTS, '..');
-    const manifest = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json'].find((p) => existsSync(join(root, p))) ?? '.claude-plugin/plugin.json';
+    const manifest = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'plugin.json'].find((p) => existsSync(join(root, p))) ?? '.claude-plugin/plugin.json';
 
     return JSON.parse(readFileSync(join(root, manifest), 'utf8')).version;
 }

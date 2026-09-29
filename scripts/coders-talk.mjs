@@ -89,7 +89,7 @@ import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { proxyFor, request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
 import { nudgeOn, setNudge } from './lib/nudge.mjs';
-import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, isCodexPrompt, promptText, summarize } from './lib/session.mjs';
+import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, isCodexPrompt, newestSessionId, promptText, summarize } from './lib/session.mjs';
 import { continuationOf } from './lib/continuation.mjs';
 import { extractTaskKeys } from './lib/grouping.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
@@ -125,6 +125,10 @@ const [command, argId] = positional;
 
 // Where the draft goes: "personal" (--private), a team's slug (--team=acme), or null to let the site decide by the repository.
 const SPACE = args.includes('--private') ? 'personal' : option('team')?.trim().toLowerCase() || null;
+
+// Sent through the Coders Talk connector (a cloud session: Claude Code on the web), not with this computer's token:
+// the preview says so, and send puts the session at the upload link the connector handed out (--upload=<link>).
+const VIA_CONNECTOR = args.includes('--connector') || Boolean(option('upload'));
 
 // The same script serves both plugins; the Codex skills pass --agent=codex.
 const CODEX = option('agent') === 'codex';
@@ -239,7 +243,9 @@ function setupFlags() {
 }
 
 function sessionId(given = argId) {
-    const id = given || (CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID) || '';
+    // A cloud session runs alone in its machine: its newest transcript is this one (lib/session.mjs, newestSessionId).
+    const remote = !CODEX && (env.CLAUDE_CODE_REMOTE === 'true' || VIA_CONNECTOR);
+    const id = given || (CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID) || (remote ? newestSessionId() : '') || '';
     if (!SESSION_ID.test(id)) throw new Failure(`Could not tell which session this is. Run the command from inside a ${AGENT.name} session.`);
 
     return id;
@@ -362,7 +368,8 @@ async function preview(id) {
     const draft = sentUrl(site, id) ?? autoSession(site, id)?.sent?.url;
     if (draft) console.log(`  Updates your draft: ${draft} (sent before; while it is a draft, no second one is made)`);
     console.log(describePrivacy(privacy));
-    if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
+    if (VIA_CONNECTOR) console.log('Goes through the Coders Talk connector: it hands out a one-time upload link, then makes the draft.');
+    else if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
 }
 
 /**
@@ -467,6 +474,7 @@ function describeCode(code) {
 }
 
 async function send(id) {
+    if (option('upload')) return sendToLink(id, option('upload'));
     if (!token) throw notConnected();
 
     const out = prepared(id);
@@ -533,6 +541,51 @@ async function send(id) {
     if (secrets) console.log(`The site's own check redacted ${secrets} more possible secret${secrets === 1 ? '' : 's'}; the draft shows where.`);
     console.log(`${team ? 'Review it' : 'Review and publish'}: ${started.edit_url}`);
     if (!team) console.log(`Once it is published, ${run('share')} puts it into the pull request: how the change was built, for the reviewer.`);
+}
+
+/**
+ * A cloud session's send (App\Services\Import\CloudUploads on the site): the session and the fields POST
+ * /api/v1/imports takes, in one JSON envelope, put at the connector's one-time link in the site's bucket. The cloud
+ * lets a session reach that bucket (R2) and not coders.talk; finish_session_upload then makes the draft.
+ */
+async function sendToLink(id, link) {
+    let url;
+    try {
+        url = new URL(link);
+    } catch {
+        throw new Failure('The upload link is not a link: pass the upload_url that start_session_upload returned, in double quotes.');
+    }
+    // Plain http only to this computer: the tests' stand-in for the bucket.
+    if (url.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(url.hostname)) throw new Failure('The upload link must start with https://: pass the upload_url that start_session_upload returned.');
+
+    const out = prepared(id);
+    if (!existsSync(out.file) || Date.now() - statSync(out.file).mtimeMs > PREPARED_TTL_MS) {
+        throw new Failure('Nothing prepared to send. Run the preview step first, then confirm.');
+    }
+    const meta = JSON.parse(readFileSync(out.meta, 'utf8'));
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues: option('continues'), privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project, continuation: meta.continuation, title: meta.title, taskKeys: meta.task_keys });
+    const fields = {};
+    let file = null;
+    for (const [name, value] of form.entries()) {
+        if (typeof value === 'string') fields[name] = value;
+        else file = Buffer.from(await value.arrayBuffer());
+    }
+    const body = JSON.stringify({ fields, file: file.toString('base64') });
+
+    let response;
+    try {
+        response = await request(url.href, { method: 'PUT', body, headers: { 'Content-Type': 'application/json' } });
+    } catch (e) {
+        if (e.code === 'EPROXYREFUSED') throw proxyRefused(e.status, url);
+        throw new Failure(`Could not upload to ${url.host}: ${e.cause?.message ?? e.message}`);
+    }
+    if (!response.ok) {
+        const expired = response.status === 403 ? ' The link works for 15 minutes: call start_session_upload again for a new one.' : '';
+        throw new Failure(`The upload link answered ${response.status}.${expired}`);
+    }
+    rmSync(out.file, { force: true });
+    rmSync(out.meta, { force: true });
+    console.log(`Uploaded the session (${formatBytes(Buffer.byteLength(body))}). Now call finish_session_upload with the upload_id from start_session_upload: it makes the draft and returns its link.`);
 }
 
 /**
@@ -1607,13 +1660,13 @@ function retryAfter(value) {
  * the domains its environment allows, and coders.talk is not among the defaults. Trying again later can help once
  * it is allowed, so auto mode keeps the session.
  */
-function proxyRefused(status) {
-    const host = new URL(site).host;
+function proxyRefused(status, target = site) {
+    const host = new URL(target).host;
     const fix = env.CLAUDE_CODE_REMOTE === 'true'
         ? `In Claude Code on the web, set the environment's network access to Custom with ${host} among the allowed domains, then run this again (in a new session if it still says this).`
         : `Ask whoever runs that proxy to let ${host} through, or add ${host} to NO_PROXY if it can be reached directly.`;
 
-    return unavailable(`The network here does not let ${site} through: its proxy answered ${status}. ${fix}`);
+    return unavailable(`The network here does not let ${new URL(target).origin} through: its proxy answered ${status}. ${fix}`);
 }
 
 /** The request did not go through for reasons on the way or on the server's side, not because of what was sent. */

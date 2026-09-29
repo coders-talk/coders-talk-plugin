@@ -59,6 +59,12 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # The skill for claude.ai: cloud sessions load it by themselves and send through the connector (scripts/skill.mjs).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Skill for claude.ai
+        run: node scripts/skill.mjs
       - name: SHA256SUMS
         working-directory: dist
         run: sha256sum coders-talk-* > SHA256SUMS && cat SHA256SUMS

@@ -59,18 +59,14 @@ One repository serves both agents: Claude Code reads `.claude-plugin/` and `skil
 
 A session on claude.ai/code keeps its whole transcript in its cloud container (`~/.claude/projects/…` there). Teleporting it to your computer brings only the part after its last compaction, so `/coders-talk:build` there sends a long session without its beginning. Send it from the cloud session instead:
 
-1. Name the plugin in the repository's `.claude/settings.json` and push it; cloud sessions started after that install it:
+1. A cloud session does not install the plugins a repository names in `.claude/settings.json`, so the cloud environment installs it. In its settings (at claude.ai/code, the cloud button with the environment's name above the message box, then the environment's settings icon) add to the Setup script:
 
-   ```json
-   {
-     "extraKnownMarketplaces": {
-       "coders-talk": { "source": { "source": "github", "repo": "coders-talk/coders-talk-plugin" } }
-     },
-     "enabledPlugins": { "coders-talk@coders-talk": true }
-   }
+   ```bash
+   claude plugin marketplace add coders-talk/coders-talk-plugin || true
+   claude plugin install coders-talk@coders-talk || true
    ```
 
-2. In the environment's settings, set Network access to Custom and add `coders.talk`. The session reaches the site through the environment's proxy; while the domain is not allowed, the plugin says the proxy refused it and what to change (it knows the cloud by `CLAUDE_CODE_REMOTE=true`).
+2. In the same dialog set Network access to Custom, put `coders.talk` in Allowed domains and check "Also include default list of common package managers". The session reaches the site through the environment's proxy; while the domain is not allowed, the plugin says the proxy refused it and what to change (it knows the cloud by `CLAUDE_CODE_REMOTE=true`).
 3. `/coders-talk:login`: with no browser in the container it prints the link and the code to open on any device. The token stays in that container's `~/.coders-talk`; a new cloud session may ask again.
 4. `/coders-talk:build`.
 

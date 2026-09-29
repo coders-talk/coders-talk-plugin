@@ -3,13 +3,14 @@
 // test says. The extension is loaded from a copy with its PROGRAM line filled in, as `coders-talk enable` lays it out, and a
 // stub of `typebox` (Pi provides the real one to the extensions it loads).
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const dir = mkdtempSync(join(tmpdir(), 'ct-pi-ext-'));
+// Resolved, as a child's process.cwd() is: macOS's temp folder is a symlink (/var -> /private/var).
+const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ct-pi-ext-')));
 const work = join(dir, 'work');
 const log = join(dir, 'calls.log');
 const sessionFile = join(dir, 'session.jsonl');

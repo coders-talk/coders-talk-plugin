@@ -17,9 +17,12 @@ import { LibraryWatch } from './library.mjs';
 
 const READ_BYTES = 32 * 1024 * 1024;
 const KEEP_MS = 14 * 86_400_000;
-// A session changed code: an edit tool in Claude Code, a patch in Codex (as a tool, an event, or inside a script).
+// A session changed code: an edit tool in Claude Code, a patch in Codex (as a tool, an event, or inside a script), Pi's
+// write and edit tools, Cursor's Write, StrReplace, Delete and ApplyPatch.
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
-const EDIT_MARKS = ['"Edit"', '"Write"', '"MultiEdit"', '"NotebookEdit"', 'apply_patch', 'patch_apply_end', 'Begin Patch'];
+const PI_EDIT_TOOLS = new Set(['write', 'edit']);
+const CURSOR_EDIT_TOOLS = new Set(['Write', 'StrReplace', 'Delete', 'ApplyPatch', 'EditNotebook']);
+const EDIT_MARKS = ['"Edit"', '"Write"', '"MultiEdit"', '"NotebookEdit"', 'apply_patch', 'patch_apply_end', 'Begin Patch', '"write"', '"edit"', '"StrReplace"', '"Delete"', '"ApplyPatch"', '"EditNotebook"'];
 
 const settingsFile = (dir) => join(dir, 'nudge.json');
 const sessionsDir = (dir) => join(dir, 'nudges');
@@ -51,6 +54,9 @@ export function editsCode(d) {
     if (!d || typeof d !== 'object') return false;
     const blocks = Array.isArray(d.message?.content) ? d.message.content : [];
     if (d.type === 'assistant' && blocks.some((b) => b?.type === 'tool_use' && EDIT_TOOLS.has(b.name))) return true;
+    // Pi: toolCall blocks of a message entry. Cursor: rows with no type, the role on the line.
+    if (d.type === 'message' && d.message?.role === 'assistant' && blocks.some((b) => b?.type === 'toolCall' && PI_EDIT_TOOLS.has(b.name))) return true;
+    if (d.type === undefined && d.role === 'assistant' && blocks.some((b) => b?.type === 'tool_use' && CURSOR_EDIT_TOOLS.has(b.name))) return true;
 
     const p = d.payload;
     if (!p || typeof p !== 'object') return false;

@@ -4,6 +4,8 @@
  *
  *   Claude Code  <config>/projects/<the folder with every character but letters and digits as "-">/<id>.jsonl
  *   Codex        the rollouts of the last days whose session_meta names the folder as cwd
+ *   Pi           <sessions folder>/--<the folder>--/<time>_<id>.jsonl (lib/pi.mjs)
+ *   Cursor       ~/.cursor/projects/<the folder>/agent-transcripts/<id>/<id>.jsonl (lib/cursor.mjs)
  *
  * A folder inside a repository also finds the sessions run at the repository's top. What was sent is remembered in
  * ~/.coders-talk/sent.json (the send step; SENT_DAYS, then forgotten) and in auto mode's auto-sessions.json.
@@ -14,7 +16,9 @@ import { createInterface } from 'node:readline';
 import { autoSession } from './auto.mjs';
 import { home, writePrivate } from './credentials.mjs';
 import { projectOf, repositoryRoot, worktrees } from './git.mjs';
-import { codexHome, configDir, isCodexPrompt, promptText } from './session.mjs';
+import { cursorSessions, describeCursor, findCursorTranscript } from './cursor.mjs';
+import { describePi, findPiSession, piSessions } from './pi.mjs';
+import { codexHome, configDir, findRollout, findTranscript, isCodexPrompt, promptText } from './session.mjs';
 
 const CODEX_DAYS = 30;
 export const SENT_DAYS = 90;
@@ -25,7 +29,7 @@ const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b
 const normal = (path) => resolve(path).replace(/[\\/]+$/, '');
 
 /**
- * Both agents' sessions of $folder, newest first: [{agent, id, path, mtimeMs}]. In a repository, those of its whole
+ * Every agent's sessions of $folder, newest first: [{agent, id, path, mtimeMs}]. In a repository, those of its whole
  * project (grouping plan, 23.1): the main working tree and every worktree, also Claude Code's .claude/worktrees/*
  * already removed, whichever of them the command runs in.
  */
@@ -33,12 +37,26 @@ export function folderSessions(folder, { env = process.env, now = Date.now() } =
     const root = projectOf(folder)?.root ?? repositoryRoot(folder);
     const folders = [...new Set([folder, repositoryRoot(folder), root, ...worktrees(root)].filter(Boolean).map(normal))];
     const removed = root ? join(normal(root), '.claude', 'worktrees') : null;
-    const found = [...claudeSessions(folders, configDir(env), removed), ...codexSessions(folders, codexHome(env), now, removed)];
+    const found = [...claudeSessions(folders, configDir(env), removed), ...codexSessions(folders, codexHome(env), now, removed), ...piSessions(folders, env), ...cursorSessions(folders, env)];
     // A Codex thread reverted has several rollouts: the newest stands for it.
     const newest = new Map();
     for (const s of found.sort((a, b) => b.mtimeMs - a.mtimeMs)) if (!newest.has(`${s.agent}:${s.id}`)) newest.set(`${s.agent}:${s.id}`, s);
 
     return [...newest.values()];
+}
+
+/** The file of a session by its id, for the agent that ran it; $hint is a path the agent's hook was told (Cursor's transcript). */
+export function sessionPath(agent, id, env = process.env, hint = null) {
+    if (agent === 'codex') return findRollout(id, codexHome(env));
+    if (agent === 'pi') return findPiSession(id, env);
+    if (agent === 'cursor') return findCursorTranscript(id, env, hint);
+
+    return findTranscript(id, configDir(env));
+}
+
+/** Which agent ran the session with this id on this computer, or null. */
+export function agentOfSession(id, env = process.env) {
+    return ['claude-code', 'codex', 'pi', 'cursor'].find((agent) => sessionPath(agent, id, env)) ?? null;
 }
 
 function claudeSessions(folders, dir, removed) {
@@ -104,6 +122,8 @@ export function rolloutCwd(path) {
  * 27.4). Reads the file line by line, parsing only the person's lines and the title's.
  */
 export async function describeSession({ agent, path }) {
+    if (agent === 'pi') return describePi(path);
+    if (agent === 'cursor') return describeCursor(path);
     const marker = agent === 'codex' ? '"role":"user"' : '"type":"user"';
     let prompts = 0;
     let firstPrompt = null;

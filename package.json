@@ -2,13 +2,21 @@
     "name": "coders-talk-plugin",
     "private": true,
     "type": "module",
-    "description": "Claude Code plugin: send a session to Coders Talk as a draft Build.",
+    "description": "Coders Talk plugin for Claude Code, Codex, Cursor and Pi: send a session to Coders Talk as a draft Build.",
+    "keywords": [
+        "pi-package"
+    ],
+    "pi": {
+        "extensions": [
+            "./pi/extensions/coders-talk.js"
+        ]
+    },
     "license": "MIT",
     "engines": {
         "node": ">=20"
     },
     "scripts": {
-        "test": "node --test",
+        "test": "node --import ./test/isolate.mjs --test",
         "build": "node scripts/build.mjs",
         "test:binary": "node scripts/smoke.mjs"
     }

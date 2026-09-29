@@ -4,8 +4,9 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
+import { piIdOf } from './pi.mjs';
 
-/** Claude Code session ids and Codex thread ids are UUIDs; anything else never becomes part of a path. */
+/** Session ids (Claude Code's, Codex's threads, Pi's, Cursor's conversations) are UUIDs; anything else never becomes part of a path. */
 export const SESSION_ID = /^[A-Za-z0-9-]{8,100}$/;
 
 /**
@@ -17,6 +18,11 @@ const OWN_COMMAND = /<command-name>\/(coders-talk:[a-z-]+|build|share)<\/command
 const OWN_SKILL = /<skill>\s*<name>(coders-talk:[a-z-]+|build|share)<\/name>/;
 /** What the person types in Codex to call one: "$coders-talk:build". */
 const OWN_MENTION = /(?:^|\s)\$(coders-talk:[a-z-]+)/;
+/**
+ * What the person types to call one where nothing wraps it: a Cursor skill, "/coders-talk-build" (its name cannot hold a
+ * colon), which its transcript keeps as the message's text.
+ */
+const OWN_TYPED = /^\s*\/coders-talk[:-]([a-z-]+)(?=\s|$)/;
 /** The command that sends a session: the last run of it may be the run in progress. */
 const OWN_SEND = /^(?:coders-talk:)?(?:build|share)$/;
 /**
@@ -159,7 +165,8 @@ function kindOf(line) {
 
     const content = d.message?.content;
     if (d.type === 'user' && !d.isMeta) {
-        const own = textOf(content).match(OWN_COMMAND)?.[1];
+        const typed = typeof content === 'string' ? content.match(OWN_TYPED)?.[1] : undefined;
+        const own = textOf(content).match(OWN_COMMAND)?.[1] ?? (typed ? `coders-talk:${typed}` : undefined);
 
         return own ? { own } : { prompt: isPrompt(content) };
     }
@@ -302,7 +309,8 @@ export function isPrompt(content) {
  * Claude Code copies the parent's lines into the fork with the parent's sessionId, and the fork's own lines carry its
  * own; the last foreign id before the first own line is the parent (a fork of a fork copies the grandparent's lines
  * too), and the last of its timestamps is where the fork left it. Codex names the parent in the first session_meta:
- * forked_from_id. $at is when the fork happened: lines up to it are the parent's.
+ * forked_from_id. Pi's header names the file the fork came from (parentSession, whose name holds the id): the entries
+ * older than the header are that file's, copied. $at is when the fork happened: lines up to it are the parent's.
  *
  * A Codex thread started on the history of another thread (a history_base in another thread) continues that one
  * rather than forking it (grouping plan, 24.1): continuation() says so. One in its own thread is a later rollout of it.
@@ -319,6 +327,23 @@ export class ForkWatch {
     /** True when the line is one a Claude Code fork inherited: its tokens were spent, and counted, in the original. */
     add(d) {
         if (this.done || !d || typeof d !== 'object') return false;
+
+        // Pi: the header of a fork, then the entries it copied, older than the header.
+        if (d.type === 'session' && typeof d.parentSession === 'string') {
+            const parent = piIdOf(d.parentSession);
+            if (parent && parent !== this.id && SESSION_ID.test(parent)) {
+                this.parent = parent;
+                this.at = d.timestamp ?? null;
+                this.cutoff = Date.parse(d.timestamp ?? '');
+            }
+            return false;
+        }
+        if (this.cutoff !== undefined) {
+            const at = Date.parse(d.timestamp ?? '');
+            if (Number.isFinite(this.cutoff) && Number.isFinite(at) && at < this.cutoff) return true;
+            if (Number.isFinite(at)) this.done = true;
+            return false;
+        }
 
         if (d.type === 'session_meta') {
             this.done = true;
@@ -360,7 +385,8 @@ export class ForkWatch {
 
 /**
  * The session's title as the Claude app shows it (grouping plan, 24.2): the last custom-title or agent-name line, without
- * the " (fork)" a fork's title gets. Slimming drops these lines; only this text goes.
+ * the " (fork)" a fork's title gets; Pi's is the name the person set (a session_info line). Slimming drops these lines;
+ * only this text goes.
  */
 export class TitleWatch {
     constructor() {
@@ -368,7 +394,7 @@ export class TitleWatch {
     }
 
     add(d) {
-        const value = d?.type === 'custom-title' ? d.customTitle : d?.type === 'agent-name' ? d.agentName : null;
+        const value = d?.type === 'custom-title' ? d.customTitle : d?.type === 'agent-name' ? d.agentName : d?.type === 'session_info' ? d.name : null;
         if (typeof value !== 'string') return;
         const title = value.replace(/\s*\(fork\)\s*$/i, '').replace(/\s+/g, ' ').trim();
         if (title) this.title = title;

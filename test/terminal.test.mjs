@@ -82,13 +82,13 @@ test('sessions lists both agents\' sessions of this folder, newest first, and wh
 
     // A folder with nothing.
     const empty = await run(...coders(['sessions']), { env, cwd: home }).then(({ stdout }) => stdout);
-    assert.match(empty, /No Claude Code or Codex sessions with prompts in /);
+    assert.match(empty, /No Claude Code, Codex, Cursor or Pi sessions with prompts in /);
 });
 
 test('build refuses without a terminal and says what a script can run instead', async () => {
     const r = await cli(['build', '2']);
     assert.equal(r.ok, false);
-    assert.match(r.out, /runs only in a terminal\. From a script: coders-talk preview <session-id> \[--agent=codex\], then coders-talk send <session-id>/);
+    assert.match(r.out, /runs only in a terminal\. From a script: coders-talk preview <session-id> \[--agent=codex\|cursor\|pi\], then coders-talk send <session-id>/);
     assert.equal(imports.length, 0);
 });
 

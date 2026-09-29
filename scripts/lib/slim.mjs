@@ -1,6 +1,6 @@
 // Generated from coders.talk resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:8f62965258c930874ae9ca3efbdec6de15a40858abafaeddfe771cc003d07285
+// sha256:205513a3122e49aa8497144dfb611169bc4928fa1200e83cf53759e672117e00
 
 /**
  * Claude Code and Codex sessions are mostly weight nobody reads: screenshots as base64, whole files
@@ -14,7 +14,7 @@
  * lines (bridge-session with account and organization ids, frame-link, artifact-*), and a list of what to drop is
  * always one release behind. A line of a type not named here goes nowhere.
  */
-/** Claude Code's conversation lines and Pi's (its message lines): their message goes, as role and content. */
+/** Claude Code's conversation lines and other exports' message lines (Pi's go through slimPiMessage first): their message goes, as role and content. */
 const MESSAGE_TYPES = new Set(['user', 'assistant', 'message']);
 /** The Codex items the server reads (TurnParser): what was said, tool calls and their output. */
 const CODEX_ITEMS = new Set(['message', 'function_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output']);
@@ -116,6 +116,8 @@ export function withheldReason(path) {
 const LIBRARY_TOOLS = ['search_coding_agent_sessions', 'find_coding_agent_failures', 'get_coding_agent_session'];
 /** A Codex script (the exec tool) that calls one of the library's tools. */
 const LIBRARY_SCRIPT = /(?:^|[^A-Za-z0-9_]|__)(?:search_coding_agent_sessions|find_coding_agent_failures|get_coding_agent_session)(?![A-Za-z0-9_])/;
+/** Cursor calls the tools of an MCP server through these: the server and tool are in the input. */
+const MCP_WRAPPERS = ['callmcptool', 'calldynamictool'];
 /** Shell tools: the command's words are checked for secret files (`cat .env`, `type prod.env`). */
 const SHELL_TOOLS = ['bash', 'shell', 'sh', 'zsh', 'powershell', 'pwsh', 'cmd', 'exec', 'exec_command', 'local_shell', 'shell_command', 'container.exec', 'run_terminal_cmd', 'run_shell_command', 'terminal', 'execute_command'];
 /** Where tools name the file they read, search or change. */
@@ -162,6 +164,8 @@ function namesSecretPath(a) {
 export function callMark(name, input) {
     const tool = name.toLowerCase().split(/__|[/:]/).pop() ?? '';
     if (isLibraryTool(name) || (tool === 'exec' && typeof input === 'string' && LIBRARY_SCRIPT.test(input)))
+        return 'library';
+    if (MCP_WRAPPERS.includes(tool) && LIBRARY_SCRIPT.test(typeof input === 'string' ? input : JSON.stringify(input ?? '')))
         return 'library';
     const shell = SHELL_TOOLS.includes(tool);
     const a = callArgs(input, shell);
@@ -683,6 +687,209 @@ function slimChatDocument(d, ctx) {
         .map((m) => (m && typeof m === 'object' && !Array.isArray(m) ? slimChatMessage(m, ctx) : null))
         .filter((line) => line !== null);
 }
+/*
+ * Pi (Earendil's terminal coding agent) keeps a session as a tree of entries, a JSON line each: a header with the folder,
+ * model and thinking-level changes, compactions, and {type: 'message', id, parentId, timestamp, message: {role, content}}
+ * for the conversation. Its messages go into the shape Claude Code uses, so the rest of the import reads Pi like any other
+ * session: toolCall blocks become tool_use blocks, a toolResult message a user message with one tool_result. Thinking, the
+ * system messages (the prompt and the tools' schemas, which run long), the person's own shell commands (bashExecution)
+ * and the extensions' messages stay out.
+ */
+/** The roles of Pi's own bookkeeping messages: none of them is the conversation. */
+const PI_DROPPED_ROLES = new Set(['system', 'bashExecution', 'custom', 'branchSummary', 'compactionSummary']);
+/** What Pi's write (the whole file) or edit (one or more oldText → newText replacements) does to a file, as the call says it. */
+function piChange(name, path, args, ctx) {
+    if (name === 'write' && typeof args.content === 'string') {
+        const lines = args.content.split('\n');
+        if (lines[lines.length - 1] === '')
+            lines.pop();
+        return fileChange(path, 'add', [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)], ctx);
+    }
+    if (name !== 'edit')
+        return null;
+    // Older versions edit once per call ({path, oldText, newText}), newer ones may bring a list ({path, edits: […]}).
+    const edits = Array.isArray(args.edits) ? args.edits : [args];
+    const lines = [];
+    for (const edit of edits) {
+        if (!edit || typeof edit !== 'object' || typeof edit.oldText !== 'string' || typeof edit.newText !== 'string')
+            continue;
+        // The call says what to replace, not where: the hunk has no line numbers.
+        const side = (text, sign) => text.replace(/\n+$/, '').split('\n').map((l) => sign + l);
+        lines.push('@@ @@', ...side(edit.oldText, '-'), ...side(edit.newText, '+'));
+    }
+    return lines.length ? fileChange(path, 'update', lines, ctx) : null;
+}
+/** The hunks of the unified patch a Pi edit result carries in details.patch (with line numbers); null without one. */
+function piPatchLines(patch) {
+    if (typeof patch !== 'string')
+        return null;
+    const lines = patch.replace(/\r\n/g, '\n').split('\n');
+    const first = lines.findIndex((l) => l.startsWith('@@'));
+    if (first < 0)
+        return null;
+    const body = lines.slice(first);
+    while (body.length && body[body.length - 1] === '')
+        body.pop();
+    return body;
+}
+/** A Pi tool call as a tool_use block. A write or edit is kept until its result says whether it ran (piResult). */
+function piCall(block, ctx) {
+    const name = typeof block.name === 'string' && block.name !== '' ? block.name : 'tool';
+    const args = block.arguments && typeof block.arguments === 'object' && !Array.isArray(block.arguments) ? block.arguments : {};
+    const path = typeof args.path === 'string' ? args.path : null;
+    if (path !== null && typeof block.id === 'string' && block.id !== '' && ['write', 'edit'].includes(name)) {
+        (ctx.piEdits ??= {})[block.id] = { name, path, change: piChange(name, path, args, ctx) };
+    }
+    const mark = callMark(name, args);
+    remember(ctx, block.id, mark);
+    return { type: 'tool_use', name, input: callInput(mark, args) };
+}
+/**
+ * A Pi toolResult message as a tool_result block. isError marks a failed call. A write or edit that ran carries its
+ * change: the edit's own patch when the result has one (line numbers), else what the call said.
+ */
+function piResult(m, ctx) {
+    const id = typeof m.toolCallId === 'string' ? m.toolCallId : '';
+    const failed = m.isError === true;
+    const mark = recall(ctx, id);
+    const call = id !== '' ? ctx.piEdits?.[id] : undefined;
+    if (call)
+        delete ctx.piEdits[id];
+    const details = m.details && typeof m.details === 'object' && !Array.isArray(m.details) ? m.details : {};
+    const patch = call && !failed && call.name === 'edit' ? piPatchLines(details.patch) : null;
+    const change = failed || !call ? null : patch ? fileChange(call.path, 'update', patch, ctx) : call.change;
+    return {
+        type: 'tool_result',
+        content: answer(mark, blockText(m.content)),
+        ...(mark === 'sensitive' ? { withheld: 'sensitive' } : {}),
+        ...(failed ? { is_error: true } : {}),
+        ...(change ? { change } : {}),
+    };
+}
+/** One block of a Pi message: text as it is, an image as a marker, a call as tool_use; thinking and the rest go. */
+function piBlock(block, ctx) {
+    if (!block || typeof block !== 'object')
+        return null;
+    const b = block;
+    switch (b.type) {
+        case 'toolCall':
+            return piCall(b, ctx);
+        case 'image':
+        case 'tool_use':
+        case 'tool_result':
+            return slimBlock(b, ctx);
+        case 'thinking':
+        case 'redacted_thinking':
+            return null;
+        default:
+            // text, and the input_text and output_text of other exports; textSignature and the like stay behind.
+            return typeof b.text === 'string' ? { type: 'text', text: b.text } : null;
+    }
+}
+/**
+ * One entry of a Pi session as a Claude Code line; null for what is not the conversation. undefined for a message of a
+ * role that is not Pi's at all (another export that also says type "message"): those are slimmed like any other line.
+ */
+function slimPiMessage(d, ctx) {
+    const m = d.message;
+    const role = m.role;
+    if (typeof role !== 'string')
+        return undefined;
+    if (PI_DROPPED_ROLES.has(role))
+        return null;
+    const at = 'timestamp' in d ? { timestamp: d.timestamp } : {};
+    if (role === 'toolResult')
+        return { type: 'user', ...at, message: { role: 'user', content: [piResult(m, ctx)] } };
+    if (role !== 'user' && role !== 'assistant')
+        return undefined;
+    const content = typeof m.content === 'string' ? m.content : Array.isArray(m.content) ? m.content.map((b) => piBlock(b, ctx)).filter((b) => b !== null) : [];
+    return content.length ? { type: role, ...at, message: { role, content } } : null;
+}
+/*
+ * Cursor (the IDE's agent and the `agent` CLI) writes one JSON line per message to
+ * ~/.cursor/projects/<folder>/agent-transcripts/<id>/<id>.jsonl: {role, message: {content: [blocks]}}, and a
+ * {type: "turn_ended"} line after each turn. A person's message wraps what they typed in <user_query> next to a
+ * <timestamp> in words ("Monday, Aug 24, 2026, 3:01 PM (UTC-5)"); an assistant message has text (its thinking is only a
+ * [REDACTED] marker) and tool_use blocks without an id. There are no tool results, no thinking, no usage and no other
+ * times. The lines go into the shape Claude Code uses; a call that writes files carries the change its input describes,
+ * on the tool_use block, taken as applied since nothing says otherwise.
+ */
+const CURSOR_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+/** "Monday, Aug 24, 2026, 3:01 PM (UTC-5)" as an ISO time; null for any other shape. */
+function cursorTime(text) {
+    const m = text.trim().match(/^[A-Za-z]+, ([A-Za-z]{3}) (\d{1,2}), (\d{4}), (\d{1,2}):(\d{2}) ?([AaPp][Mm]) ?\(UTC([+-]\d{1,2})(?::?(\d{2}))?\)$/);
+    const month = m ? CURSOR_MONTHS.indexOf(m[1].toLowerCase()) : -1;
+    if (!m || month < 0)
+        return null;
+    const hour = (Number(m[4]) % 12) + (m[6].toLowerCase() === 'pm' ? 12 : 0);
+    const offset = Number(m[7]) * 60 + (m[7].startsWith('-') ? -1 : 1) * Number(m[8] ?? 0);
+    const at = Date.UTC(Number(m[3]), month, Number(m[2]), hour, Number(m[5])) - offset * 60_000;
+    return Number.isFinite(at) ? new Date(at).toISOString() : null;
+}
+/** What a Cursor call that writes files does to them, from its input alone. */
+function cursorChanges(name, input, ctx) {
+    const args = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+    const path = typeof args.path === 'string' && args.path !== '' ? args.path : null;
+    if (name === 'Write' && path && typeof args.contents === 'string') {
+        const lines = args.contents.split('\n');
+        if (lines[lines.length - 1] === '')
+            lines.pop();
+        return [fileChange(path, 'add', [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)], ctx)];
+    }
+    if (name === 'StrReplace' && path && typeof args.old_string === 'string' && typeof args.new_string === 'string') {
+        // The call says what to replace, not where: the hunk has no line numbers.
+        const side = (text, sign) => text.replace(/\n+$/, '').split('\n').map((l) => sign + l);
+        return [fileChange(path, 'update', ['@@ @@', ...side(args.old_string, '-'), ...side(args.new_string, '+')], ctx)];
+    }
+    if (name === 'Delete' && path)
+        return [fileChange(path, 'delete', [], ctx)];
+    // ApplyPatch takes a patch in Codex's format, as a bare string.
+    if (name === 'ApplyPatch')
+        return codexChanges({ input }, ctx);
+    return [];
+}
+/** A Cursor tool call as a tool_use block, with the changes it makes. Its MCP wrappers are checked for the library's tools. */
+function cursorCall(block, ctx) {
+    const name = typeof block.name === 'string' && block.name !== '' ? block.name : 'tool';
+    const input = block.input ?? null;
+    const changes = cursorChanges(name, input, ctx);
+    // A patch of a secret file carries its values in the raw patch: only its changes go, the file by name.
+    const mark = changes.some((c) => c.withheld === 'sensitive') ? 'sensitive' : callMark(name, input);
+    remember(ctx, block.id, mark);
+    return { type: 'tool_use', name, input: callInput(mark, input), ...(changes.length === 1 ? { change: changes[0] } : changes.length > 1 ? { changes } : {}) };
+}
+/** One block of a Cursor assistant message: text without its [REDACTED] marker (the thinking), and calls. */
+function cursorBlock(block, ctx) {
+    if (!block || typeof block !== 'object')
+        return null;
+    const b = block;
+    if (b.type === 'tool_use')
+        return cursorCall(b, ctx);
+    if (typeof b.text !== 'string')
+        return null;
+    const text = b.text.replace(/\n*\[REDACTED\]\s*$/, '').trim();
+    return text === '' ? null : { type: 'text', text };
+}
+/**
+ * One line of a Cursor transcript as a Claude Code line. The person's message is what is inside <user_query> (a message
+ * without one is Cursor's own, a note that a subagent finished: it goes), timed by its <timestamp> when that reads.
+ */
+function slimCursorRow(d, ctx) {
+    const m = d.message;
+    const blocks = Array.isArray(m.content) ? m.content : typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : [];
+    if (d.role === 'user') {
+        const text = blocks.map((b) => (b && typeof b === 'object' && typeof b.text === 'string' ? b.text : '')).join('\n');
+        const query = text.match(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/)?.[1] ?? (text.trimStart().startsWith('<') ? null : text.replace(/<timestamp>[^<]*<\/timestamp>/g, '').trim());
+        if (!query)
+            return null;
+        const time = cursorTime(text.match(/<timestamp>([^<]*)<\/timestamp>/)?.[1] ?? '');
+        return { type: 'user', ...(time ? { timestamp: time } : {}), message: { role: 'user', content: query } };
+    }
+    if (d.role !== 'assistant')
+        return null;
+    const content = blocks.map((b) => cursorBlock(b, ctx)).filter((b) => b !== null);
+    return content.length ? { type: 'assistant', message: { role: 'assistant', content } } : null;
+}
 function slimBlock(block, ctx) {
     if (!block || typeof block !== 'object')
         return block;
@@ -710,7 +917,14 @@ function slimBlock(block, ctx) {
         case 'tool_use': {
             const mark = callMark(typeof b.name === 'string' ? b.name : '', b.input);
             remember(ctx, b.id, mark);
-            return { type: 'tool_use', name: b.name, input: callInput(mark, b.input) };
+            // A call slimmed before keeps the changes it carries (Cursor's do: its transcript has no results to put them on).
+            return {
+                type: 'tool_use',
+                name: b.name,
+                input: callInput(mark, b.input),
+                ...(b.change && typeof b.change === 'object' ? { change: b.change } : {}),
+                ...(Array.isArray(b.changes) ? { changes: b.changes } : {}),
+            };
         }
         default:
             return b;
@@ -759,6 +973,14 @@ export function slimLine(d, ctx = {}) {
     // Claude Code: {type, timestamp, message: {role, content}}, plus big copies like toolUseResult we skip.
     // isMeta marks messages Claude Code wrote in the person's name (skill bodies, caveats): the server skips them.
     if (d.message && typeof d.message === 'object') {
+        if (type === 'message') {
+            const pi = slimPiMessage(d, ctx);
+            if (pi !== undefined)
+                return pi;
+        }
+        // Cursor: the role is on the line itself, and there is no type.
+        if (type === undefined && (d.role === 'user' || d.role === 'assistant'))
+            return slimCursorRow(d, ctx);
         if (type !== undefined && !MESSAGE_TYPES.has(type))
             return null;
         const m = d.message;

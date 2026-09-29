@@ -6,14 +6,16 @@
  * Read from the session's own lines, never from the network. A call is a tool call named after one of the library's
  * tools, whatever the server is called in this agent: `mcp__plugin_coders-talk_coders-talk__…` for the plugin's own
  * server in Claude Code, `mcp__coders-talk__…` when the person added it by hand, a claude.ai connector, or a Codex
- * `function_call` with the server in its `namespace`. The Codex desktop app may call tools from a script (`exec`): a
- * script that names one of the tools counts. A shell command or a patch that only mentions a tool's name does not. A Build is a `/b/<slug>?ref=agent` link in such a call's answer: only the
+ * `function_call` with the server in its `namespace`; Pi's extension registers them under their own names, in a `toolCall`;
+ * Cursor calls them through its `CallMcpTool` (no id, and its transcript keeps no answers, so only the calls count). The
+ * Codex desktop app may call tools from a script (`exec`): a script that names one of the tools counts. A shell command or a patch that only mentions a tool's name does not. A Build is a `/b/<slug>?ref=agent` link in such a call's answer: only the
  * library's answers carry `?ref=agent`, so a page or a file that mentions the site elsewhere in the session never counts.
  *
  * And the playbooks the agent used (plan: library, stage 22.4): a skill named ct-<slug>, which `coders-talk use` wrote.
  * Claude Code runs one with the Skill tool, or the person types /ct-<slug>, and the skill's text comes in the next user
  * line; Codex puts it into a <skill> block when the person names it, and reads .agents/skills/ct-<slug>/SKILL.md itself
- * when it picks the skill on its own. The Build is the `/b/<slug>?ref=playbook` link at the end of that text: a skill's
+ * when it picks the skill on its own; Pi does the same (a <skill name="…"> block, or its read tool on the file), and in
+ * Cursor the person's message is the text "/ct-<slug>". The Build is the `/b/<slug>?ref=playbook` link at the end of that text: a skill's
  * name is cut at 64 characters, the link never is. A playbook written as a rule into AGENTS.md or CLAUDE.md is in every
  * session whether the agent heeds it or not, so it never counts: better too few than too many.
  */
@@ -29,10 +31,13 @@ const PLAYBOOK_LINK = /\/b\/([a-z0-9]+(?:-[a-z0-9]+)*)\?ref=playbook/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 // A skill `coders-talk use` wrote: ct-<slug>, at most 64 characters.
 const SKILL_NAME = /^ct-[a-z0-9-]+$/;
-// Codex reading a playbook skill's file by itself.
+// Codex and Pi reading a playbook skill's file by themselves.
 const SKILL_FILE = /skills[\\/]+(ct-[a-z0-9-]+)[\\/]+SKILL\.md/;
+// Cursor calls the tools of an MCP server through these; Pi expands a skill into a <skill name="…" location="…"> block.
+const MCP_WRAPPER = /^(?:CallMcpTool|CallDynamicTool)$/;
+const PI_SKILL = /<skill name="(ct-[a-z0-9-]+)"[^>]*>([\s\S]*?)<\/skill>/g;
 // Anything worth parsing mentions one of these; the rest of a long session is skipped without JSON.parse.
-const MARKS = [...LIBRARY_TOOLS, 'ref=agent', 'ref=playbook', '"Skill"', '<skill>', '/ct-'];
+const MARKS = [...LIBRARY_TOOLS, 'ref=agent', 'ref=playbook', '"Skill"', '<skill>', '<skill name="ct-', '/ct-'];
 
 export class LibraryWatch {
     /** @param {{calls?: number, slugs?: string[], pending?: string[]}} state  what an earlier read of the same file found */
@@ -67,7 +72,9 @@ export class LibraryWatch {
             this.awaiting = null;
         }
         for (const b of blocks) {
-            if (b?.type === 'tool_use' && typeof b.name === 'string' && NAMED.test(b.name)) this.call(b.id);
+            // Cursor: an MCP tool through its wrapper, without an id; nothing tells what the answer was.
+            if (b?.type === 'tool_use' && typeof b.name === 'string' && MCP_WRAPPER.test(b.name) && MENTIONED.test(JSON.stringify(b.input ?? ''))) this.calls++;
+            else if (b?.type === 'tool_use' && typeof b.name === 'string' && NAMED.test(b.name)) this.call(b.id);
             else if (b?.type === 'tool_use' && b.name === 'Skill' && SKILL_NAME.test(b.input?.skill ?? '')) this.awaiting = b.input.skill;
             else if (b?.type === 'tool_result' && this.pending.has(b.tool_use_id)) this.answer(b.tool_use_id, b.content, b.is_error === true);
         }
@@ -76,6 +83,12 @@ export class LibraryWatch {
             const typed = textOf(content).match(/<command-name>\/(ct-[a-z0-9-]+)<\/command-name>/)?.[1];
             if (typed) this.awaiting = typed;
         }
+        // Cursor: the same, as plain text in the person's message (no skill body follows to read the link from).
+        if (d.role === 'user' && d.message) {
+            const typed = textOf(d.message.content).match(/<user_query>\s*\/(ct-[a-z0-9-]+)(?=\s|<)/)?.[1];
+            if (typed) this.usedSkill(typed, '');
+        }
+        if (d.type === 'message' && d.message && typeof d.message === 'object') this.pi(d.message);
 
         const p = d.payload;
         if (!p || typeof p !== 'object') return;
@@ -91,6 +104,28 @@ export class LibraryWatch {
         if (d.type === 'event_msg' && p.type === 'mcp_tool_call_end' && typeof p.invocation?.tool === 'string' && NAMED.test(p.invocation.tool)) {
             this.call(p.call_id);
             this.answer(p.call_id, p.result, p.result?.Err !== undefined);
+        }
+    }
+
+    /** Pi: a toolCall in an assistant message and the toolResult message answering it, and a skill called with /skill:name. */
+    pi(m) {
+        if (m.role === 'assistant' && Array.isArray(m.content)) {
+            for (const b of m.content) {
+                if (b?.type !== 'toolCall' || typeof b.name !== 'string') continue;
+                if (NAMED.test(b.name)) this.call(b.id);
+                else if (b.name === 'read' && typeof b.arguments?.path === 'string' && typeof b.id === 'string') {
+                    const file = b.arguments.path.match(SKILL_FILE)?.[1];
+                    if (file) this.reads.set(b.id, file);
+                }
+            }
+        } else if (m.role === 'toolResult' && typeof m.toolCallId === 'string') {
+            if (this.pending.has(m.toolCallId)) this.answer(m.toolCallId, textOf(m.content), m.isError === true);
+            else if (this.reads.has(m.toolCallId)) {
+                this.usedSkill(this.reads.get(m.toolCallId), textOf(m.content));
+                this.reads.delete(m.toolCallId);
+            }
+        } else if (m.role === 'user') {
+            for (const [, name, body] of textOf(m.content).matchAll(PI_SKILL)) this.usedSkill(name, body);
         }
     }
 

@@ -1,6 +1,8 @@
-// A stand-in for the claude and codex commands in the enable tests: `node fake-agent.mjs <claude|codex> <args…>`.
-// Keeps its plugins, marketplaces and MCP servers in FAKE_AGENT_STATE and writes every call to FAKE_AGENT_LOG.
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+// A stand-in for the claude, codex and pi commands in the enable tests: `node fake-agent.mjs <claude|codex|pi> <args…>`.
+// Keeps its plugins, marketplaces and MCP servers in FAKE_AGENT_STATE and writes every call to FAKE_AGENT_LOG. Pi keeps its
+// packages where Pi does: `packages` in <PI_CODING_AGENT_DIR>/settings.json.
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // node --test picks up every file under test/: run that way, there is nothing to do.
 if (!process.env.FAKE_AGENT_STATE) process.exit(0);
@@ -21,7 +23,20 @@ const versionOf = (id) => {
     }
 };
 
-if (a === 'plugin' && b === 'list') {
+if (agent === 'pi' && ['install', 'remove'].includes(a)) {
+    const file = join(process.env.PI_CODING_AGENT_DIR, 'settings.json');
+    let settings = {};
+    try {
+        settings = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+        // no settings yet
+    }
+    const others = (settings.packages ?? []).filter((p) => (typeof p === 'string' ? p : p?.source) !== b);
+    settings.packages = a === 'install' ? [...others, b] : others;
+    mkdirSync(process.env.PI_CODING_AGENT_DIR, { recursive: true });
+    writeFileSync(file, JSON.stringify(settings, null, 2));
+    console.log(a === 'install' ? `Installed ${b}` : `Removed ${b}`);
+} else if (a === 'plugin' && b === 'list') {
     const installed = Object.entries(state.plugins).map(([id, version]) => ({ id, version }));
     if (agent === 'codex') {
         console.error('WARNING: proceeding, even though we could not create PATH aliases');

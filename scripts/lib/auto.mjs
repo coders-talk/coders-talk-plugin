@@ -1,7 +1,8 @@
 /**
- * Auto mode (/coders-talk:auto, $coders-talk:auto): whether this computer sends Claude Code or Codex sessions to a
- * Coders Talk site by itself. Off unless the person turns it on here, per site and per agent: turned on in Claude Code
- * it never sends Codex sessions, and the other way round. A team can ask for it, never switch it on.
+ * Auto mode (/coders-talk:auto, $coders-talk:auto, /coders-talk-auto in Cursor): whether this computer sends an agent's
+ * sessions to a Coders Talk site by itself. Off unless the person turns it on here, per site and per agent: turned on in
+ * Claude Code it never sends Codex, Cursor or Pi sessions, and the other way round. A team can ask for it, never switch
+ * it on.
  *
  *   all   every session: to the team's space when the repository is one of the person's teams', else to their
  *         private Builds
@@ -16,8 +17,9 @@
  * (SessionEnd), and at the next start if it never said it ended: a crash, a closed terminal (SessionStart catches up).
  * The site asks the model for moments once, when the session is over.
  *
- * Both agents run the same hooks: hooks/hooks.json for Claude Code, codex/hooks.json for Codex (with --agent=codex).
- * Codex runs a plugin's hooks only once the person trusted them in /hooks.
+ * Every agent runs the same hooks (lib/hooks.mjs): hooks/hooks.json for Claude Code, codex/hooks.json for Codex, the
+ * hooks.json Cursor reads from ~/.cursor, and Pi's extension, each with --agent=<id>. Codex runs a plugin's hooks only
+ * once the person trusted them in /hooks.
  *
  * ~/.coders-talk/auto.json holds the choice; ~/.coders-talk/auto.log says what happened to each session, so the
  * person can always check what left the machine without being asked; ~/.coders-talk/auto-sessions.json remembers,
@@ -26,13 +28,16 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { AGENT_IDS } from './agent.mjs';
 import { appendPrivate, home, writePrivate } from './credentials.mjs';
 import { selfCommand } from './runtime.mjs';
 
 export const AUTO_MODES = ['all', 'team', 'push'];
 /** The modes in which the agents' own hooks send sessions while they run and when they end. */
 export const RUNNING_MODES = ['all', 'team'];
-export const AGENTS = ['claude-code', 'codex'];
+export const AGENTS = AGENT_IDS;
+/** auto.json keeps Claude Code's choice at the top of a site's entry, as 0.7 wrote it, and each other agent's under its id. */
+const NESTED = AGENT_IDS.filter((id) => id !== 'claude-code');
 const LOG_LINES = 500;
 const LOG_DAYS = 30;
 
@@ -98,8 +103,8 @@ export function removeStaleTemps(dir = home(), now = Date.now()) {
     }
 }
 
-/** auto.json per site: Claude Code's choice at the top, as 0.7 wrote it, and Codex's under "codex". */
-const choiceOf = (all, site, agent) => (agent === 'codex' ? all[site]?.codex : all[site]);
+/** auto.json per site: Claude Code's choice at the top, as 0.7 wrote it, and the others' under their ids ("codex", "cursor", "pi"). */
+const choiceOf = (all, site, agent) => (NESTED.includes(agent) ? all[site]?.[agent] : all[site]);
 
 /** 'all', 'team', 'push', or null when auto mode is off for this site and agent (or CODERS_TALK_AUTO=0 turns it off for a shell). */
 export function autoMode(site, agent = 'claude-code', dir = home(), env = process.env) {
@@ -126,8 +131,10 @@ export function sessionAutoMode(site, id, agent = 'claude-code', dir = home(), e
 export function setAutoMode(site, mode, agent = 'claude-code', dir = home()) {
     const all = read(configFile(dir));
     const choice = mode ? { mode, since: new Date().toISOString() } : null;
-    const { codex, ...claude } = all[site] ?? {};
-    const entry = agent === 'codex' ? { ...claude, ...(choice ? { codex: choice } : {}) } : { ...(choice ?? {}), ...(codex ? { codex } : {}) };
+    const current = all[site] ?? {};
+    const others = Object.fromEntries(NESTED.filter((id) => current[id] && id !== agent).map((id) => [id, current[id]]));
+    const claude = Object.fromEntries(Object.entries(current).filter(([key]) => !NESTED.includes(key)));
+    const entry = NESTED.includes(agent) ? { ...claude, ...others, ...(choice ? { [agent]: choice } : {}) } : { ...(choice ?? {}), ...others };
     if (Object.keys(entry).length) all[site] = entry;
     else delete all[site];
     writePrivate(configFile(dir), JSON.stringify(all, null, 2));
@@ -151,8 +158,8 @@ export function autoSession(site, id, dir = home()) {
 
 /**
  * Remembers a session auto mode has seen (a hook ran for it while auto mode was on) and merges $patch in:
- *   path      the transcript (a Codex rollout for Codex)
- *   agent     claude-code or codex
+ *   path      the transcript (a Codex rollout for Codex, Pi's session file, Cursor's transcript)
+ *   agent     claude-code, codex, cursor or pi
  *   seen      when auto mode first saw it
  *   tried     when a send last started
  *   sent      {at, size, final} of the last send the site took

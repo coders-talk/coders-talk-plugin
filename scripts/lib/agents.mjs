@@ -5,14 +5,23 @@
  *   Claude Code  `claude` in PATH; its config folder (~/.claude, CLAUDE_CONFIG_DIR) says it is here without one
  *   Codex        `codex` in PATH, or the CLI the desktop app keeps in ~/.codex/plugins/.plugin-appserver;
  *                ~/.codex (CODEX_HOME) says it is here without one
+ *   Cursor       ~/.cursor says the IDE is here; `cursor-agent` (the CLI) is looked for in PATH and where its installer
+ *                puts it. Nothing is installed through a command of its own: the hooks, skills and library entry are files
+ *                in ~/.cursor (lib/cursor-install.mjs), so a Cursor without the CLI is served the same
+ *   Pi           `pi` in PATH; ~/.pi/agent (PI_CODING_AGENT_DIR) says it is here without one
  *
- * Also the Coders Talk MCP servers someone added by hand (`claude mcp add`, Codex's config.toml): with the plugin's
- * own, the agent would see the same tools twice, and the desktop app mixes up their sign-ins.
+ * Also the Coders Talk MCP servers someone added by hand (`claude mcp add`, Codex's config.toml, Cursor's mcp.json): with
+ * the plugin's own, the agent would see the same tools twice, and the desktop app mixes up their sign-ins. Pi has no MCP.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
+import { home } from './credentials.mjs';
+import { cursorInstalled, cursorMcpServers, removeCursorMcpServer } from './cursor-install.mjs';
+import { cursorHome } from './cursor.mjs';
+import { piHome } from './pi.mjs';
+import { MARKETPLACE, PLUGIN_ID } from './plugin.mjs';
 import { codexHome, configDir } from './session.mjs';
 
 /** The full path of a program in PATH, or null. On Windows with PATHEXT (claude.exe, claude.cmd from npm). */
@@ -29,18 +38,71 @@ export function findProgram(name, env = process.env, platform = process.platform
     return null;
 }
 
-/** Both agents: {id, name, cli (a path or null), home, present}. */
+/** The Cursor CLI where its installer puts it, when it is not in PATH (yet): %LOCALAPPDATA%\\cursor-agent, or ~/.local/bin. */
+function cursorAgentCli(env) {
+    const path = process.platform === 'win32' ? join(env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'cursor-agent', 'cursor-agent.exe') : join(homedir(), '.local', 'bin', 'cursor-agent');
+
+    return existsSync(path) ? path : null;
+}
+
+/**
+ * Every agent: {id, name, cli (a path or null), home, present}; native: the plugin goes in as files of the agent's own
+ * folder (Cursor), so it needs no command of the agent's to install.
+ */
 export function detectAgents(env = process.env) {
     const exe = process.platform === 'win32' ? '.exe' : '';
     const desktopCodex = join(codexHome(env), 'plugins', '.plugin-appserver', `codex${exe}`);
     const claudeHome = configDir(env);
     const claudeCli = findProgram('claude', env);
     const codexCli = findProgram('codex', env) ?? (existsSync(desktopCodex) ? desktopCodex : null);
+    const cursorCli = findProgram('cursor-agent', env) ?? cursorAgentCli(env);
+    const piCli = findProgram('pi', env);
 
     return [
         { id: 'claude-code', name: 'Claude Code', cli: claudeCli, home: claudeHome, present: Boolean(claudeCli) || existsSync(claudeHome) },
         { id: 'codex', name: 'Codex', cli: codexCli, home: codexHome(env), present: Boolean(codexCli) || existsSync(codexHome(env)) },
+        { id: 'cursor', name: 'Cursor', cli: cursorCli, home: cursorHome(env), native: true, present: Boolean(cursorCli) || existsSync(cursorHome(env)) },
+        { id: 'pi', name: 'Pi', cli: piCli, home: piHome(env), present: Boolean(piCli) || existsSync(piHome(env)) },
     ];
+}
+
+const samePath = (a, b) => (process.platform === 'win32' ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b));
+
+/** The Pi package `coders-talk enable` lays out. */
+export const piPackageDir = (env = process.env) => join(home(env), 'plugin', 'pi');
+
+/**
+ * The Coders Talk packages Pi has in its settings: [{id, version, marketplace, source}]. Ours is the local folder enable
+ * lays out (a relative source is read from the agent folder, as Pi does); any other source that names coders-talk (the
+ * git package the README shows) is another install of it.
+ */
+export function piPackages(env = process.env) {
+    let settings;
+    try {
+        settings = JSON.parse(readFileSync(join(piHome(env), 'settings.json'), 'utf8'));
+    } catch {
+        return [];
+    }
+    const ours = piPackageDir(env);
+
+    return (Array.isArray(settings?.packages) ? settings.packages : [])
+        .map((p) => (typeof p === 'string' ? p : p?.source))
+        .filter((source) => typeof source === 'string')
+        .flatMap((source) => {
+            const local = !/^(npm:|git:|https?:|ssh:)/.test(source);
+            if (local && samePath(resolve(piHome(env), source), ours)) {
+                let version = null;
+                try {
+                    version = JSON.parse(readFileSync(join(ours, 'package.json'), 'utf8')).version ?? null;
+                } catch {
+                    // laid out again, or not yet
+                }
+
+                return [{ id: PLUGIN_ID, version, marketplace: MARKETPLACE, source }];
+            }
+
+            return /coders-talk/i.test(source) ? [{ id: 'coders-talk@coders-talk', version: null, marketplace: 'coders-talk', source }] : [];
+        });
 }
 
 /**
@@ -71,6 +133,18 @@ function jsonOf({ ok, stdout }) {
 
 /** The Coders Talk plugins installed in the agent: [{id, version, marketplace}] (empty when it cannot tell). */
 export function installedPlugins(agent, env = process.env) {
+    if (agent.id === 'pi') return piPackages(env);
+    if (agent.id === 'cursor') {
+        // The files are ours by their content; the version they were laid out in is in enable.json.
+        let version = null;
+        try {
+            version = JSON.parse(readFileSync(join(home(env), 'enable.json'), 'utf8')).cursor?.version ?? null;
+        } catch {
+            // never enabled, or not readable: unknown
+        }
+
+        return cursorInstalled(env, { id: PLUGIN_ID, marketplace: MARKETPLACE, version });
+    }
     if (!agent.cli) return [];
     if (agent.id === 'claude-code') {
         const list = jsonOf(runCli(agent.cli, ['plugin', 'list', '--json'], { env }));
@@ -93,6 +167,8 @@ const isOurServer = (url, site) => typeof url === 'string' && (url.replace(/\/+$
  * CLAUDE_CONFIG_DIR when that is set): user scope at the top, local scope under each project. Codex in config.toml.
  */
 export function manualMcpServers(agent, site, env = process.env) {
+    if (agent.id === 'pi') return [];
+    if (agent.id === 'cursor') return cursorMcpServers(site, env);
     if (agent.id === 'claude-code') {
         const file = env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : join(homedir(), '.claude.json');
         let config;
@@ -130,6 +206,7 @@ export function manualMcpServers(agent, site, env = process.env) {
 
 /** Removes a server found by manualMcpServers with the agent's own command. */
 export function removeMcpServer(agent, server, env = process.env) {
+    if (agent.id === 'cursor') return removeCursorMcpServer(server.name, env);
     if (agent.id === 'claude-code') return runCli(agent.cli, ['mcp', 'remove', server.name, '--scope', server.scope], { env, cwd: server.project });
 
     return runCli(agent.cli, ['mcp', 'remove', server.name], { env });

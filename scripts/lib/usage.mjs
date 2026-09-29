@@ -1,6 +1,6 @@
 // Generated from coders.talk resources/js/lib/sessionUsage.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:4efea9a1447264d8aafceb1edecd1dd7da7f600f67a8f6796d543293ed727ed4
+// sha256:17c133360874f1ad8414fe52ba2da80be50d83551e3631ad06ec500be2946bac
 
 /**
  * The tokens a session spent, per model (plan: private and team Builds, phase 3). Slimming drops the bookkeeping
@@ -10,7 +10,9 @@
  * Claude Code writes one line per block of an assistant message, each with the message's usage: the last line of
  * a message id counts. Codex writes running totals in token_count events and names the model in turn_context: the
  * last total counts, less another thread's history the thread started on. Codex input includes the cached part; here
- * "input" is what was not read from the cache. Hermes's session export keeps the session's totals on the session.
+ * "input" is what was not read from the cache. Hermes's session export keeps the session's totals on the session. Pi
+ * puts each assistant message's usage on the message, and the tokens of other model work (a cache warm) in `usage`
+ * entries.
  *
  * Lines a session inherited (a fork's, a continuation's copy) are left out by the caller: add() never sees them.
  */
@@ -41,6 +43,17 @@ export class UsageCounter {
             this.messages.set(`session-${this.messages.size}`, {
                 model: modelName(d.model),
                 usage: { input: count(d.input_tokens), output: count(d.output_tokens), cache_read: count(d.cache_read_tokens), cache_write: count(d.cache_write_tokens) },
+            });
+            return;
+        }
+        // Pi: every assistant message carries its own usage (input is what was not read from the cache), and a `usage`
+        // entry the tokens of work outside the conversation (a cache warm). The entry's id counts a message once.
+        const piUsage = d.type === 'message' && d.message?.role === 'assistant' ? d.message : d.type === 'usage' ? d : null;
+        if (piUsage && piUsage.usage && typeof piUsage.usage === 'object') {
+            const u = piUsage.usage;
+            this.messages.set(`pi-${typeof d.id === 'string' && d.id ? d.id : this.messages.size}`, {
+                model: modelName(piUsage.model),
+                usage: { input: count(u.input), output: count(u.output), cache_read: count(u.cacheRead), cache_write: count(u.cacheWrite) },
             });
             return;
         }

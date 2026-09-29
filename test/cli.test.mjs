@@ -910,6 +910,13 @@ test('a cloud session goes through the connector: the preview says so, and send 
         assert.equal(expired.ok, false);
         assert.match(expired.out, /answered 403\. The link works for 15 minutes: call start_session_upload again/);
         assert.match((await cli(['send', sid, '--upload=not a link'])).out, /not a link/);
+
+        // The plugin synced from claude.ai, in a cloud session with no token: /coders-talk:build goes the same way by itself.
+        const cloud = { CLAUDE_CODE_REMOTE: 'true', CODERS_TALK_HOME: join(home, 'ct-cloud') };
+        assert.match((await cli(['preview', sid], cloud)).out, /Goes through the Coders Talk connector/);
+        const plain = await cli(['send', sid], cloud);
+        assert.equal(plain.ok, false);
+        assert.match(plain.out, /call its start_session_upload tool, then run this send step again with --upload=/);
     } finally {
         bucket.close();
     }

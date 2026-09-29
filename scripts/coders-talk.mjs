@@ -126,10 +126,6 @@ const [command, argId] = positional;
 // Where the draft goes: "personal" (--private), a team's slug (--team=acme), or null to let the site decide by the repository.
 const SPACE = args.includes('--private') ? 'personal' : option('team')?.trim().toLowerCase() || null;
 
-// Sent through the Coders Talk connector (a cloud session: Claude Code on the web), not with this computer's token:
-// the preview says so, and send puts the session at the upload link the connector handed out (--upload=<link>).
-const VIA_CONNECTOR = args.includes('--connector') || Boolean(option('upload'));
-
 // The same script serves both plugins; the Codex skills pass --agent=codex.
 const CODEX = option('agent') === 'codex';
 const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : { id: 'claude-code', name: 'Claude Code', client: 'claude-plugin' };
@@ -140,6 +136,11 @@ const run = (name) => (TERMINAL ? `coders-talk ${name}` : CODEX ? `$coders-talk:
 
 const site = siteUrl(option('site'), CODEX);
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
+
+// Sent through the Coders Talk connector (a cloud session: Claude Code on the web), not with this computer's token:
+// the preview says so, and send puts the session at the upload link the connector handed out (--upload=<link>).
+// In a cloud session with no token of its own, the plugin synced from claude.ai goes that way by itself.
+const VIA_CONNECTOR = args.includes('--connector') || Boolean(option('upload')) || (env.CLAUDE_CODE_REMOTE === 'true' && !token && !CODEX);
 
 if (BINARY_VERSION) removeLeftover();
 // Previews nobody sent: gone PREPARED_TTL_MS after they were made, whatever runs next (lib/prepared.mjs).
@@ -475,6 +476,7 @@ function describeCode(code) {
 
 async function send(id) {
     if (option('upload')) return sendToLink(id, option('upload'));
+    if (VIA_CONNECTOR) throw new Failure('This cloud session sends through the Coders Talk connector: call its start_session_upload tool, then run this send step again with --upload="<the upload_url it returned>".');
     if (!token) throw notConnected();
 
     const out = prepared(id);

@@ -61,7 +61,7 @@ A session on claude.ai/code keeps its whole transcript in its cloud machine (`~/
 
 1. Connect the Coders Talk connector in claude.ai (connector settings). The same connector gives the agent the library. A connection made before connectors could send sessions can only read: disconnect and connect it again (the upload tools say so).
 2. Add the Coders Talk skill: download `coders-talk-skill.zip` from the [latest release](https://github.com/coders-talk/coders-talk-plugin/releases/latest/download/coders-talk-skill.zip) and upload it in claude.ai's skills settings. Cloud sessions load the skills you enable on claude.ai by themselves.
-3. In a cloud session, ask: "send this session to Coders Talk". The skill runs this plugin's script in the cloud machine: it finds the session (the newest transcript there), shows what goes and what the privacy check found, and asks. Then the connector's `start_session_upload` hands out a one-time upload link (15 minutes) in the site's storage (Cloudflare R2, which the cloud's default network list allows), `coders-talk send --connector --upload=<link>` puts the session there, and `finish_session_upload` makes the draft and returns its link.
+3. In a cloud session, ask: "send this session to Coders Talk" (or, with this plugin on your claude.ai account, `/coders-talk:build`: in a cloud machine with no token of its own it takes the same route by itself). The skill runs this plugin's script in the cloud machine: it finds the session (the newest transcript there), shows what goes and what the privacy check found, and asks. Then the connector's `start_session_upload` hands out a one-time upload link (15 minutes) in the site's storage (Cloudflare R2, which the cloud's default network list allows), `coders-talk send --connector --upload=<link>` puts the session there, and `finish_session_upload` makes the draft and returns its link.
 
 The skill is built by `node scripts/skill.mjs` (dist/coders-talk-skill.zip: its SKILL.md is `web-skill/SKILL.md`), and each release carries it.
 
@@ -200,6 +200,7 @@ Each network call, and what goes with it:
 | `GET /api/v1/me` | `whoami`, `auto`, `share auto`, the preview (to say where the draft goes) | The token. |
 | `POST /api/v1/imports`, `GET /api/v1/imports/{id}` | `build`/`send` after your yes; auto mode | The slimmed, checked session; `agent`, `session_id`, `client_version`, `trigger`; the git context (GitHub `origin`, branch, commit titles, hashes and sizes); token counts; the privacy summary (counts by type, hashes of kept values); `space`, `continues`, `fork`, `library` (count and up to 20 slugs). The token. |
 | `/mcp` | the agent searches the library | The query and the stack the agent writes, and the token. Never the session. |
+| `/mcp` `start_session_upload`, a `PUT` to the link it returns, `/mcp` `finish_session_upload` | `build` in a cloud session (Claude Code on the web) after your yes, through the Coders Talk connector | The same session and fields as `POST /api/v1/imports`, in one JSON file, put at a one-time link (15 minutes) in Coders Talk's storage (Cloudflare R2, `*.r2.cloudflarestorage.com`); the connector's own sign-in on claude.ai, never a token from the machine. The site deletes the file once the draft is made, or a day later. |
 | `GET /b/<slug>/use/<format>.md`, `/t/<team>/rules/<stack>.md` | `use` | `via=cli`, the agent, `write=1` when it writes. The token only for a team's own Build or rules. |
 | `GET /t/<team>/rules/<stack>.md`, `/t/<team>/rules/<stack>.json?since=<version>` | `SessionStart` (in the background, at most every six hours), `use --team` | `via=hook`, `If-None-Match` with the version in the repository, the token. Only for repositories with a team's block. |
 | `GET /api/v1/share`, `POST /api/v1/share/attachments` | `share` | The Build's slug or this session's id; after a change, the pull request's or the repository's address. The token. |
@@ -245,6 +246,13 @@ The preview writes `<temp folder>/coders-talk/<session>.jsonl.gz` and `.json` (a
 Node's own `fetch` ignores the proxy variables, so the plugin opens the proxy's `CONNECT` tunnel itself. Some networks reset a direct connection to the site after the first 16 KB, which lets `whoami` through but not an upload; there the proxy is what gets a session out.
 
 The script reads the `url` option from Claude Code's own `settings.json` (`pluginConfigs`). It does not rely on `${user_config.url}` in the skills or on `CLAUDE_PLUGIN_OPTION_*` variables: in testing, the desktop app left the placeholder unexpanded and the variable did not reach commands the model runs.
+
+## Support, privacy and license
+
+- Questions and problems: [hello@coders.talk](mailto:hello@coders.talk), or an issue in this repository. Privacy and security reports: [privacy@coders.talk](mailto:privacy@coders.talk).
+- What Coders Talk stores and why: the [privacy policy](https://coders.talk/privacy). The rules for using the site: the [terms](https://coders.talk/terms).
+- Every place the plugin sends something is in [What leaves your machine](#what-leaves-your-machine); it talks only to coders.talk, to Coders Talk's own storage for a cloud session's upload, to GitHub through your own `gh` when you share, and to GitHub Releases for updates.
+- The plugin's code is under the MIT license (see `LICENSE`).
 
 ## Development
 

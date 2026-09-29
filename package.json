@@ -3,6 +3,7 @@
     "private": true,
     "type": "module",
     "description": "Claude Code plugin: send a session to Coders Talk as a draft Build.",
+    "license": "MIT",
     "engines": {
         "node": ">=20"
     },

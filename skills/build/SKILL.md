@@ -22,6 +22,8 @@ Send the current session to Coders Talk as a draft. Nothing gets published here:
    node "${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs" discard ${CLAUDE_SESSION_ID}
    ```
 
+   If the preview said it **goes through the Coders Talk connector** (a cloud session on Claude Code on the web, with no token of its own), do step 5a instead of steps 5 and 6.
+
 5. Run the command below. If the user wrote something after the command name that points at an earlier Build of theirs (a coders.talk `/b/…` link, or `--continues <slug>`), add ` --continues=<that link or slug>` at the end, in double quotes: this session becomes the next part of that Build's series.
 
    ```
@@ -29,6 +31,14 @@ Send the current session to Coders Talk as a draft. Nothing gets published here:
    ```
 
 6. Show the user what it printed: the draft link, and anything it says to check before publishing.
+
+5a. Through the connector: call the Coders Talk connector's `start_session_upload` tool (if there is no Coders Talk connector among your tools, tell the user to turn it on for this session and stop; if it answers with an error, show it and stop). Then run the command below with the `upload_url` it returned, in double quotes, and ` --continues="<link or slug>"` as in step 5 if the user named an earlier Build:
+
+   ```
+   node "${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs" send ${CLAUDE_SESSION_ID} --upload="<upload_url>"
+   ```
+
+   If it printed "Uploaded the session", call `finish_session_upload` with the `upload_id` from `start_session_upload` and show the user what it returned: the draft link. If the command printed an error, show it and stop. Never put anything else at the upload link.
 
 Rules:
 

@@ -1,14 +1,18 @@
 /**
  * The plugin's hooks, by event. Claude Code runs hooks/hooks.json, Codex runs codex/hooks.json (with --agent=codex);
  * each script there runs one of these. The single coders-talk file runs them as `coders-talk hook <agent> <event>`
- * (plan, stage 13.1), one command per event, git snapshot included.
+ * (plan, stage 13.1), one command per event, git snapshot included. Cursor runs them from the hooks.json in ~/.cursor
+ * (`hook cursor <event>`: sessionStart, beforeSubmitPrompt as `prompt`, stop, sessionEnd), and Pi from the extension of
+ * its package, which turns session_start, agent_start, agent_settled and session_shutdown into the same four events.
  *
- * Every event the agent writes on stdin carries the same fields that matter here: session_id, transcript_path and cwd.
+ * Every event the agent writes on stdin carries the same fields that matter here: session_id, transcript_path and cwd
+ * (Cursor's are conversation_id, transcript_path and workspace_roots: cursorEvent renames them).
  * A hook prints nothing but one JSON systemMessage (the Stop hook's suggestion; at the start, a team's rules and what
  * the share auto mode did), and never fails the session: every error is swallowed.
  *
- *   session-start  Claude Code: HEAD at the start of the session, so /coders-talk:build can tell which commits it made
- *                  (Codex writes HEAD into the session itself). Auto mode: catches up in the background on this agent's
+ *   session-start  Claude Code, Cursor and Pi: HEAD at the start of the session, so /coders-talk:build can tell which
+ *                  commits it made (Codex writes HEAD into the session itself; Cursor's first prompt does this when its
+ *                  sessionStart did not run). Auto mode: catches up in the background on this agent's
  *                  sessions that never said they ended (a crash, a closed terminal) and remembers this one. In a
  *                  repository on github.com, the share auto mode's check in the background when due (lib/share.mjs),
  *                  and one line on what it put into pull requests since the last start.
@@ -18,16 +22,20 @@
  *                  systemMessage, which both agents show to the person, and the only output Codex takes from a Stop hook.
  *   session-end    auto mode only: hands the session to `auto-send` in the background and returns. Codex ends its hooks'
  *                  processes when it exits, so there the hook waits for the upload as long as its own timeout allows.
- *   prompt         Claude Code's git snapshot only.
+ *   prompt         the git snapshot; Cursor's hook also notes the prompt and which conversation its workspace is in
+ *                  (lib/cursor.mjs), and answers {"continue": true}, since Cursor waits for it.
  *
- * Git snapshots (lib/snapshots.mjs) are Claude Code's: at the start, at each prompt and after each answer.
+ * Git snapshots (lib/snapshots.mjs) are every agent's but Codex's: at the start, at each prompt and after each answer.
  */
+import { agentArgs, commandIn } from './agent.mjs';
 import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, sessionAutoMode, settled, stillHeld, syncDue, trackSession, waitForSend } from './auto.mjs';
 import { siteUrl } from './config.mjs';
 import { savedToken } from './credentials.mjs';
+import { cursorEvent, noteCursorEvent, pruneCursorNotes, readCursorSidecar } from './cursor.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
 import { projectRoot } from './playbooks.mjs';
-import { findRollout, findTranscript, SESSION_ID } from './session.mjs';
+import { SESSION_ID } from './session.mjs';
+import { sessionPath } from './sessions.mjs';
 import { pruneSidecars, writeSidecar } from './sidecar.mjs';
 import { pruneSnapshots, takeSnapshot } from './snapshots.mjs';
 import { sweepPrepared } from './prepared.mjs';
@@ -52,15 +60,20 @@ export async function readEvent(input = process.stdin) {
 }
 
 /**
- * Runs the hook of $name for $agent ('claude-code' or 'codex'). $snapshot takes Claude Code's git snapshot of the event
- * in the same run; the scripts of hooks/hooks.json leave it to snapshot.mjs, which Claude Code runs alongside.
+ * Runs the hook of $name for $agent (claude-code, codex, cursor or pi). $snapshot takes the git snapshot of the event in
+ * the same run (every agent's but Codex's); the scripts of hooks/hooks.json leave it to snapshot.mjs, which Claude Code
+ * runs alongside.
  */
-export async function runHook(agent, name, { snapshot = agent === 'claude-code', event = null } = {}) {
+export async function runHook(agent, name, { snapshot = agent !== 'codex', event = null } = {}) {
     try {
         event ??= await readEvent();
     } catch {
         return;
     }
+    // Cursor names the conversation, the transcript and the workspace its own way.
+    if (agent === 'cursor') event = cursorEvent(event);
+    // Cursor also runs the hooks of a Claude Code plugin it imported, with its own input: its own hooks serve that.
+    if (agent === 'claude-code' && typeof event.cursor_version === 'string') return;
     // First: an answer's code is in the chain before a sync of the session reads it.
     if (snapshot && SNAPSHOTS[name]) takeSnapshotOf(event, SNAPSHOTS[name]);
 
@@ -68,16 +81,17 @@ export async function runHook(agent, name, { snapshot = agent === 'claude-code',
         const context = {
             event,
             agent,
-            site: siteUrl(null, agent === 'codex'),
+            site: siteUrl(null, agent !== 'claude-code'),
             id: SESSION_ID.test(event.session_id ?? '') ? event.session_id : null,
             /** What `coders-talk` needs to be told to read this agent's sessions. */
-            agentArgs: agent === 'codex' ? ['--agent=codex'] : [],
+            agentArgs: agentArgs(agent),
         };
         if (name === 'session-start') {
             // Previews nobody sent go even when coders-talk itself is not run again (lib/prepared.mjs).
             sweepPrepared();
             sessionStart(context);
-        } else if (name === 'stop') stop(context);
+        } else if (name === 'prompt') prompt(context);
+        else if (name === 'stop') stop(context);
         else if (name === 'session-end') await sessionEnd(context);
     } catch {
         // A missing git, an unreadable home folder or odd input must not get in the way of the session.
@@ -95,20 +109,34 @@ export function takeSnapshotOf(event, kind) {
     }
 }
 
+/**
+ * The Cursor hooks have a channel for what the person should see only in a turn (a followup that costs a model turn):
+ * what the start has to say is left unsaid there, and the checks it would have made go on in the background.
+ */
+const SAYS = (agent) => agent !== 'cursor';
+
+/** HEAD at the start of a session (Codex's own session file says it), written once: resume and compaction keep the id. */
+function rememberStart(event, agent) {
+    if (agent === 'codex' || !SESSION_ID.test(event.session_id ?? '')) return;
+    writeSidecar({
+        session_id: event.session_id,
+        cwd: event.cwd ?? null,
+        transcript_path: event.transcript_path ?? null,
+        head: currentHead(event.cwd),
+        started_at: Date.now(),
+    });
+    pruneSidecars();
+}
+
 function sessionStart({ event, agent, site, id, agentArgs }) {
-    if (agent === 'claude-code') {
-        writeSidecar({
-            session_id: event.session_id,
-            cwd: event.cwd ?? null,
-            transcript_path: event.transcript_path ?? null,
-            head: currentHead(event.cwd),
-            started_at: Date.now(),
-        });
-        pruneSidecars();
+    rememberStart(event, agent);
+    if (agent === 'cursor') {
+        noteCursorEvent('start', event);
+        pruneCursorNotes();
     }
     // One systemMessage for everything the start has to say: the agents take one JSON object from a hook.
     const messages = [teamRulesAtStart({ event, agent, site, agentArgs }), ...shareAtStart({ event, site, agentArgs })].filter(Boolean);
-    if (messages.length) console.log(JSON.stringify({ systemMessage: messages.join('\n') }));
+    if (messages.length && SAYS(agent)) console.log(JSON.stringify({ systemMessage: messages.join('\n') }));
 
     if (!id) return;
     const running = RUNNING_MODES.includes(autoMode(site, agent));
@@ -128,7 +156,7 @@ function teamRulesAtStart({ event, agent, site, agentArgs }) {
     if (!event.cwd) return null;
     const root = projectRoot(event.cwd);
     if (!teamRuleUses(root).length) return null;
-    const notice = rulesNotice(site, root, agent === 'codex' ? '$coders-talk:use' : '/coders-talk:use');
+    const notice = rulesNotice(site, root, commandIn(agent, 'use'));
     if (signedIn(site) && rulesCheckDue(site, root).length) inBackground(['team-rules-check', `--cwd=${root}`, ...agentArgs]);
 
     return notice;
@@ -150,7 +178,21 @@ function shareAtStart({ event, site, agentArgs }) {
 
 const signedIn = (site) => process.env.CODERS_TALK_TOKEN || process.env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site);
 
+/**
+ * A prompt: the git snapshot is taken already. Cursor's hook notes it (the times of the turns and which conversation the
+ * workspace is in, lib/cursor.mjs) and answers, since Cursor waits for that. Its first prompt of a conversation does
+ * what the start would, for the versions whose sessionStart does not run.
+ */
+function prompt({ event, agent, site, id, agentArgs }) {
+    if (agent !== 'cursor') return;
+    const first = id && !readCursorSidecar(id)?.prompts?.length;
+    noteCursorEvent('prompt', event);
+    if (first) sessionStart({ event, agent, site, id, agentArgs });
+    console.log(JSON.stringify({ continue: true }));
+}
+
 function stop({ event, agent, site, id, agentArgs }) {
+    if (agent === 'cursor') noteCursorEvent('stop', event);
     const mode = sessionAutoMode(site, id, agent);
     // Push mode sends at the push; it needs no suggestion either.
     if (id && mode === 'push') return;
@@ -161,12 +203,10 @@ function stop({ event, agent, site, id, agentArgs }) {
             trackSession(site, id, { tried: Date.now() });
             inBackground(['auto-send', id, '--sync', ...agentArgs]);
         }
-    } else if (id && nudgeOn()) {
-        const path = event.transcript_path || (agent === 'codex' ? findRollout(id) : findTranscript(id));
+    } else if (id && nudgeOn() && SAYS(agent)) {
+        const path = event.transcript_path || sessionPath(agent, id);
         const builds = path ? nudgeDue({ agent, id, path }) : null;
-        if (builds) {
-            console.log(JSON.stringify({ systemMessage: nudgeMessage(builds, agent === 'codex' ? '$coders-talk:build' : '/coders-talk:build') }));
-        }
+        if (builds) console.log(JSON.stringify({ systemMessage: nudgeMessage(builds, commandIn(agent, 'build')) }));
     }
 }
 

@@ -52,6 +52,23 @@ test('Codex gets PowerShell on Windows and sh elsewhere; the MCP helper gets cmd
     assert.match(posix['codex/skills/build/SKILL.md'], /If the command is not found, Coders Talk was removed from this computer/);
 });
 
+test('Cursor gets skills that run the file (PowerShell on Windows), Pi a package whose extension starts it', () => {
+    const win = lay(true, WIN);
+    assert.match(win['cursor/skills/build/SKILL.md'], /& 'C:\\Users\\Mara O''Neil\\\.coders-talk\\bin\\coders-talk\.exe' preview --agent=cursor/);
+    assert.match(win['cursor/skills/build/SKILL.md'], /^name: coders-talk-build$/m);
+    assert.match(win['cursor/skills/auto/SKILL.md'], /^Auto mode sends each Cursor conversation/m, 'the paragraph about <plugin> is gone, the rest stays');
+    assert.match(lay(false, POSIX)['cursor/skills/build/SKILL.md'], /'\/home\/mara\/\.coders-talk\/bin\/coders-talk' preview --agent=cursor/);
+    assert.doesNotMatch(lay(false, POSIX)['cursor/skills/build/SKILL.md'], /If `node` is not found/);
+    assert.match(lay(false, POSIX)['cursor/skills/build/SKILL.md'], /If the command is not found, Coders Talk was removed from this computer/);
+
+    const pi = lay(false, POSIX);
+    assert.deepEqual(JSON.parse(pi['pi/package.json']).pi, { extensions: ['./extensions/coders-talk.js'] });
+    assert.equal(JSON.parse(pi['pi/package.json']).version, '9.1.0');
+    assert.match(pi['pi/extensions/coders-talk.js'], /^const PROGRAM = \["\/home\/mara\/\.coders-talk\/bin\/coders-talk"\];$/m);
+    assert.match(pi['pi/extensions/coders-talk.js'], /^const program = \(\) => PROGRAM;$/m);
+    assert.deepEqual(JSON.parse(lay(false, ['/usr/bin/node', '/src/scripts/coders-talk.mjs'])['pi/extensions/coders-talk.js'].match(/^const PROGRAM = (.*);$/m)[1]), ['/usr/bin/node', '/src/scripts/coders-talk.mjs']);
+});
+
 test('an agent that keeps its own Coders Talk server gets the plugin without one', () => {
     const files = lay(false, POSIX, { claude: false });
     assert.equal(files['.mcp.json'], undefined);

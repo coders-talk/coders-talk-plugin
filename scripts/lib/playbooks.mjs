@@ -1,14 +1,16 @@
 /**
  * Use this Build (plan: library, stage 22.3): a published Build's playbook from Coders Talk, put into the repository
- * you are in for Claude Code or Codex. The text is the site's, the same for both agents (/b/<slug>/use/<format>.md);
- * where it goes differs:
+ * you are in for Claude Code, Codex, Cursor or Pi. The text is the site's, the same for every agent
+ * (/b/<slug>/use/<format>.md); where it goes differs:
  *
  *   skill   Claude Code  <repository>/.claude/skills/ct-<slug>/SKILL.md
  *           Codex        <repository>/.agents/skills/ct-<slug>/SKILL.md (Codex reads skills there, in the folder a
  *                        session starts in and the folders up to the repository's root; no agents/openai.yaml is
  *                        needed, and without one Codex may open the skill by itself, which is the point)
- *   rule    Claude Code  CLAUDE.md, Codex AGENTS.md, between the markers the site writes around it; a CLAUDE.md that
- *                        imports @AGENTS.md means both agents read AGENTS.md, so the block goes there once
+ *           Cursor, Pi   the same .agents/skills folder: both read it (Pi once the project is trusted), so one skill
+ *                        serves Codex, Cursor and Pi
+ *   rule    Claude Code  CLAUDE.md, the others AGENTS.md, between the markers the site writes around it; a CLAUDE.md
+ *                        that imports @AGENTS.md means every agent reads AGENTS.md, so the block goes there once
  *   prompt  nothing is written: it is pasted as the first message of a session
  *
  * What was written is noted in <repository>/.coders-talk/uses.json: the Build, the version, the format, the agent.
@@ -24,6 +26,8 @@ export const FORMATS = ['skill', 'rule', 'prompt'];
 export const AGENTS = {
     claude: { id: 'claude', name: 'Claude Code', skills: ['.claude', 'skills'], rule: 'CLAUDE.md' },
     codex: { id: 'codex', name: 'Codex', skills: ['.agents', 'skills'], rule: 'AGENTS.md' },
+    cursor: { id: 'cursor', name: 'Cursor', skills: ['.agents', 'skills'], rule: 'AGENTS.md' },
+    pi: { id: 'pi', name: 'Pi', skills: ['.agents', 'skills'], rule: 'AGENTS.md' },
 };
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -37,11 +41,11 @@ export function buildSlug(value) {
     return slug.length <= 120 && SLUG.test(slug) ? slug : null;
 }
 
-/** claude, claude-code or codex as one of AGENTS' ids; null for anything else. */
+/** claude, claude-code, codex, cursor or pi as one of AGENTS' ids; null for anything else. */
 export function agentOf(value) {
     const v = String(value ?? '').trim().toLowerCase();
 
-    return v === 'codex' ? 'codex' : v === 'claude' || v === 'claude-code' ? 'claude' : null;
+    return ['codex', 'cursor', 'pi'].includes(v) ? v : v === 'claude' || v === 'claude-code' ? 'claude' : null;
 }
 
 /** The repository the folder is in, or the folder itself outside one: where agents look for skills and rules. */
@@ -62,16 +66,16 @@ export const shown = (root, path) => relative(root, path).split(sep).join('/');
 
 /**
  * Where a rule goes for $agent: {file, name, note}. A CLAUDE.md with an @AGENTS.md line reads AGENTS.md too, so the
- * block goes there once; with both files and no such line, the other agent will not see it, and the note says so.
+ * block goes there once; with both files and no such line, the other agents will not see it, and the note says so.
  */
 export function ruleTarget(root, agent) {
     const claude = join(root, 'CLAUDE.md');
     const agents = join(root, 'AGENTS.md');
     if (existsSync(claude) && /^\s*@AGENTS\.md\s*$/m.test(readFileSync(claude, 'utf8'))) {
-        return { file: agents, name: 'AGENTS.md', note: 'CLAUDE.md reads AGENTS.md (@AGENTS.md), so the block goes into AGENTS.md: Claude Code and Codex both read it.' };
+        return { file: agents, name: 'AGENTS.md', note: 'CLAUDE.md reads AGENTS.md (@AGENTS.md), so the block goes into AGENTS.md: Claude Code, Codex, Cursor and Pi all read it.' };
     }
-    const own = agent === 'codex' ? { file: agents, name: 'AGENTS.md' } : { file: claude, name: 'CLAUDE.md' };
-    const other = agent === 'codex' ? { file: claude, name: 'CLAUDE.md', agent: 'Claude Code' } : { file: agents, name: 'AGENTS.md', agent: 'Codex' };
+    const own = agent === 'claude' ? { file: claude, name: 'CLAUDE.md' } : { file: agents, name: 'AGENTS.md' };
+    const other = agent === 'claude' ? { file: agents, name: 'AGENTS.md', agent: 'Codex, Cursor and Pi' } : { file: claude, name: 'CLAUDE.md', agent: 'Claude Code' };
 
     return { ...own, note: existsSync(other.file) ? `${other.name} is here too, and it does not import the other file: ${other.agent} will not see this block.` : null };
 }

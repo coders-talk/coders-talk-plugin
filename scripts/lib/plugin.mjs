@@ -12,6 +12,11 @@
  *   Claude Code skills  POSIX quoting for the Bash tool (Git Bash on Windows), with a word for PowerShell on Windows
  *   headersHelper       sh, or cmd.exe on Windows
  *   Codex hooks, skills sh, or PowerShell on Windows (`& '…'`: a quoted path alone is a string there, not a call)
+ *   Cursor hooks, skills  the same as Codex's: Cursor runs them through PowerShell on Windows
+ *   Pi's extension     the program as a list (command and arguments), spawned without a shell
+ *
+ * The Pi package (pi/) is installed where it is laid out, with `pi install`; Cursor's skills (cursor/skills) are copied
+ * into ~/.cursor/skills by enable (lib/cursor-install.mjs) together with the hooks it writes there.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -21,7 +26,7 @@ export const MARKETPLACE = 'coders-talk-local';
 export const PLUGIN_ID = `coders-talk@${MARKETPLACE}`;
 
 const SOURCE_FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'hooks/hooks.json', 'codex/hooks.json'];
-const SOURCE_DIRS = ['skills', 'codex/skills'];
+const SOURCE_DIRS = ['skills', 'codex/skills', 'cursor/skills', 'pi/extensions'];
 
 /** The repository files the plugin is made from, by path: built into the single file, or read from the repository. */
 export function pluginSources() {
@@ -66,6 +71,8 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
     };
     const claudeRun = shCommand(program);
     const codexRun = windows ? psCommand(program) : shCommand(program);
+    // Cursor runs a hook, and the agent its shell commands, through PowerShell on Windows.
+    const cursorRun = codexRun;
     const description = 'Coders Talk, laid out by coders-talk enable: the commands call the installed coders-talk.';
 
     json('.claude-plugin/plugin.json', { ...JSON.parse(source('.claude-plugin/plugin.json')), version });
@@ -103,9 +110,21 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
     }
     if (serverFor.codex) json('codex/mcp.json', { mcpServers: { 'coders-talk': { type: 'http', url: `${site}/mcp` } } });
 
+    // Pi: a package of its own (one extension), started with the installed program.
+    json('pi/package.json', {
+        name: 'coders-talk',
+        version,
+        type: 'module',
+        description: 'Send a Pi session to Coders Talk as a draft Build, and give Pi the Coders Talk library. Laid out by coders-talk enable.',
+        keywords: ['pi-package'],
+        pi: { extensions: ['./extensions/coders-talk.js'] },
+    });
+    files['pi/extensions/coders-talk.js'] = piExtension(source('pi/extensions/coders-talk.js'), program);
+
     for (const [path, text] of Object.entries(sources)) {
         if (path.startsWith('skills/')) files[path] = claudeSkill(text, claudeRun, windows);
         else if (path.startsWith('codex/skills/')) files[path] = codexSkill(text, codexRun);
+        else if (path.startsWith('cursor/skills/')) files[path] = codexSkill(text, cursorRun);
     }
     for (const [path, text] of Object.entries(files)) {
         if (/\$\{CLAUDE_PLUGIN_ROOT\}|<plugin>|\bnode "/.test(text)) throw new Error(`The plugin's ${path} still calls the script: this build cannot lay it out.`);
@@ -114,8 +133,20 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
     return files;
 }
 
-const NODE_MISSING = /- If `node` is not found, tell the user the plugin needs Node\.js 20 or newer, and that they can upload the session at (\S+) instead\./g;
+const NODE_MISSING = /- If `node` is not found, tell the user the plugin needs Node\.js 20 or newer, and that they can upload the (?:session|conversation) at (\S+) instead\./g;
 const NOT_INSTALLED = (upload) => `- If the command is not found, Coders Talk was removed from this computer: tell the user to install it again (https://coders.talk/plugins), or to upload the session at ${upload} instead.`;
+
+/**
+ * Pi's extension with the program that runs coders-talk written into its PROGRAM line, and no other way to start it: the
+ * script of the repository, which the file falls back to, is not there.
+ */
+function piExtension(text, program) {
+    const line = 'const PROGRAM = null;';
+    const fallback = "const program = () => PROGRAM ?? [NODE, join(HERE, '..', '..', 'scripts', 'coders-talk.mjs')];";
+    if (!text.includes(line) || !text.includes(fallback)) throw new Error("The plugin's pi/extensions/coders-talk.js has no PROGRAM line to lay out.");
+
+    return text.replace(line, `const PROGRAM = ${JSON.stringify(program)};`).replace(fallback, 'const program = () => PROGRAM;');
+}
 
 function claudeSkill(text, run, windows) {
     const out = text.replaceAll('node "${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs"', run).replace(NODE_MISSING, (_, upload) => NOT_INSTALLED(upload));
@@ -128,7 +159,8 @@ function claudeSkill(text, run, windows) {
 function codexSkill(text, run) {
     return text
         .replaceAll('node "<plugin>/scripts/coders-talk.mjs"', run)
-        .replace(/(In the commands? below, )?`<plugin>`( below)? is the absolute path of the plugin folder: this file is `<plugin>\/[^`]+`\. /g, '')
+        // The sentence that says what <plugin> is: inline in Codex's skills, a paragraph of its own in Cursor's.
+        .replace(/(In the commands? below, )?`<plugin>`( below)? is the absolute path of the plugin folder: this file is `<plugin>\/[^`]+`\.[ \t]*\n*/g, '')
         .replace(/,? (only )?with `<plugin>` filled in/g, '')
         .replace(NODE_MISSING, (_, upload) => NOT_INSTALLED(upload));
 }

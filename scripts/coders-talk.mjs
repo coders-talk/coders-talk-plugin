@@ -29,6 +29,8 @@
  *   node coders-talk.mjs team-rules-check --cwd=<repository>  what the SessionStart hook runs when a team's rules
  *                                                 in the repository were not checked for a while (lib/team-rules.mjs)
  *   node coders-talk.mjs whoami | logout
+ *   node coders-talk.mjs mcp-call <tool> [--json='{…}' | --stdin]   one call of the Coders Talk library's MCP tools, for agents
+ *                                                 that have no MCP of their own (Pi's extension registers the tools and runs this)
  *   node coders-talk.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper; a fixed https://coders.talk/mcp):
  *                                                 prints {"Authorization": "Bearer …"} for the saved sign-in, or {}
  *   node coders-talk.mjs nudge [on|off]         the Stop hook's suggestion to share a session that used the library
@@ -83,13 +85,16 @@ import { Failure } from './lib/failure.mjs';
 import { folderGitContexts, gitContext, normalizeRemote, projectOf, repositoryRoot, worktrees } from './lib/git.mjs';
 import { disable, enable, refresh, status } from './lib/enable.mjs';
 import { runGitHook } from './lib/githooks.mjs';
+import { AGENT_IDS, AGENTS, agentArgs, agentId, commandIn, hasPluginOptions } from './lib/agent.mjs';
 import { detectAgents, forgetMcpNeedsAuth, installedPlugins } from './lib/agents.mjs';
 import { AGENTS as USE_AGENTS, FORMATS as USE_FORMATS, agentOf, buildSlug, findBlock, lineDiff, projectRoot, readUses, recordUse, ruleTarget, shown, skillName, withBlock, writeText } from './lib/playbooks.mjs';
 import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { proxyFor, request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
 import { nudgeOn, setNudge } from './lib/nudge.mjs';
-import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, isCodexPrompt, newestSessionId, promptText, summarize } from './lib/session.mjs';
+import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, formatBytes, formatDuration, isCodexPrompt, newestSessionId, promptText, summarize } from './lib/session.mjs';
+import { currentCursorSession, cursorPrompt, readCursorSidecar, withCursorTimes } from './lib/cursor.mjs';
+import { piPrompt } from './lib/pi.mjs';
 import { continuationOf } from './lib/continuation.mjs';
 import { extractTaskKeys } from './lib/grouping.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
@@ -99,7 +104,7 @@ import { discardPrepared, PREPARED_TTL_MS, prepared, sweepPrepared, writePrepare
 import { agentTimes, gitChangeLines, pruneSnapshots, withGitLines } from './lib/snapshots.mjs';
 import { addedFolders, slimLine } from './lib/slim.mjs';
 import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
-import { describeSession, folderSessions, markSent, sentAt, sentUrl } from './lib/sessions.mjs';
+import { agentOfSession, describeSession, folderSessions, markSent, sentAt, sentUrl, sessionPath } from './lib/sessions.mjs';
 import { removeLeftover, update, updateNotice } from './lib/update.mjs';
 import { changesSince, checkRules, saveRulesState } from './lib/team-rules.mjs';
 import { addNotice, editPullRequest, findPullRequest, ghProblem, markShareChecked, readmeFile, readText, rememberAuto, withPrBlock, withReadmeBlock } from './lib/share.mjs';
@@ -116,6 +121,8 @@ const STAGES = { fetching: 'Reading the session', scanning: 'Scanning for secret
 // retry comes quickly: a sync takes a second or two to import, and Codex ends a session-end hook's upload when it exits.
 const RETRY_MS = Number(process.env.CODERS_TALK_RETRY_MS) ? [Number(process.env.CODERS_TALK_RETRY_MS)] : [1500, 5000, 15000];
 const AUTO_TRIES = 4;
+/** What the agents are called where a list of them says which sessions there were none of. */
+const SESSION_KINDS = 'Claude Code, Codex, Cursor or Pi';
 
 const env = process.env;
 const args = process.argv.slice(2);
@@ -126,21 +133,21 @@ const [command, argId] = positional;
 // Where the draft goes: "personal" (--private), a team's slug (--team=acme), or null to let the site decide by the repository.
 const SPACE = args.includes('--private') ? 'personal' : option('team')?.trim().toLowerCase() || null;
 
-// The same script serves both plugins; the Codex skills pass --agent=codex.
-const CODEX = option('agent') === 'codex';
-const AGENT = CODEX ? { id: 'codex', name: 'Codex', client: 'codex-plugin' } : { id: 'claude-code', name: 'Claude Code', client: 'claude-plugin' };
+// The same script serves every agent's plugin; their skills and hooks pass --agent=<id>, and Claude Code is the default.
+const AGENT = AGENTS[agentId(option('agent')) ?? 'claude-code'];
+const CODEX = AGENT.id === 'codex';
 // Run by a person in a terminal rather than by an agent, which gives its commands no terminal.
 const TERMINAL = Boolean(process.stdout.isTTY && process.stdin.isTTY);
 /** How the person runs one of the plugin's commands: in this agent, or in the terminal they typed it in. */
-const run = (name) => (TERMINAL ? `coders-talk ${name}` : CODEX ? `$coders-talk:${name}` : `/coders-talk:${name}`);
+const run = (name) => (TERMINAL ? `coders-talk ${name}` : commandIn(AGENT.id, name));
 
-const site = siteUrl(option('site'), CODEX);
+const site = siteUrl(option('site'), !hasPluginOptions(AGENT.id));
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
 
 // Sent through the Coders Talk connector (a cloud session: Claude Code on the web), not with this computer's token:
 // the preview says so, and send puts the session at the upload link the connector handed out (--upload=<link>).
 // In a cloud session with no token of its own, the plugin synced from claude.ai goes that way by itself.
-const VIA_CONNECTOR = args.includes('--connector') || Boolean(option('upload')) || (env.CLAUDE_CODE_REMOTE === 'true' && !token && !CODEX);
+const VIA_CONNECTOR = args.includes('--connector') || Boolean(option('upload')) || (env.CLAUDE_CODE_REMOTE === 'true' && !token && AGENT.id === 'claude-code');
 
 if (BINARY_VERSION) removeLeftover();
 // Previews nobody sent: gone PREPARED_TTL_MS after they were made, whatever runs next (lib/prepared.mjs).
@@ -160,7 +167,7 @@ try {
         process.exit(0);
     }
     if (command === 'hook') {
-        if (['claude-code', 'codex'].includes(argId) && HOOK_EVENTS.includes(positional[2])) await runHook(argId, positional[2]);
+        if (AGENT_IDS.includes(argId) && HOOK_EVENTS.includes(positional[2])) await runHook(argId, positional[2]);
         process.exit(0);
     }
     if (!BINARY_VERSION && Number(process.versions.node.split('.')[0]) < 20) {
@@ -175,6 +182,7 @@ try {
     else if (command === 'team-rules-check') await teamRulesCheck();
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
+    else if (command === 'mcp-call') await mcpCall(argId);
     else if (command === 'logout') logout();
     else if (command === 'nudge') nudge(argId);
     else if (command === 'version' || args.includes('--version')) console.log(`coders-talk ${VERSION}`);
@@ -243,10 +251,23 @@ function setupFlags() {
     };
 }
 
+/**
+ * The session this agent runs the command in, from what it puts in the environment of its commands: Codex's thread, Pi's
+ * session. Claude Code's skills pass their session's id; Cursor tells nothing, so its hooks noted the conversation of
+ * each workspace (lib/cursor.mjs), and the newest transcript of this folder's workspace is the fallback.
+ */
+function currentSession() {
+    if (AGENT.id === 'codex') return env.CODEX_THREAD_ID;
+    if (AGENT.id === 'pi') return env.PI_SESSION_ID;
+    if (AGENT.id === 'cursor') return currentCursorSession(process.cwd(), env)?.id;
+
+    return env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID;
+}
+
 function sessionId(given = argId) {
     // A cloud session runs alone in its machine: its newest transcript is this one (lib/session.mjs, newestSessionId).
-    const remote = !CODEX && (env.CLAUDE_CODE_REMOTE === 'true' || VIA_CONNECTOR);
-    const id = given || (CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID) || (remote ? newestSessionId() : '') || '';
+    const remote = AGENT.id === 'claude-code' && (env.CLAUDE_CODE_REMOTE === 'true' || VIA_CONNECTOR);
+    const id = given || currentSession() || (remote ? newestSessionId() : '') || '';
     if (!SESSION_ID.test(id)) throw new Failure(`Could not tell which session this is. Run the command from inside a ${AGENT.name} session.`);
 
     return id;
@@ -281,17 +302,19 @@ function pruneOwnSnapshots() {
  * /coders-talk:build would lose the rest.
  */
 async function prepare(id, cut = true) {
-    const path = CODEX ? findRollout(id) : findTranscript(id);
+    const path = sessionPath(AGENT.id, id, env, AGENT.id === 'cursor' ? readCursorSidecar(id, env)?.transcript_path : null);
     if (!path) {
-        throw new Failure(CODEX
-            ? `Could not find this session's rollout (rollout-…-${id}.jsonl) under the Codex sessions folder.`
-            : `Could not find this session's transcript (${id}.jsonl) under the Claude Code config folder.`);
+        throw new Failure({
+            codex: `Could not find this session's rollout (rollout-…-${id}.jsonl) under the Codex sessions folder.`,
+            pi: `Could not find this session's file (<time>_${id}.jsonl) under Pi's sessions folder.`,
+            cursor: `Could not find this conversation's transcript (${id}.jsonl) under ~/.cursor/projects/…/agent-transcripts.`,
+        }[AGENT.id] ?? `Could not find this session's transcript (${id}.jsonl) under the Claude Code config folder.`);
     }
 
     // The session this one continues (grouping plan, 24.1): the Claude app copies its lines in, with new session ids.
     const sidecar = CODEX ? null : readSidecar(id);
-    const continued = CODEX ? null : await continuationOf(id, path, sidecar?.cwd ?? null);
-    const session = await readSession(path, id, continued?.inherited);
+    const continued = AGENT.id === 'claude-code' ? await continuationOf(id, path, sidecar?.cwd ?? null) : null;
+    const session = await readSession(path, id, continued?.inherited, AGENT.id === 'cursor' ? readCursorSidecar(id, env) : null);
     if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
     // A fork is a fork: its copied lines say so themselves.
     session.continuation = session.fork ? null : continued ? { session_id: continued.session_id, at: continued.at } : session.continuation;
@@ -337,7 +360,7 @@ async function preview(id) {
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
     // Only the agent's /coders-talk:build is a run of the command inside the session. From a terminal, SSH or a script
     // (--whole: `build` in a terminal) the session holds no run to cut off, only earlier ones.
-    const inAgent = Boolean(env.CLAUDECODE || env.CODEX_THREAD_ID);
+    const inAgent = Boolean(env.CLAUDECODE || env.CODEX_THREAD_ID || env.CURSOR_AGENT || env.CURSOR_TRACE_ID);
     const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project, continuation, title, taskKeys } = await prepare(id, inAgent && !args.includes('--whole'));
 
     const goesTo = await destination(git);
@@ -377,9 +400,11 @@ async function preview(id) {
  * The session slimmed line by line as it is read: Codex rollouts with screenshots run to hundreds of megabytes,
  * more than fits in one string. Null when the file is not JSON lines. Also keeps what slimming drops: where the
  * session ran, for Codex HEAD at its start (session_meta), the session it was forked from (lib/session.mjs, ForkWatch),
- * and what the agent took from the Coders Talk library (lib/library.mjs).
+ * and what the agent took from the Coders Talk library (lib/library.mjs). A Cursor transcript says neither where it ran
+ * nor when (but by the minute) nor what it cost: $cursorNotes, what its hooks noted, gives the folder, the times of the
+ * turns and the tokens (lib/cursor.mjs).
  */
-async function readSession(path, id, inherited = null) {
+async function readSession(path, id, inherited = null, cursorNotes = null) {
     const lines = [];
     const usage = new UsageCounter();
     const fork = new ForkWatch(id);
@@ -388,6 +413,7 @@ async function readSession(path, id, inherited = null) {
     const prompts = [];
     // Shared by every line: slimming learns the session folder from it, to make changed paths relative (plan, stage 11.1).
     const ctx = {};
+    if (cursorNotes?.cwd) slimLine({ type: 'session', cwd: cursorNotes.cwd }, ctx);
     const code = { files: new Set(), additions: 0, deletions: 0, withheld: new Set() };
     let cwd = null;
     let headStart = null;
@@ -419,7 +445,7 @@ async function readSession(path, id, inherited = null) {
             library.add(d);
             // The first prompts of its own, where a task's number usually is (grouping plan, 25.2).
             if (prompts.length < 3) {
-                const text = d.type === 'user' && !d.isMeta ? promptText(d.message?.content) : d.type === 'response_item' && d.payload?.type === 'message' && d.payload.role === 'user' && isCodexPrompt(d.payload.content) ? d.payload.content.map((b) => b?.text ?? '').join('\n') : null;
+                const text = firstPrompt(d);
                 if (text) prompts.push(text.slice(0, 2000));
             }
         }
@@ -432,15 +458,39 @@ async function readSession(path, id, inherited = null) {
     }
 
     // folders: the ones added to the session, with their paths; only their names leave the machine.
-    return total < 2 || parsed < total * 0.8
-        ? null
-        : { lines, cwd, headStart, bytes: statSync(path).size, usage: usage.result(), code, fork: fork.result(), continuation: fork.continuation(), title: title.result(), prompts, folders: addedFolders(ctx), library: library.result() };
+    if (total < 2 || parsed < total * 0.8) return null;
+    // What the hooks noted of a Cursor conversation: the times of its turns, and its tokens (input net of the cache).
+    const noted = cursorNotes?.usage && Object.keys(cursorNotes.usage).length ? { models: cursorNotes.usage } : null;
+
+    return {
+        lines: cursorNotes ? withCursorTimes(lines, cursorNotes) : lines,
+        cwd: cwd ?? cursorNotes?.cwd ?? null,
+        headStart,
+        bytes: statSync(path).size,
+        usage: usage.result() ?? noted,
+        code,
+        fork: fork.result(),
+        continuation: fork.continuation(),
+        title: title.result(),
+        prompts,
+        folders: addedFolders(ctx),
+        library: library.result(),
+    };
 }
 
-/** The files a slimmed line says the agent changed: on a Claude Code tool result, or on a Codex call. */
+/** What the person typed in a parsed line of any agent's session, or null: the first prompts hold a task's number. */
+function firstPrompt(d) {
+    if (d.type === 'user' && !d.isMeta) return promptText(d.message?.content);
+    if (d.type === 'response_item' && d.payload?.type === 'message' && d.payload.role === 'user' && isCodexPrompt(d.payload.content)) return d.payload.content.map((b) => b?.text ?? '').join('\n');
+    if (d.type === 'message') return piPrompt(d);
+
+    return d.type === undefined ? cursorPrompt(d) : null;
+}
+
+/** The files a slimmed line says the agent changed: on a tool result (Claude Code, Pi), on a Codex call, or on Cursor's tool_use block. */
 function countChanges(slim, code) {
     const blocks = Array.isArray(slim.message?.content) ? slim.message.content : [];
-    const changes = [...blocks.map((b) => b?.change).filter(Boolean), ...(Array.isArray(slim.payload?.changes) ? slim.payload.changes : [])];
+    const changes = [...blocks.map((b) => b?.change).filter(Boolean), ...blocks.flatMap((b) => (Array.isArray(b?.changes) ? b.changes : [])), ...(Array.isArray(slim.payload?.changes) ? slim.payload.changes : [])];
     for (const c of changes) {
         // A file in an added folder goes by that folder's name first: two folders may hold the same path.
         const path = c.root ? `${c.root}/${c.path}` : c.path;
@@ -678,11 +728,15 @@ async function login() {
 
 /**
  * The name the token gets on the site: the agent that runs the command, told by the flag its skills pass or by what
- * it puts in the environment of its commands (CLAUDECODE, CODEX_THREAD_ID). A terminal, SSH or a script: the CLI.
+ * it puts in the environment of its commands (CLAUDECODE, CODEX_THREAD_ID, PI_SESSION_ID, CURSOR_AGENT). A terminal, SSH
+ * or a script: the CLI.
  */
 function clientName() {
     if (TERMINAL) return 'Coders Talk CLI';
-    if (CODEX || env.CODEX_THREAD_ID) return 'Codex';
+    if (option('agent') && agentId(option('agent'))) return AGENT.name;
+    if (env.CODEX_THREAD_ID) return 'Codex';
+    if (env.PI_SESSION_ID) return 'Pi';
+    if (env.CURSOR_AGENT || env.CURSOR_TRACE_ID) return 'Cursor';
 
     return env.CLAUDECODE ? 'Claude Code' : 'Coders Talk CLI';
 }
@@ -705,7 +759,7 @@ async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
             // A Claude Code started before the sign-in noted the server's 401 and keeps it for about 15 minutes.
             forgetMcpNeedsAuth();
             console.log(`Connected to ${site} as @${state.username}. ${run('build')} can send sessions now.`);
-            if (!CODEX) console.log('If Claude Code is open, run /mcp → Reconnect for coders-talk, or start a new session: its library tools connect then.');
+            if (AGENT.id === 'claude-code') console.log('If Claude Code is open, run /mcp → Reconnect for coders-talk, or start a new session: its library tools connect then.');
             return;
         }
         if (state.status !== 'pending') {
@@ -729,7 +783,7 @@ function logout() {
 /** `coders-talk sessions`: this folder's sessions, numbered for `coders-talk build <number>`. */
 async function sessions() {
     const list = await folderList(Number(option('limit')) || 10);
-    if (!list.length) return console.log(`No Claude Code or Codex sessions with prompts in ${process.cwd()}.`);
+    if (!list.length) return console.log(`No ${SESSION_KINDS} sessions with prompts in ${process.cwd()}.`);
 
     // A repository's sessions are its project's (grouping plan, 27.4): its main folder's and its worktrees'.
     const project = projectOf(process.cwd());
@@ -739,7 +793,7 @@ async function sessions() {
     list.forEach((s, i) => {
         const text = s.title ?? s.firstPrompt;
         const first = text.length > 60 ? `${text.slice(0, 59)}…` : text;
-        console.log(`  ${String(i + 1).padEnd(3)} ${when(s.mtimeMs).padEnd(17)} ${(s.agent === 'codex' ? 'Codex' : 'Claude Code').padEnd(12)} ${String(s.prompts).padEnd(8)} ${(s.sent ? 'yes' : '-').padEnd(5)} ${first}`);
+        console.log(`  ${String(i + 1).padEnd(3)} ${when(s.mtimeMs).padEnd(17)} ${(AGENTS[s.agent]?.name ?? s.agent).padEnd(12)} ${String(s.prompts).padEnd(8)} ${(s.sent ? 'yes' : '-').padEnd(5)} ${first}`);
     });
     console.log('Send one: coders-talk build <#>');
 }
@@ -774,20 +828,19 @@ function when(ms) {
  */
 async function build(which) {
     if (!TERMINAL) {
-        throw new Failure('coders-talk build asks before it sends, so it runs only in a terminal. From a script: coders-talk preview <session-id> [--agent=codex], then coders-talk send <session-id> [--agent=codex].');
+        throw new Failure('coders-talk build asks before it sends, so it runs only in a terminal. From a script: coders-talk preview <session-id> [--agent=codex|cursor|pi], then coders-talk send <session-id> [--agent=codex|cursor|pi].');
     }
 
     let chosen;
     if (!which || /^\d{1,3}$/.test(which)) {
         const list = await folderList(Math.max(10, Number(which) || 1));
         chosen = list[(Number(which) || 1) - 1];
-        if (!chosen) throw new Failure(list.length ? `There is no session #${which} here: coders-talk sessions lists them.` : `No Claude Code or Codex sessions with prompts in ${process.cwd()}. Run it in the folder the session ran in, or give its id.`);
-        console.log(`Session #${Number(which) || 1}: ${chosen.agent === 'codex' ? 'Codex' : 'Claude Code'}, ${when(chosen.mtimeMs)}, "${chosen.firstPrompt.slice(0, 60)}"`);
-    } else if (findTranscript(which)) chosen = { agent: 'claude-code', id: which };
-    else if (findRollout(which)) chosen = { agent: 'codex', id: which };
-    else throw new Failure(`No Claude Code or Codex session ${which} on this computer.`);
+        if (!chosen) throw new Failure(list.length ? `There is no session #${which} here: coders-talk sessions lists them.` : `No ${SESSION_KINDS} sessions with prompts in ${process.cwd()}. Run it in the folder the session ran in, or give its id.`);
+        console.log(`Session #${Number(which) || 1}: ${AGENTS[chosen.agent]?.name ?? chosen.agent}, ${when(chosen.mtimeMs)}, "${chosen.firstPrompt.slice(0, 60)}"`);
+    } else if (agentOfSession(which, env)) chosen = { agent: agentOfSession(which, env), id: which };
+    else throw new Failure(`No ${SESSION_KINDS} session ${which} on this computer.`);
 
-    const agentArgs = chosen.agent === 'codex' ? ['--agent=codex'] : [];
+    const chosenArgs = agentArgs(chosen.agent);
     const pass = (names) => args.filter((a) => names.some((n) => a === `--${n}` || a.startsWith(`--${n}=`)));
     const self = (more) => {
         const [program, programArgs] = selfCommand(more);
@@ -795,7 +848,7 @@ async function build(which) {
     };
 
     pruneOwnSnapshots();
-    const previewed = self(['preview', chosen.id, '--whole', ...agentArgs, ...pass(['private', 'team', 'keep', 'site'])]);
+    const previewed = self(['preview', chosen.id, '--whole', ...chosenArgs, ...pass(['private', 'team', 'keep', 'site'])]);
     if (previewed !== 0) process.exit(previewed);
     await suggestContinues(chosen);
 
@@ -814,7 +867,7 @@ async function build(which) {
         return console.log('Nothing was sent, and the prepared file is deleted.');
     }
 
-    const sent = self(['send', chosen.id, ...agentArgs, ...pass(['continues', 'site'])]);
+    const sent = self(['send', chosen.id, ...chosenArgs, ...pass(['continues', 'site'])]);
     if (sent !== 0) process.exit(sent);
 }
 
@@ -824,7 +877,7 @@ async function build(which) {
  */
 async function suggestContinues(chosen) {
     if (chosen.agent !== 'claude-code' || option('continues')) return;
-    const path = findTranscript(chosen.id);
+    const path = sessionPath('claude-code', chosen.id, env);
     const before = path ? await continuationOf(chosen.id, path, null) : null;
     const url = before ? sentUrl(site, before.session_id) : null;
     const slug = url?.match(/\/b\/([^/?#]+)/)?.[1];
@@ -996,7 +1049,7 @@ async function share(what) {
     if (what && !slug) throw new Failure(`Which Build? Give its link or its slug: ${run('share')} <link> [--pr] [--readme].`);
     let query = slug ? `build=${encodeURIComponent(slug)}` : null;
     if (!query) {
-        const id = CODEX ? env.CODEX_THREAD_ID : env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID;
+        const id = currentSession();
         if (!id || !SESSION_ID.test(id)) throw new Failure(`Which Build? Give its link or its slug: ${run('share')} <link>. Inside a ${AGENT.name} session, the session's own Build is the default.`);
         query = `session_id=${encodeURIComponent(id)}`;
     }
@@ -1175,21 +1228,21 @@ async function useAgent() {
     const given = option('agent');
     if (given) {
         const agent = agentOf(given);
-        if (!agent) throw new Failure(`--agent takes claude or codex, not "${given}".`);
+        if (!agent) throw new Failure(`--agent takes claude, codex, cursor or pi, not "${given}".`);
         return agent;
     }
-    if (!TERMINAL) throw new Failure('Say which agent it is for: --agent=claude or --agent=codex.');
+    if (!TERMINAL) throw new Failure('Say which agent it is for: --agent=claude, --agent=codex, --agent=cursor or --agent=pi.');
 
     const here = detectAgents().filter((a) => a.present);
     const withPlugin = here.filter((a) => installedPlugins(a).length);
     const candidates = withPlugin.length ? withPlugin : here;
-    if (candidates.length === 1) return candidates[0].id === 'codex' ? 'codex' : 'claude';
+    if (candidates.length === 1) return agentOf(candidates[0].id);
 
     const prompt = createPrompt({ input: process.stdin, output: process.stdout });
-    const answer = (await prompt.question('For Claude Code or Codex? [c/x] ')).trim().toLowerCase();
+    const answer = (await prompt.question('For Claude Code, Codex, Cursor or Pi? [c/x/u/p] ')).trim().toLowerCase();
     prompt.close();
-    const agent = { c: 'claude', claude: 'claude', x: 'codex', codex: 'codex' }[answer];
-    if (!agent) throw new Failure('Nothing was written. Name the agent with --agent=claude or --agent=codex.');
+    const agent = { c: 'claude', claude: 'claude', x: 'codex', codex: 'codex', u: 'cursor', cursor: 'cursor', p: 'pi', pi: 'pi' }[answer];
+    if (!agent) throw new Failure('Nothing was written. Name the agent with --agent=claude, --agent=codex, --agent=cursor or --agent=pi.');
 
     return agent;
 }
@@ -1257,9 +1310,10 @@ function describeUsage(usage) {
  * Claude Code and codex/hooks.json in Codex. Codex runs them only once the person trusted them in /hooks.
  */
 async function auto(mode) {
-    // Codex ends a session after 30 idle minutes too; its desktop app keeps sessions open otherwise.
-    const ends = CODEX ? 'when they end or sit idle for 30 minutes' : 'when they end';
-    const endsOne = CODEX ? 'when it ends or sits idle for 30 minutes' : 'when it ends';
+    // Codex ends a session after 30 idle minutes too; its desktop app keeps sessions open otherwise. Cursor's window may
+    // close without a word: what it never said it ended goes at the next start.
+    const ends = CODEX ? 'when they end or sit idle for 30 minutes' : AGENT.id === 'cursor' ? 'when a turn ends, and once more at the next start if it never said it ended' : 'when they end';
+    const endsOne = CODEX ? 'when it ends or sits idle for 30 minutes' : AGENT.id === 'cursor' ? 'when a turn ends, and once more at the next start if it never said it ended' : 'when it ends';
     const trust = CODEX ? ` Codex runs a plugin's hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks. Until then nothing is sent.` : '';
     if (mode === 'session') return autoForSession(endsOne, trust);
 
@@ -1316,13 +1370,14 @@ async function autoForSession(endsOne, trust) {
         id = sessionId(words[0]);
     } catch {
         // Claude Code gives the commands it runs no session id: only the skill, which the person types, passes it.
-        // Codex does (CODEX_THREAD_ID), so there it is not a Codex session at all.
+        // Codex and Pi do (CODEX_THREAD_ID, PI_SESSION_ID), so there it is not a session of theirs at all; Cursor's hooks
+        // note the conversation of each workspace.
         const asked = `auto session${choice ? ` ${choice}` : ''}`;
         throw new Failure(TERMINAL
             ? `Which session? Add its id: coders-talk ${asked} <session-id>.`
-            : CODEX
-              ? `Could not tell which session this is. Run $coders-talk:${asked} from inside a Codex session.`
-              : `Could not tell which session this is. Run /coders-talk:${asked} yourself: only the skill knows this session's id.`);
+            : AGENT.id === 'claude-code'
+              ? `Could not tell which session this is. Run /coders-talk:${asked} yourself: only the skill knows this session's id.`
+              : `Could not tell which session this is. Run ${commandIn(AGENT.id, asked)} from inside a ${AGENT.name} session.`);
     }
     const computer = autoMode(site, AGENT.id);
     const computerSays = computer === 'all' ? 'on' : computer ?? 'off';
@@ -1344,7 +1399,7 @@ async function autoForSession(endsOne, trust) {
     if (!token) throw notConnected();
 
     const me = await api('GET', '/api/v1/me');
-    const path = autoSession(site, id)?.path ?? (CODEX ? findRollout(id) : findTranscript(id));
+    const path = autoSession(site, id)?.path ?? sessionPath(AGENT.id, id, env, AGENT.id === 'cursor' ? readCursorSidecar(id, env)?.transcript_path : null);
     trackSession(site, id, { own: 'on', agent: AGENT.id, path: path ?? undefined });
     console.log(`Auto mode is on for this session. It is sent to ${site} as @${me.username} by itself, every ten minutes while it runs and once more ${endsOne}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before it is sent; anything it does not recognise goes as it is, so read the draft before you publish it. Other sessions follow the auto mode for this computer (${computerSays}).${trust}`);
     console.log(`Turn it off for this session with ${run('auto')} session off. What it sent is listed in ${logFile()}.`);
@@ -1359,7 +1414,7 @@ async function autoForSession(endsOne, trust) {
 async function autoSend(id, { final = true, caughtUp = false, push = false } = {}) {
     const mode = sessionAutoMode(site, id, AGENT.id);
     if (!mode || (mode === 'push' && !push) || !SESSION_ID.test(id ?? '')) return;
-    const log = (result) => logAuto(`${CODEX ? 'codex ' : ''}${id} ${result}`);
+    const log = (result) => logAuto(`${AGENT.id === 'claude-code' ? '' : `${AGENT.id} `}${id} ${result}`);
     const remember = (patch) => trackSession(site, id, patch);
     // Nothing went: the session-end hook stops waiting for it (lib/auto.mjs, waitForSend).
     const giveUp = (result) => (remember({ failed: Date.now() }), log(result));
@@ -1543,6 +1598,54 @@ function mcpHeaders() {
         // No home folder, an unreadable file: no token.
     }
     console.log(JSON.stringify(headers));
+}
+
+/**
+ * One call of a library tool over the site's MCP endpoint (Streamable HTTP, JSON-RPC), with this computer's sign-in: what
+ * an agent without MCP of its own gets its three tools from (Pi's extension registers them and runs this). Prints the
+ * text of the answer; a refusal, an error the tool reports or an unreachable site is a failure with its reason.
+ */
+async function mcpCall(tool) {
+    const tools = ['search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures'];
+    if (!tools.includes(tool)) throw new Failure(`mcp-call takes one of ${tools.join(', ')}.`);
+    let params;
+    try {
+        params = JSON.parse(args.includes('--stdin') ? (await readAll(process.stdin)) || '{}' : (option('json') ?? '{}'));
+    } catch {
+        throw new Failure('The arguments of a tool are a JSON object: --json=\'{"query": "…"}\', or on stdin with --stdin.');
+    }
+    if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Failure('The arguments of a tool are a JSON object.');
+
+    // The client is named the way the agent names itself, so the site knows whose sessions to weigh (LibraryTool::askingAgent).
+    const client = { name: AGENT.id === 'pi' ? 'pi-coding-agent' : AGENT.client, version: VERSION };
+    let response;
+    try {
+        response = await request(`${site}/mcp`, {
+            method: 'POST',
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: tool, arguments: params, _meta: { 'io.modelcontextprotocol/clientInfo': client } } }),
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'User-Agent': `${AGENT.client}/${VERSION}`, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            signal: AbortSignal.timeout(45_000),
+        });
+    } catch (e) {
+        if (e.code === 'EPROXYREFUSED') throw proxyRefused(e.status);
+        throw unavailable(`Could not reach ${site}: ${e.cause?.message ?? e.message}`);
+    }
+
+    // The answer is one JSON object, or an event stream that carries it.
+    const body = await response.text();
+    const events = body.split(/\r?\n/).filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim());
+    let answer;
+    try {
+        answer = JSON.parse((response.headers.get('content-type') ?? '').includes('event-stream') ? (events.find((e) => e.startsWith('{')) ?? '') : body);
+    } catch {
+        throw new Failure(`The library answered ${response.status} with something that is not JSON.`);
+    }
+    if (answer.error) {
+        throw new Failure(response.status === 401 ? `${answer.error.message} Run ${run('login')} to connect this computer.` : String(answer.error.message ?? `The library answered ${response.status}.`));
+    }
+    const text = (answer.result?.content ?? []).filter((c) => c?.type === 'text' && typeof c.text === 'string').map((c) => c.text).join('\n');
+    if (answer.result?.isError) throw new Failure(text || 'The library reported an error.');
+    console.log(text || 'The library answered with nothing.');
 }
 
 /** The Stop hook's suggestion to share a session that used the library (lib/nudge.mjs): on by default. */

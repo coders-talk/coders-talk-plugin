@@ -20,12 +20,13 @@
 import { execFileSync } from 'node:child_process';
 import { chmodSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { agentArgs } from './agent.mjs';
 import { inBackground, sessionAutoMode } from './auto.mjs';
 import { home } from './credentials.mjs';
 import { shCommand } from './plugin.mjs';
-import { rolloutCwd, sentAt } from './sessions.mjs';
+import { agentOfSession, rolloutCwd, sentAt } from './sessions.mjs';
 import { pruneSnapshots, readSnapshots, snapshotDir } from './snapshots.mjs';
-import { findRollout, findTranscript, SESSION_ID } from './session.mjs';
+import { SESSION_ID } from './session.mjs';
 
 export const TRAILER = 'Agent-Session';
 export const GIT_HOOKS = ['prepare-commit-msg', 'pre-push'];
@@ -187,7 +188,7 @@ function onPush(root, [remote], input, site) {
     const waiting = [];
     for (const { id, agent } of sessions) {
         const mode = sessionAutoMode(site, id, agent);
-        if (mode) inBackground(['auto-send', id, '--push', ...(agent === 'codex' ? ['--agent=codex'] : [])]);
+        if (mode) inBackground(['auto-send', id, '--push', ...agentArgs(agent)]);
         else if (!sentAt(site, id)) waiting.push(id);
     }
     if (waiting.length) {
@@ -210,13 +211,13 @@ export function sessionsBehindPush(root, remote, input, { dir = snapshotDir() } 
     const ids = new Set();
     const log = git(root, ['log', '--no-walk', `--format=%(trailers:key=${TRAILER},valueonly,separator=%x2C)`, '--stdin'], { input: [...commits].join('\n') });
     for (const value of lines(log).flatMap((l) => l.split(','))) if (SESSION_ID.test(value.trim())) ids.add(value.trim());
-    // Without trailers (--no-trailers, commits from before the hooks): a Claude Code session that saw the commit as HEAD.
+    // Without trailers (--no-trailers, commits from before the hooks): a session (not Codex's) that saw the commit as HEAD.
     for (const name of files(dir).filter((f) => f.endsWith('.json'))) {
         const state = readSnapshots(name.slice(0, -5), dir);
         if (state?.root && samePath(state.root, root) && state.snapshots.some((s) => s.head && commits.has(s.head))) ids.add(state.session_id);
     }
 
-    return [...ids].map((id) => ({ id, agent: findTranscript(id) ? 'claude-code' : findRollout(id) ? 'codex' : null })).filter((s) => s.agent);
+    return [...ids].map((id) => ({ id, agent: agentOfSession(id) })).filter((s) => s.agent);
 }
 
 const samePath = (a, b) => (process.platform === 'win32' ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b));

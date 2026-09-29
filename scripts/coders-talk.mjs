@@ -86,7 +86,7 @@ import { runGitHook } from './lib/githooks.mjs';
 import { detectAgents, forgetMcpNeedsAuth, installedPlugins } from './lib/agents.mjs';
 import { AGENTS as USE_AGENTS, FORMATS as USE_FORMATS, agentOf, buildSlug, findBlock, lineDiff, projectRoot, readUses, recordUse, ruleTarget, shown, skillName, withBlock, writeText } from './lib/playbooks.mjs';
 import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
-import { request } from './lib/http.mjs';
+import { proxyFor, request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
 import { nudgeOn, setNudge } from './lib/nudge.mjs';
 import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, findRollout, findTranscript, formatBytes, formatDuration, isCodexPrompt, promptText, summarize } from './lib/session.mjs';
@@ -609,7 +609,9 @@ async function login() {
     savePendingLogin(pending);
 
     // Over SSH the browser would open on the wrong computer, if at all: the person opens the link where they are.
-    if (env.SSH_CONNECTION && !env.DISPLAY && process.platform !== 'win32') {
+    // Claude Code on the web runs in a container with no browser: the person opens the link on their own device.
+    const remote = (env.SSH_CONNECTION || env.CLAUDE_CODE_REMOTE === 'true') && !env.DISPLAY && process.platform !== 'win32';
+    if (remote) {
         console.log(`Open ${codes.verification_url ?? pending.url} in a browser, sign in, enter the code ${pending.user_code} and press Connect.`);
     } else {
         openBrowser(pending.url);
@@ -1570,9 +1572,14 @@ async function api(method, path, body, authorized = true, timeoutMs = null) {
         if (CODEX && denied(e)) {
             throw new Failure(`Network access to ${site} was denied. Run the same command again with network access (approve the request when Codex asks).`);
         }
+        if (e.code === 'EPROXYREFUSED') throw proxyRefused(e.status);
         throw unavailable(`Could not reach ${site}: ${e.cause?.message ?? e.message}`);
     }
 
+    // The site always answers in JSON: a 403 or 407 in anything else came from the proxy on the way.
+    if ([403, 407].includes(response.status) && proxyFor(site + path, env) && !(response.headers.get('content-type') ?? '').includes('json')) {
+        throw proxyRefused(response.status);
+    }
     const data = await response.json().catch(() => ({}));
     if (response.ok) return data;
 
@@ -1593,6 +1600,20 @@ function retryAfter(value) {
     if (seconds < 120) return `${seconds} second${seconds === 1 ? '' : 's'}`;
 
     return `${Math.ceil(seconds / 60)} minutes`;
+}
+
+/**
+ * The proxy the environment names would not let the site through. Claude Code on the web lets a session reach only
+ * the domains its environment allows, and coders.talk is not among the defaults. Trying again later can help once
+ * it is allowed, so auto mode keeps the session.
+ */
+function proxyRefused(status) {
+    const host = new URL(site).host;
+    const fix = env.CLAUDE_CODE_REMOTE === 'true'
+        ? `In Claude Code on the web, set the environment's network access to Custom with ${host} among the allowed domains, then run this again (in a new session if it still says this).`
+        : `Ask whoever runs that proxy to let ${host} through, or add ${host} to NO_PROXY if it can be reached directly.`;
+
+    return unavailable(`The network here does not let ${site} through: its proxy answered ${status}. ${fix}`);
 }
 
 /** The request did not go through for reasons on the way or on the server's side, not because of what was sent. */

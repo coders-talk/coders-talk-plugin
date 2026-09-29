@@ -55,6 +55,27 @@ Start a new session, then `$coders-talk:login` and `$coders-talk:build` (the sam
 
 One repository serves both agents: Claude Code reads `.claude-plugin/` and `skills/`, Codex reads `.codex-plugin/`, `.agents/plugins/marketplace.json`, `codex/skills/` and `codex/hooks.json` (its manifest points there, so Codex never picks up `hooks/hooks.json`; the same scripts run with `--agent=codex`). Codex does not expand `${CLAUDE_PLUGIN_ROOT}` or `${CLAUDE_SESSION_ID}` in skills, so its skills give the script path relative to the skill file and pass `--agent=codex`.
 
+### Claude Code on the web
+
+A session on claude.ai/code keeps its whole transcript in its cloud container (`~/.claude/projects/…` there). Teleporting it to your computer brings only the part after its last compaction, so `/coders-talk:build` there sends a long session without its beginning. Send it from the cloud session instead:
+
+1. Name the plugin in the repository's `.claude/settings.json` and push it; cloud sessions started after that install it:
+
+   ```json
+   {
+     "extraKnownMarketplaces": {
+       "coders-talk": { "source": { "source": "github", "repo": "coders-talk/coders-talk-plugin" } }
+     },
+     "enabledPlugins": { "coders-talk@coders-talk": true }
+   }
+   ```
+
+2. In the environment's settings, set Network access to Custom and add `coders.talk`. The session reaches the site through the environment's proxy; while the domain is not allowed, the plugin says the proxy refused it and what to change (it knows the cloud by `CLAUDE_CODE_REMOTE=true`).
+3. `/coders-talk:login`: with no browser in the container it prints the link and the code to open on any device. The token stays in that container's `~/.coders-talk`; a new cloud session may ask again.
+4. `/coders-talk:build`.
+
+The proxy there looks inside TLS with its own CA. The plugin trusts it from `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, the system store (Node 22.15 and newer) or `~/.ccr/ca-bundle.crt`, where Claude Code on the web keeps it, on top of Node's own CAs and `NODE_EXTRA_CA_CERTS`.
+
 ## Use
 
 | Command | What it does |

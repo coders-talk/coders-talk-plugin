@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request as forward } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
 import { connect } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { proxyFor, request } from '../scripts/lib/http.mjs';
+import { proxyFor, request, trusted } from '../scripts/lib/http.mjs';
 
 const fixtures = join(fileURLToPath(new URL('.', import.meta.url)), 'fixtures');
 const ca = readFileSync(join(fixtures, 'tls-cert.pem'));
@@ -138,6 +139,9 @@ test('proxy credentials from the URL are sent, and a refusal names the proxy wit
         const refused = await request(`${siteUrl}/api/v1/me`, {}, { env: { HTTPS_PROXY: proxyUrl }, ca }).catch((e) => e);
         assert.ok(refused instanceof Error);
         assert.match(refused.message, /the proxy answered 407 to CONNECT localhost:\d+ \(through the proxy 127\.0\.0\.1:\d+\)/);
+        // The caller tells a refusal from a network that is down by these.
+        assert.equal(refused.code, 'EPROXYREFUSED');
+        assert.equal(refused.status, 407);
 
         const withAuth = proxyUrl.replace('http://', `http://mara:${encodeURIComponent('s3cr#t')}@`);
         const ok = await request(`${siteUrl}/api/v1/me`, { headers: { Authorization: 'Bearer good' } }, { env: { HTTPS_PROXY: withAuth }, ca });
@@ -147,6 +151,34 @@ test('proxy credentials from the URL are sent, and a refusal names the proxy wit
         assert.doesNotMatch(wrong.message, /nope/);
     } finally {
         auth = null;
+    }
+});
+
+test('a proxy that looks inside TLS is trusted through the CA file the environment names', async () => {
+    const cert = join(fixtures, 'tls-cert.pem');
+    const env = { HTTPS_PROXY: proxyUrl };
+    // The test site's own certificate stands in for the proxy's CA: without it the tunnel does not trust the site.
+    const untrusted = await request(`${siteUrl}/api/v1/me`, {}, { env }).catch((e) => e);
+    assert.ok(untrusted instanceof Error);
+
+    for (const name of ['SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE']) {
+        const response = await request(`${siteUrl}/api/v1/me`, { headers: { Authorization: 'Bearer good' } }, { env: { ...env, [name]: cert } });
+        assert.equal(response.status, 202, name);
+    }
+});
+
+test("the CA Claude Code on the web keeps in ~/.ccr is trusted, on top of Node's own", () => {
+    const home = mkdtempSync(join(tmpdir(), 'ct-ccr-'));
+    try {
+        mkdirSync(join(home, '.ccr'));
+        writeFileSync(join(home, '.ccr', 'ca-bundle.crt'), ca);
+        const list = trusted({}, home);
+        assert.ok(list.includes(ca.toString('utf8')));
+        assert.ok(list.length > 100, "Node's own CAs stay in the list");
+        // A file named but missing adds nothing and breaks nothing.
+        assert.ok(trusted({ SSL_CERT_FILE: join(home, 'missing.pem') }, home).includes(ca.toString('utf8')));
+    } finally {
+        rmSync(home, { recursive: true, force: true });
     }
 });
 

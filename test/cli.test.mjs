@@ -846,6 +846,23 @@ test('with HTTP_PROXY set the requests go through the proxy', async () => {
     }
 });
 
+test('a proxy that refuses the site says how to let it through, in Claude Code on the web too', async () => {
+    // What Claude Code on the web's proxy does with a domain its environment does not allow.
+    const proxy = createServer((req, res) => res.writeHead(403, { 'Content-Type': 'text/plain' }).end('host not allowed'));
+    await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+    try {
+        const HTTP_PROXY = `http://127.0.0.1:${proxy.address().port}`;
+        const plain = await cli(['whoami'], { HTTP_PROXY });
+        assert.equal(plain.ok, false);
+        assert.match(plain.out, /does not let http:\/\/127\.0\.0\.1:\d+ through: its proxy answered 403\. Ask whoever runs that proxy/, plain.out);
+
+        const web = await cli(['whoami'], { HTTP_PROXY, CLAUDE_CODE_REMOTE: 'true' });
+        assert.match(web.out, /In Claude Code on the web, set the environment's network access to Custom with 127\.0\.0\.1:\d+ among the allowed domains/, web.out);
+    } finally {
+        proxy.close();
+    }
+});
+
 test('secrets are redacted before anything leaves, and --keep sends a chosen value as it is, by its hash', async () => {
     const sid = 'a1b2c3d4-0000-4000-8000-00000000c0de';
     const token = 'ghp_16C7e42F292c6912E7710c838347Ae178B4a';

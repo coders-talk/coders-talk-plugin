@@ -7,10 +7,18 @@
  * HTTPS_PROXY for https:// sites, HTTP_PROXY for http:// ones, ALL_PROXY for both; lower-case names too. NO_PROXY
  * lists hosts that go direct: "*", a host, ".domain" or "domain" (with its subdomains), an optional ":port".
  * Only http:// and https:// proxies; a socks:// one is left alone and the request goes direct, as before.
+ *
+ * A proxy that looks inside TLS (Claude Code on the web runs every session behind one) signs the site's certificate
+ * with its own CA. The tunnel trusts it when the environment names its file the way other tools read it
+ * (SSL_CERT_FILE, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE), when it is in the system store, or at ~/.ccr/ca-bundle.crt,
+ * where Claude Code on the web keeps it.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { isIP } from 'node:net';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import tls from 'node:tls';
 
 /** The proxy for a URL as a URL, or null for a direct connection. */
@@ -36,12 +44,48 @@ export async function request(target, { method = 'GET', headers = {}, body, sign
     if (!proxy) return fetch(target, { method, headers, body, signal });
 
     try {
-        return await throughProxy(new URL(target), proxy, { method, headers, body, signal }, ca);
+        return await throughProxy(new URL(target), proxy, { method, headers, body, signal }, ca ?? trusted(env));
     } catch (e) {
         if (e.name === 'AbortError' || e.name === 'TimeoutError') throw e;
-        // No credentials in the message: only the proxy's host and port. The code stays for callers that look at it.
-        throw Object.assign(new Error(`${e.message} (through the proxy ${proxy.host})`), { code: e.code });
+        // No credentials in the message: only the proxy's host and port. The code and status stay for callers.
+        throw Object.assign(new Error(`${e.message} (through the proxy ${proxy.host})`), { code: e.code, status: e.status });
     }
+}
+
+/**
+ * What the tunnel trusts: Node's own CAs (NODE_EXTRA_CA_CERTS included) plus the system store and the files named
+ * above, or undefined, Node's defaults, when there is nothing to add. Passing `ca` replaces Node's list, so it
+ * goes in too.
+ */
+export function trusted(env = process.env, home = homedir()) {
+    const key = JSON.stringify([env.SSL_CERT_FILE, env.REQUESTS_CA_BUNDLE, env.CURL_CA_BUNDLE, env.NODE_EXTRA_CA_CERTS, home]);
+    if (!trustedCache.has(key)) trustedCache.set(key, readTrusted(env, home));
+
+    return trustedCache.get(key);
+}
+
+// Read once per process: the system store can hold hundreds of certificates.
+const trustedCache = new Map();
+
+function readTrusted(env, home) {
+    const read = (file) => {
+        try {
+            return file && existsSync(file) ? [readFileSync(file, 'utf8')] : [];
+        } catch {
+            return [];
+        }
+    };
+    const files = [...new Set([env.SSL_CERT_FILE, env.REQUESTS_CA_BUNDLE, env.CURL_CA_BUNDLE, join(home, '.ccr', 'ca-bundle.crt')])].flatMap(read);
+    let system = [];
+    try {
+        // Node 22.15 and 23.10 on; older ones cannot read it.
+        system = tls.getCACertificates?.('system') ?? [];
+    } catch {
+        // No system store to read here.
+    }
+    if (!files.length && !system.length) return undefined;
+
+    return [...tls.rootCertificates, ...system, ...read(env.NODE_EXTRA_CA_CERTS), ...files];
 }
 
 async function throughProxy(url, proxy, { method, headers, body, signal }, ca) {
@@ -96,7 +140,7 @@ function tunnel(proxy, url, signal) {
         req.on('connect', (response, socket) => {
             if (response.statusCode === 200) return resolve(socket);
             socket.destroy();
-            reject(new Error(`the proxy answered ${response.statusCode} to CONNECT ${authority}`));
+            reject(Object.assign(new Error(`the proxy answered ${response.statusCode} to CONNECT ${authority}`), { code: 'EPROXYREFUSED', status: response.statusCode }));
         });
         req.on('error', reject);
         req.end();

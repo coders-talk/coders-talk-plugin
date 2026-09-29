@@ -3,7 +3,7 @@
 // slim/cursor.jsonl), put where each agent keeps its own.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,7 +25,8 @@ const TOKEN = `ct_${'k'.repeat(48)}`;
 const PI_ID = '01a0ed05-ee3a-74a4-8c57-1e6429fcfed1';
 const CURSOR_ID = '3afce6f6-b0c9-4da6-a2c8-467f0e2f9a10';
 
-const home = mkdtempSync(join(tmpdir(), 'ct-pc-'));
+// Resolved, as the CLI's process.cwd() is: macOS's temp folder is a symlink (/var -> /private/var).
+const home = realpathSync(mkdtempSync(join(tmpdir(), 'ct-pc-')));
 const work = join(home, 'work', 'shop');
 const temp = join(home, 'tmp');
 mkdirSync(work, { recursive: true });

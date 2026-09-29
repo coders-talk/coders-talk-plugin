@@ -291,5 +291,14 @@
             "STRIPE_KEY",
             "EMAIL"
         ]
+    },
+    {
+        "name": "presigned storage link",
+        "text": "send --upload=\"https://0123456789abcdef.r2.cloudflarestorage.com/coders-talk/cloud-uploads/abc.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=a1b2c3d4e5f6%2F20260929%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260929T100000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"",
+        "redacted": "send --upload=\"https://0123456789abcdef.r2.cloudflarestorage.com/coders-talk/cloud-uploads/abc.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=[REDACTED:SIGNED_URL]&X-Amz-Date=20260929T100000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=[REDACTED:SIGNED_URL]\"",
+        "types": [
+            "SIGNED_URL",
+            "SIGNED_URL"
+        ]
     }
 ]

@@ -1,6 +1,6 @@
 // Generated from coders.talk resources/js/lib/privacyScan.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:8730aaf653929f9ab6bb977d894d205dd03b65ddf3eae7bd41378063009602fc
+// sha256:7c6f350363570b8ab2e80dc2beebb0c0f635fffea2f7686858b7ea3544f81a17
 
 /**
  * The privacy check that runs where the session lives (plan: local-first privacy, stage 2): in the browser before an
@@ -31,6 +31,7 @@ const RULES = [
     { type: 'SENDGRID_KEY', pattern: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g },
     { type: 'NPM_TOKEN', pattern: /\bnpm_[A-Za-z0-9]{36}\b/g },
     { type: 'CODERS_TALK_TOKEN', pattern: /\bct_[A-Za-z0-9]{48}\b/g },
+    { type: 'SIGNED_URL', pattern: /\bX-(?:Amz|Goog)-(?:Credential|Signature|Security-Token)=([^\s&"'<>]+)/g, group: 1 },
     { type: 'JWT', pattern: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
     { type: 'DATABASE_URL', pattern: /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|mssql|sqlserver):\/\/[^\s:@/"'[\]]*:[^\s@/"'[\]]+@[^\s"'<>]*[^\s"'<>.,;:)\]]/gi },
     { type: 'URL_PASSWORD', pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/"'[\]]+:([^\s@/"'[\]]+)@/gi, group: 1 },
@@ -190,6 +191,7 @@ export const PRIVACY_LABELS = {
     SENDGRID_KEY: 'SendGrid key',
     NPM_TOKEN: 'npm token',
     CODERS_TALK_TOKEN: 'coders.talk token',
+    SIGNED_URL: 'signature of a signed storage link',
     JWT: 'JWT',
     DATABASE_URL: 'connection string with a password',
     URL_PASSWORD: 'password in a URL',

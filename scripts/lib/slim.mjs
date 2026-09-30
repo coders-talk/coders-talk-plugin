@@ -1,6 +1,6 @@
 // Generated from coders.talk resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:205513a3122e49aa8497144dfb611169bc4928fa1200e83cf53759e672117e00
+// sha256:02c473322af9c522fcd0de5add75514a694b6638edce6ad0444285ba092bcc56
 
 /**
  * Claude Code and Codex sessions are mostly weight nobody reads: screenshots as base64, whole files
@@ -957,13 +957,40 @@ function learnFolders(d, type, payload, ctx) {
     const main = ctx.cwd ? norm(ctx.cwd) : '';
     return { type: 'folders', ...('timestamp' in d ? { timestamp: d.timestamp } : {}), main: main && !bare(main) ? lastParts(main, 1) : null, added: labels };
 }
+/** An effort as the agents name it ("high", "xhigh", Pi's "off"); null for anything else. */
+function effortName(value) {
+    const name = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return /^[a-z][a-z0-9_-]{0,19}$/.test(name) ? name : null;
+}
+/**
+ * Learns the effort the model runs at from the lines that name it: Claude Code's assistant lines (a subagent's say its
+ * own), Codex's turn_context, Pi's thinking_level_change, and a line slimmed before. A new one is told on the next kept
+ * line as effort, so the server knows from which turn on it held.
+ */
+function learnEffort(d, type, payload, ctx) {
+    const effort = effortName(type === 'turn_context' ? payload?.effort : type === 'thinking_level_change' ? d.thinkingLevel : d.isSidechain === true ? null : d.effort);
+    if (effort === null || effort === ctx.effort)
+        return;
+    ctx.effort = effort;
+    ctx.effortTold = false;
+}
 /**
  * One session line, slimmed; null when nothing in it is kept. The plugin streams big files through this, passing the
- * same ctx for every line of a session: it learns the session's folders from the lines that carry them.
+ * same ctx for every line of a session: it learns the session's folders and the model's effort from the lines that
+ * carry them.
  */
 export function slimLine(d, ctx = {}) {
     const type = d.type;
     const payload = d.payload && typeof d.payload === 'object' && !Array.isArray(d.payload) ? d.payload : null;
+    learnEffort(d, type, payload, ctx);
+    const slim = slimKept(d, type, payload, ctx);
+    if (slim && ctx.effort !== undefined && !ctx.effortTold) {
+        slim.effort = ctx.effort;
+        ctx.effortTold = true;
+    }
+    return slim;
+}
+function slimKept(d, type, payload, ctx) {
     const folders = learnFolders(d, type, payload, ctx);
     if (folders)
         return folders;

@@ -112,7 +112,7 @@ const server = createServer((req, res) => {
             }
             polls++;
             return reply(200, polls < 2
-                ? { status: 'running', stage: 'labeling', ...links }
+                ? { status: 'running', stage: 'labeling', result: { label_part_count: 3 }, ...links }
                 : { status: 'done', stage: null, result: { turns: 9, secrets: 1, warnings: 0, moments_created: true, label_error: null }, ...links });
         }
         reply(404, { error: { code: 'not_found', message: 'Not found.' } });
@@ -278,6 +278,7 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.match(send.out, /Review and publish: /);
     assert.match(send.out, /Linked as the next part of the series "Rate limits": http:\/\/127\.0\.0\.1:\d+\/s\/rate-limits/);
     assert.match(send.out, /Proposing moments/);
+    assert.match(send.out, /This session is long, so the model reads it in 3 parts .* about 4 minutes/);
     assert.match(send.out, /Imported 9 turns, with suggested moments/);
     assert.match(send.out, /The site's own check redacted 1 more possible secret/);
 

@@ -571,6 +571,9 @@ async function send(id) {
         if (state.stage && state.stage !== stage) {
             stage = state.stage;
             console.log(`  ${STAGES[stage] ?? stage}…`);
+            // A long session is read in parts and then put together on the site, about a minute each.
+            const parts = state.result?.label_part_count;
+            if (stage === 'labeling' && parts > 1) console.log(`  This session is long, so the model reads it in ${parts} parts and then puts one timeline together: it takes about ${parts + 1} minutes.`);
         }
     }
 

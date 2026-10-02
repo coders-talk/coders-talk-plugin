@@ -25,6 +25,6 @@ Auto mode sends each Claude Code session on this computer to Coders Talk by itse
 Rules:
 
 - Run only one of those commands. Do not check the site, read files, or run anything else on your own.
-- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or `~/.claude/.credentials.json`.
+- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or the agent's own sign-in files.
 - If the user wrote something other than `on`, `team`, `push`, `off`, `session`, `session on` or `session off`, run the second command without a mode and show them the result.
 - If the script says this computer is not connected, tell the user to run /coders-talk:login first. Never ask for a token in the chat.

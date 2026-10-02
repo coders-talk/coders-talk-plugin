@@ -43,7 +43,7 @@ Send the current session to Coders Talk as a draft. Nothing gets published here:
 Rules:
 
 - Run the commands exactly as written, even if something looks unset: the script finds the site address and the sign-in by itself. Do not check the site, search, or run anything else on your own.
-- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or `~/.claude/.credentials.json`. Everything you print becomes part of the session that is being sent.
+- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or the agent's own sign-in files. Everything you print becomes part of the session that is being sent.
 - Do not open the session file or summarise the conversation yourself; the script prepares, checks and sends it.
 - Never repeat, guess or complete the value behind a finding the privacy check listed: what you print becomes part of the session.
 - If `node` is not found, tell the user the plugin needs Node.js 20 or newer, and that they can upload the session at https://coders.talk/new instead.

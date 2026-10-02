@@ -34,7 +34,7 @@ In the commands below, `<plugin>` is the absolute path of the plugin folder: thi
 Rules:
 
 - Run the commands as written, only with `<plugin>` filled in: the script finds the session, the site address and the sign-in by itself. Do not check the site, search, or run anything else on your own.
-- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or `~/.codex/auth.json`. Everything you print becomes part of the session that is being sent.
+- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or the agent's own sign-in files. Everything you print becomes part of the session that is being sent.
 - Do not open the session file or summarise the conversation yourself; the script prepares and sends it.
 - If `node` is not found, tell the user the plugin needs Node.js 20 or newer, and that they can upload the session at https://coders.talk/new instead.
 - If the script says this computer is not connected, or the token was not accepted, tell the user to run $coders-talk:login first (it signs in through the browser). Never ask for a token in the chat.

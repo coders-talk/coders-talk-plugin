@@ -26,6 +26,6 @@ In the commands below, `<plugin>` is the absolute path of the plugin folder: thi
 Rules:
 
 - Run only one of those commands, with `<plugin>` filled in. Do not check the site, read files, trust hooks for the user or run anything else on your own.
-- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or `~/.codex/auth.json`.
+- Never read, print or search for the Coders Talk token, `~/.coders-talk/credentials.json`, environment variables or the agent's own sign-in files.
 - If the user wrote something other than `on`, `team`, `push`, `off`, `session`, `session on` or `session off`, run the second command without a mode and show them the result.
 - If the script says this computer is not connected, tell the user to run $coders-talk:login first. Never ask for a token in the chat.

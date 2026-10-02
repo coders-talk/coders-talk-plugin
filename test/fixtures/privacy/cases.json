@@ -1,7 +1,7 @@
 [
     {
         "name": "aws access key",
-        "text": "aws_access_key_id = AKIA2E0A8F3B244C9986",
+        "text": "aws_access_key_id = AKIA<fake>2E0A8F<fake>3B244C9986",
         "redacted": "aws_access_key_id = [REDACTED:AWS_ACCESS_KEY]",
         "types": [
             "AWS_ACCESS_KEY"
@@ -9,7 +9,7 @@
     },
     {
         "name": "aws secret key",
-        "text": "aws_secret_access_key = Zq3Vt8Lr/Ny5Wp2Ks9Hd+Jf4Gb7Mc1Xa6Ue0Qo3T",
+        "text": "aws_secret_access_key = Zq3V<fake>t8Lr/Ny5Wp2Ks9Hd<fake>+Jf4Gb7Mc1Xa6Ue0Qo3T",
         "redacted": "aws_secret_access_key = [REDACTED:AWS_SECRET_KEY]",
         "types": [
             "AWS_SECRET_KEY"
@@ -17,7 +17,7 @@
     },
     {
         "name": "gcp api key",
-        "text": "const key = \"AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY\"",
+        "text": "const key = \"AIza<fake>SyD-9tSrke72Pou<fake>QMnMX-a7eZSW0jkFMBWY\"",
         "redacted": "const key = \"[REDACTED:GCP_API_KEY]\"",
         "types": [
             "GCP_API_KEY"
@@ -25,7 +25,7 @@
     },
     {
         "name": "stripe live key",
-        "text": "Stripe.api_key = \"sk_live_51H8xYzAbCdEfGhIjKlMnOpQr\"",
+        "text": "Stripe.api_key = \"sk_l<fake>ive_51H8xYzA<fake>bCdEfGhIjKlMnOpQr\"",
         "redacted": "Stripe.api_key = \"[REDACTED:STRIPE_KEY]\"",
         "types": [
             "STRIPE_KEY"
@@ -33,7 +33,7 @@
     },
     {
         "name": "stripe webhook secret",
-        "text": "endpoint secret whsec_5a8f9e2b1c3d4e6f7a8b9c0d1e2f3a4b",
+        "text": "endpoint secret whse<fake>c_5a8f9e2b1c3d4<fake>e6f7a8b9c0d1e2f3a4b",
         "redacted": "endpoint secret [REDACTED:STRIPE_KEY]",
         "types": [
             "STRIPE_KEY"
@@ -41,7 +41,7 @@
     },
     {
         "name": "openai project key",
-        "text": "OPENAI: sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh3iJk6lMn9o",
+        "text": "OPENAI: sk-p<fake>roj-Ab3dEf6hIj9kLm2nOp5qRs<fake>8tUv1wXy4zAb7cDe0fGh3iJk6lMn9o",
         "redacted": "OPENAI: [REDACTED:OPENAI_KEY]",
         "types": [
             "OPENAI_KEY"
@@ -49,7 +49,7 @@
     },
     {
         "name": "anthropic key",
-        "text": "x-api-key: sk-ant-api03-q8Zk3LmN5pR7tV9wX1yA3bC5dE7fG9hJ1kL3mN5pQ7rS9tU1vW3xY5zA7bC9dE1fG3hJ5kL7mN9pQ1rS3tU5vW7xY9zA1bC3dE5fAA",
+        "text": "x-api-key: sk-a<fake>nt-api03-q8Zk3LmN5pR7tV9wX1yA3bC5dE7fG9hJ1kL3mN5pQ7rS<fake>9tU1vW3xY5zA7bC9dE1fG3hJ5kL7mN9pQ1rS3tU5vW7xY9zA1bC3dE5fAA",
         "redacted": "x-api-key: [REDACTED:ANTHROPIC_KEY]",
         "types": [
             "ANTHROPIC_KEY"
@@ -57,7 +57,7 @@
     },
     {
         "name": "github classic token",
-        "text": "git remote set-url origin https://ghp_16C7e42F292c6912E7710c838347Ae178B4a@github.com/x/y",
+        "text": "git remote set-url origin https://ghp_<fake>16C7e42F292c6912<fake>E7710c838347Ae178B4a@github.com/x/y",
         "redacted": "git remote set-url origin https://[REDACTED:GITHUB_TOKEN]@github.com/x/y",
         "types": [
             "GITHUB_TOKEN"
@@ -65,7 +65,7 @@
     },
     {
         "name": "github fine-grained token",
-        "text": "token: github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV",
+        "text": "token: gith<fake>ub_pat_11ABCDEFG0123456789_abcdefgh<fake>ijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV",
         "redacted": "token: [REDACTED:GITHUB_TOKEN]",
         "types": [
             "GITHUB_TOKEN"
@@ -73,7 +73,7 @@
     },
     {
         "name": "slack bot token",
-        "text": "SLACK=xoxb-1234567890123-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
+        "text": "SLACK=xoxb<fake>-1234567890123-123456789<fake>0123-AbCdEfGhIjKlMnOpQrStUvWx",
         "redacted": "SLACK=[REDACTED:SLACK_TOKEN]",
         "types": [
             "SLACK_TOKEN"
@@ -81,7 +81,7 @@
     },
     {
         "name": "slack webhook",
-        "text": "curl https://hooks.slack.com/services/T00000000/B00000000/T4k9Qm2Lp7Xw1Zr8Vn3Bc6Hs",
+        "text": "curl https://hooks.slack.com/services/T00000000/B00000000/T4k9<fake>Qm2Lp7Xw<fake>1Zr8Vn3Bc6Hs",
         "redacted": "curl [REDACTED:SLACK_TOKEN]",
         "types": [
             "SLACK_TOKEN"
@@ -89,7 +89,7 @@
     },
     {
         "name": "jwt",
-        "text": "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+        "text": "Authorization: Bearer eyJh<fake>bGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0N<fake>TY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
         "redacted": "Authorization: Bearer [REDACTED:JWT]",
         "types": [
             "JWT"
@@ -97,7 +97,7 @@
     },
     {
         "name": "rsa private key",
-        "text": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy0AHB7MaFwEpN3\n-----END RSA PRIVATE KEY-----",
+        "text": "----<fake>-BEGIN RSA <fake>PRIVATE KEY-----\nMIIE<fake>pAIBAAKCAQEA0Z3VS5JJcds3<fake>xfn/ygWyF8PbnGy0AHB7MaFwEpN3\n-----END RSA PRIVATE KEY-----",
         "redacted": "[REDACTED:PRIVATE_KEY]",
         "types": [
             "PRIVATE_KEY"
@@ -105,7 +105,7 @@
     },
     {
         "name": "openssh private key",
-        "text": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n-----END OPENSSH PRIVATE KEY-----",
+        "text": "----<fake>-BEGIN OPENSS<fake>H PRIVATE KEY-----\nb3Bl<fake>bnNzaC1rZXktdjEAAAAABG5vbmUAAAA<fake>Ebm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n-----END OPENSSH PRIVATE KEY-----",
         "redacted": "[REDACTED:PRIVATE_KEY]",
         "types": [
             "PRIVATE_KEY"
@@ -113,7 +113,7 @@
     },
     {
         "name": "postgres url",
-        "text": "DATABASE_URL=postgres://app:s3cr3tPassw0rd@db.internal:5432/app",
+        "text": "DATABASE_URL=postgres://app:s3cr<fake>3tP<fake>assw0rd@db.internal:5432/app",
         "redacted": "DATABASE_URL=[REDACTED:DATABASE_URL]",
         "types": [
             "DATABASE_URL"
@@ -121,7 +121,7 @@
     },
     {
         "name": "mongodb url",
-        "text": "mongodb+srv://admin:hunter2hunter2@cluster0.ab1cd.mongodb.net/prod",
+        "text": "mongodb+srv://admin:hunt<fake>er2<fake>hunter2@cluster0.ab1cd.mongodb.net/prod",
         "redacted": "[REDACTED:DATABASE_URL]",
         "types": [
             "DATABASE_URL"
@@ -129,7 +129,7 @@
     },
     {
         "name": "env secret",
-        "text": "APP_SECRET=9f86d081884c7d659a2feaa0c55ad015",
+        "text": "APP_SECRET=9f86<fake>d081884c7d65<fake>9a2feaa0c55ad015",
         "redacted": "APP_SECRET=[REDACTED:SECRET_ASSIGNMENT]",
         "types": [
             "SECRET_ASSIGNMENT"
@@ -137,7 +137,7 @@
     },
     {
         "name": "env token",
-        "text": "SENTRY_AUTH_TOKEN=\"sntrys_eyJpYXQiOjE3MDA\"",
+        "text": "SENTRY_AUTH_TOKEN=\"sntr<fake>ys_eyJp<fake>YXQiOjE3MDA\"",
         "redacted": "SENTRY_AUTH_TOKEN=\"[REDACTED:SECRET_ASSIGNMENT]\"",
         "types": [
             "SECRET_ASSIGNMENT"
@@ -145,7 +145,7 @@
     },
     {
         "name": "sendgrid key",
-        "text": "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",
+        "text": "SG.n<fake>geVfQFYQlKU0ufo8x5d1A.TwL2iGAB<fake>f9DHoTf-09kqeF8tAmbihYzrnopKc-1s5cr",
         "redacted": "[REDACTED:SENDGRID_KEY]",
         "types": [
             "SENDGRID_KEY"
@@ -153,7 +153,7 @@
     },
     {
         "name": "npm token",
-        "text": "//registry.npmjs.org/:_authToken=npm_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
+        "text": "//registry.npmjs.org/:_authToken=npm_<fake>a1B2c3D4e5F6g7H8<fake>i9J0k1L2m3N4o5P6q7R8",
         "redacted": "//registry.npmjs.org/:_authToken=[REDACTED:NPM_TOKEN]",
         "types": [
             "NPM_TOKEN"
@@ -236,7 +236,7 @@
     },
     {
         "name": "url password and redis",
-        "text": "Clone https://mara:Tk7fQ2pLw9@git.acme.io/shop.git. Redis is at redis://:s3cr3tPw@10.0.0.9:6379.",
+        "text": "Clone https://mara:Tk7f<fake>Q<fake>2pLw9@git.acme.io/shop.git. Redis is at redis://:s3cr<fake><fake>3tPw@10.0.0.9:6379.",
         "redacted": "Clone https://mara:[REDACTED:URL_PASSWORD]@git.acme.io/shop.git. Redis is at [REDACTED:DATABASE_URL].",
         "types": [
             "DATABASE_URL",
@@ -268,7 +268,7 @@
     },
     {
         "name": "json tool input",
-        "text": "{\"command\":\"export GITHUB_TOKEN=ghp_16C7e42F292c6912E7710c838347Ae178B4a && gh pr list\",\"description\":\"List PRs\"}",
+        "text": "{\"command\":\"export GITHUB_TOKEN=ghp_<fake>16C7e42F292c6912<fake>E7710c838347Ae178B4a && gh pr list\",\"description\":\"List PRs\"}",
         "redacted": "{\"command\":\"export GITHUB_TOKEN=[REDACTED:GITHUB_TOKEN] && gh pr list\",\"description\":\"List PRs\"}",
         "types": [
             "GITHUB_TOKEN"
@@ -276,7 +276,7 @@
     },
     {
         "name": "json with escapes",
-        "text": "{\"content\":\"DB_PASSWORD=Xk29fLq7Vp3mZw81\\nAPP_URL=http://shop.local\"}",
+        "text": "{\"content\":\"DB_PASSWORD=Xk29<fake>fLq7<fake>Vp3mZw81\\nAPP_URL=http://shop.local\"}",
         "redacted": "{\"content\":\"DB_PASSWORD=[REDACTED:SECRET_ASSIGNMENT]\"}",
         "types": [
             "SECRET_ASSIGNMENT"
@@ -284,7 +284,7 @@
     },
     {
         "name": "two of a kind",
-        "text": "first sk_live_51H8xQ2pLw9Tk7fZmR4vN, again sk_live_51H8xQ2pLw9Tk7fZmR4vN and mail a.b@acme.io",
+        "text": "first sk_l<fake>ive_51H8xQ<fake>2pLw9Tk7fZmR4vN, again sk_l<fake>ive_51H8xQ<fake>2pLw9Tk7fZmR4vN and mail a.b@acme.io",
         "redacted": "first [REDACTED:STRIPE_KEY], again [REDACTED:STRIPE_KEY] and mail [REDACTED:EMAIL]",
         "types": [
             "STRIPE_KEY",
@@ -294,7 +294,7 @@
     },
     {
         "name": "presigned storage link",
-        "text": "send --upload=\"https://0123456789abcdef.r2.cloudflarestorage.com/coders-talk/cloud-uploads/abc.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=a1b2c3d4e5f6%2F20260929%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260929T100000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"",
+        "text": "send --upload=\"https://0123456789abcdef.r2.cloudflarestorage.com/coders-talk/cloud-uploads/abc.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=a1b2<fake>c3<fake>d4e5f6%2F20260929%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260929T100000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=0123<fake>456789abcdef0123456789abcdef<fake>0123456789abcdef0123456789abcdef\"",
         "redacted": "send --upload=\"https://0123456789abcdef.r2.cloudflarestorage.com/coders-talk/cloud-uploads/abc.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=[REDACTED:SIGNED_URL]&X-Amz-Date=20260929T100000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=[REDACTED:SIGNED_URL]\"",
         "types": [
             "SIGNED_URL",

@@ -5,7 +5,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { PrivacyScan } from '../scripts/lib/privacy.mjs';
 
-const cases = JSON.parse(readFileSync(new URL('./fixtures/privacy/cases.json', import.meta.url), 'utf8'));
+// The fake keys there are split by <fake>, so that no file the plugin ships holds a whole one.
+const cases = JSON.parse(readFileSync(new URL('./fixtures/privacy/cases.json', import.meta.url), 'utf8').replaceAll('<fake>', ''));
 
 for (const c of cases) {
     test(`redacts like the site: ${c.name}`, () => {

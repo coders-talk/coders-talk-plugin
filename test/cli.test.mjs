@@ -924,7 +924,8 @@ test('a cloud session goes through the connector: the preview says so, and send 
 
 test('secrets are redacted before anything leaves, and --keep sends a chosen value as it is, by its hash', async () => {
     const sid = 'a1b2c3d4-0000-4000-8000-00000000c0de';
-    const token = 'ghp_16C7e42F292c6912E7710c838347Ae178B4a';
+    // Split like the fake keys in fixtures/privacy/cases.json, so that no file the plugin ships holds a whole one.
+    const token = 'ghp_<fake>16C7e42F292c6912<fake>E7710c838347Ae178B4a'.replaceAll('<fake>', '');
     const file = join(home, 'projects', 'C--code-shop', `${sid}.jsonl`);
     const line = (type, content, at) => JSON.stringify({ type, timestamp: `2026-09-25T10:0${at}:00Z`, cwd: 'C:\\Users\\mara\\code\\shop', message: { role: type, content } });
     writeFileSync(file, [

@@ -8,6 +8,8 @@
         "url": "https://coders.talk"
     },
     "homepage": "https://coders.talk/plugins",
+    "privacyPolicyUrl": "https://coders.talk/privacy",
+    "icon": ".claude-plugin/icon.png",
     "repository": "https://github.com/coders-talk/coders-talk-plugin",
     "license": "MIT",
     "keywords": [

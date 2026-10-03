@@ -114,6 +114,48 @@ export async function findContinuation(id, path, cwd, { env = process.env, now =
     return { session_id: best.id, at: best.at, inherited: best.inherited };
 }
 
+/** The longest chain of continuations followed back from one session. */
+const MAX_CHAIN = 40;
+
+/**
+ * Every session this one continues, oldest first, followed back as far as they can be found: {sessions, continuation}.
+ * A session continued over and over (the context ran out, the Claude app began another) is one piece of work in several
+ * files: each holds the lines it copied from the one before and its own after them, so read in this order, with the
+ * copies left out, they are the whole of it. The Claude app's own list (priorCliSessionIds) gives the order when it is
+ * there; from the oldest of those, and where it says nothing, the uuids do (findContinuation). $continuation is what the
+ * oldest of them continues, that is nothing in the end, or a session further back than could be read.
+ */
+export async function continuationChain(id, path, cwd, options = {}) {
+    const sessions = [];
+    const seen = new Set([id]);
+    const add = (sid, spath) => {
+        if (!spath || seen.has(sid) || sessions.length >= MAX_CHAIN) return false;
+        seen.add(sid);
+        sessions.unshift({ id: sid, path: spath });
+
+        return true;
+    };
+
+    // The app's list is oldest first: the last of it is the one just before this.
+    for (const sid of [...appPredecessors(id, options.env ?? process.env)].reverse()) {
+        const spath = transcriptOf(sid, path);
+        if (spath) add(sid, spath);
+    }
+
+    let oldest = sessions[0] ?? { id, path };
+    let continuation = null;
+    while (sessions.length < MAX_CHAIN) {
+        const found = await continuationOf(oldest.id, oldest.path, cwd ?? null, options);
+        continuation = found;
+        if (!found) break;
+        const spath = transcriptOf(found.session_id, path);
+        if (!spath || !add(found.session_id, spath)) break;
+        oldest = sessions[0];
+    }
+
+    return { sessions, continuation };
+}
+
 /**
  * Whether $theirs is what $own continues: $own starts with lines of theirs, and their own lines, if any, came before
  * $own's. {shared, at, inherited, theirStart} or null. $told: the Claude app said so, only the copy is looked for.
@@ -237,8 +279,13 @@ export function appSessionsDir(env = process.env) {
  * this session as its cliSessionId. Any other shape, no such file, no app: null, and the uuids decide.
  */
 export function appPredecessor(id, env = process.env) {
+    return appPredecessors(id, env).at(-1) ?? null;
+}
+
+/** Every session the Claude app says this one continued, oldest first (priorCliSessionIds as written): [] when it says nothing. */
+export function appPredecessors(id, env = process.env) {
     const dir = appSessionsDir(env);
-    if (!dir || !existsSync(dir)) return null;
+    if (!dir || !existsSync(dir)) return [];
     let found = null;
     const walk = (folder, depth) => {
         if (found) return;
@@ -257,7 +304,7 @@ export function appPredecessor(id, env = process.env) {
                     const meta = JSON.parse(readFileSync(path, 'utf8'));
                     if (meta?.cliSessionId !== id) continue;
                     const prior = Array.isArray(meta.priorCliSessionIds) ? meta.priorCliSessionIds.filter((p) => typeof p === 'string' && SESSION_ID.test(p) && p !== id) : [];
-                    found = prior.at(-1) ?? false;
+                    found = [...new Set(prior)];
                 } catch {
                     // unreadable, or not the format this was written for
                 }
@@ -266,5 +313,5 @@ export function appPredecessor(id, env = process.env) {
     };
     walk(dir, 4);
 
-    return found || null;
+    return found ?? [];
 }

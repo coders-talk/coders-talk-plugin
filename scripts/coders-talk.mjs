@@ -98,7 +98,7 @@ import { nudgeOn, setNudge } from './lib/nudge.mjs';
 import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, formatBytes, formatDuration, isCodexPrompt, newestSessionId, promptText, summarize } from './lib/session.mjs';
 import { currentCursorSession, cursorPrompt, readCursorSidecar, withCursorTimes } from './lib/cursor.mjs';
 import { piPrompt } from './lib/pi.mjs';
-import { continuationOf } from './lib/continuation.mjs';
+import { continuationChain, continuationOf } from './lib/continuation.mjs';
 import { extractTaskKeys } from './lib/grouping.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
 import { PRIVACY_LABELS } from './lib/privacy.mjs';
@@ -320,14 +320,18 @@ async function prepare(id, cut = true) {
 
     // The session this one continues (grouping plan, 24.1): the Claude app copies its lines in, with new session ids.
     const sidecar = CODEX ? null : readSidecar(id);
-    const continued = AGENT.id === 'claude-code' ? await continuationOf(id, path, sidecar?.cwd ?? null) : null;
-    const session = await readSession(path, id, continued?.inherited, AGENT.id === 'cursor' ? readCursorSidecar(id, env) : null);
+    // A session continued over and over is one piece of work in several files: all of them go, oldest first, as one.
+    const chain = AGENT.id === 'claude-code' ? await continuationChain(id, path, sidecar?.cwd ?? null) : null;
+    const earlier = chain?.sessions ?? [];
+    const continued = chain?.continuation ?? null;
+    const session = await readSession(path, id, continued?.inherited, AGENT.id === 'cursor' ? readCursorSidecar(id, env) : null, earlier.map((s) => s.path));
     if (session === null) throw new Failure(`This session file is not in the format ${AGENT.name} writes, so it cannot be sent.`);
     // A fork is a fork: its copied lines say so themselves.
     session.continuation = session.fork ? null : continued ? { session_id: continued.session_id, at: continued.at } : session.continuation;
     const kept = cutOwnCommand(session.lines.join('\n'), { tail: cut }).text;
     // What the git snapshots saw at each turn (Claude Code hooks, lib/snapshots.mjs), put into the session by time.
-    const gitLines = CODEX ? [] : gitChangeLines(id, agentTimes(session.lines));
+    const times = agentTimes(session.lines);
+    const gitLines = CODEX ? [] : [...earlier, { id }].flatMap((s) => gitChangeLines(s.id, times));
     // The privacy check, on this computer: what leaves is the checked text, and the values found never do.
     const privacy = privacyScan();
     const slim = privacy.jsonl(withGitLines(kept.split('\n'), gitLines).join('\n'));
@@ -358,7 +362,7 @@ async function prepare(id, cut = true) {
     // Commit titles only when HEAD at the start is known: an estimated start takes in every commit since, other work's too.
     const taskKeys = extractTaskKeys([...session.prompts, ...(git?.head_start_estimated ? [] : git?.commits?.subjects ?? [])]);
 
-    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library, project, continuation: session.continuation, title, taskKeys };
+    return { session, slim, stats, gz, git, gitFolders, usage: session.usage, privacy, fork: session.fork, library: session.library, project, continuation: session.continuation, title, taskKeys, earlier: earlier.map((e) => e.id) };
 }
 
 async function preview(id) {
@@ -368,7 +372,7 @@ async function preview(id) {
     // Only the agent's /coders-talk:build is a run of the command inside the session. From a terminal, SSH or a script
     // (--whole: `build` in a terminal) the session holds no run to cut off, only earlier ones.
     const inAgent = Boolean(env.CLAUDECODE || env.CODEX_THREAD_ID || env.CURSOR_AGENT || env.CURSOR_TRACE_ID);
-    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project, continuation, title, taskKeys } = await prepare(id, inAgent && !args.includes('--whole'));
+    const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project, continuation, title, taskKeys, earlier } = await prepare(id, inAgent && !args.includes('--whole'));
 
     const goesTo = await destination(git);
 
@@ -393,6 +397,7 @@ async function preview(id) {
     if (title) console.log(`  Title:      ${title}`);
     if (taskKeys.length) console.log(`  Task:       ${taskKeys.join(', ')}: to group it with the sessions of the same task, on the site only`);
     if (fork) console.log(`  Fork of:    session ${fork.session_id}: the draft and that session's Build link to each other once both are on the site`);
+    if (earlier.length) console.log(`  Includes:   ${earlier.length} earlier session${earlier.length === 1 ? '' : 's'} it continued, oldest first, as one Build: ${earlier.map((e) => e.slice(0, 8)).join(', ')}`);
     if (continuation) console.log(`  Continues:  session ${continuation.session_id}: its lines at the start are that session's, counted there; the two Builds are linked on the site`);
     console.log(`  Goes to:    ${goesTo}`);
     // Sent before, by hand or by auto mode: the site updates that draft rather than make a second one.
@@ -409,9 +414,10 @@ async function preview(id) {
  * session ran, for Codex HEAD at its start (session_meta), the session it was forked from (lib/session.mjs, ForkWatch),
  * and what the agent took from the Coders Talk library (lib/library.mjs). A Cursor transcript says neither where it ran
  * nor when (but by the minute) nor what it cost: $cursorNotes, what its hooks noted, gives the folder, the times of the
- * turns and the tokens (lib/cursor.mjs).
+ * turns and the tokens (lib/cursor.mjs). $before: the files of the sessions this one continued, oldest first (lib/continuation.mjs):
+ * read first, as one session with this file's, and a line any of them copied from another is taken once.
  */
-async function readSession(path, id, inherited = null, cursorNotes = null) {
+async function readSession(path, id, inherited = null, cursorNotes = null, before = []) {
     const lines = [];
     const usage = new UsageCounter();
     const fork = new ForkWatch(id);
@@ -426,41 +432,56 @@ async function readSession(path, id, inherited = null, cursorNotes = null) {
     let headStart = null;
     let total = 0;
     let parsed = 0;
-    for await (const line of createInterface({ input: createReadStream(path, 'utf8'), crlfDelay: Infinity })) {
-        if (line.trim() === '') continue;
-        total++;
-        let d;
-        try {
-            d = JSON.parse(line);
-        } catch {
-            continue;
-        }
-        parsed++;
-        if (!d || typeof d !== 'object' || Array.isArray(d)) continue;
-
-        if (d.type === 'session_meta') {
-            cwd ??= typeof d.payload?.cwd === 'string' ? d.payload.cwd : null;
-            headStart ??= typeof d.payload?.git?.commit_hash === 'string' ? d.payload.git.commit_hash : null;
-        }
-        cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
-        // Counted before slimming drops the lines that carry it; only the counts leave the machine. A fork's inherited
-        // lines were counted with the original, and what the original took from the library is the original's; the
-        // same for the lines a continuation copied from the session before it (lib/continuation.mjs).
-        const copied = inherited?.has(d.uuid) ?? false;
-        if (!fork.add(d) && !copied) {
-            usage.add(d);
-            library.add(d);
-            // The first prompts of its own, where a task's number usually is (grouping plan, 25.2).
-            if (prompts.length < 3) {
-                const text = firstPrompt(d);
-                if (text) prompts.push(text.slice(0, 2000));
+    const seen = new Set();
+    const files = [...before, path];
+    for (const [n, file] of files.entries()) {
+        const last = n === files.length - 1;
+        for await (const line of createInterface({ input: createReadStream(file, 'utf8'), crlfDelay: Infinity })) {
+            if (line.trim() === '') continue;
+            total++;
+            let d;
+            try {
+                d = JSON.parse(line);
+            } catch {
+                continue;
             }
-        }
-        title.add(d);
-        const slim = slimLine(d, ctx);
-        if (slim) {
-            lines.push(JSON.stringify(slim));
-            countChanges(slim, code);
+            parsed++;
+            if (!d || typeof d !== 'object' || Array.isArray(d)) continue;
+            if (before.length) {
+                // Lines the later file copied from the earlier one come once; an earlier file's notes (title) count, its other bare lines do not.
+                if (typeof d.uuid === 'string' && d.uuid) {
+                    if (seen.has(d.uuid)) continue;
+                    seen.add(d.uuid);
+                } else if (!last) {
+                    title.add(d);
+                    continue;
+                }
+            }
+
+            if (d.type === 'session_meta') {
+                cwd ??= typeof d.payload?.cwd === 'string' ? d.payload.cwd : null;
+                headStart ??= typeof d.payload?.git?.commit_hash === 'string' ? d.payload.git.commit_hash : null;
+            }
+            cwd ??= typeof d.cwd === 'string' && d.cwd ? d.cwd : null;
+            // Counted before slimming drops the lines that carry it; only the counts leave the machine. A fork's inherited
+            // lines were counted with the original, and what the original took from the library is the original's; the
+            // same for the lines a continuation copied from the session before it (lib/continuation.mjs).
+            const copied = inherited?.has(d.uuid) ?? false;
+            if (!(last && fork.add(d)) && !copied) {
+                usage.add(d);
+                library.add(d);
+                // The first prompts of its own, where a task's number usually is (grouping plan, 25.2).
+                if (prompts.length < 3) {
+                    const text = firstPrompt(d);
+                    if (text) prompts.push(text.slice(0, 2000));
+                }
+            }
+            title.add(d);
+            const slim = slimLine(d, ctx);
+            if (slim) {
+                lines.push(JSON.stringify(slim));
+                countChanges(slim, code);
+            }
         }
     }
 
@@ -473,7 +494,7 @@ async function readSession(path, id, inherited = null, cursorNotes = null) {
         lines: cursorNotes ? withCursorTimes(lines, cursorNotes) : lines,
         cwd: cwd ?? cursorNotes?.cwd ?? null,
         headStart,
-        bytes: statSync(path).size,
+        bytes: files.reduce((sum, f) => sum + statSync(f).size, 0),
         usage: usage.result() ?? noted,
         code,
         fork: fork.result(),

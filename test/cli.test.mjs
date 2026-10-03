@@ -359,7 +359,7 @@ test('a fork says which session it came from, and the site links the two', async
     assert.doesNotMatch(received.toString('latin1'), /name="fork"/);
 });
 
-test('a continuation names the session it continues, counts only its own tokens, and sends its title (grouping plan, 24)', async () => {
+test('a continuation sends the sessions it continued with its own, as one Build, and its title (grouping plan, 24)', async () => {
     const fixture = readFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), 'utf8').split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
     const numbered = fixture.map((d, i) => ({ ...d, uuid: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` }));
     const previous = 'a1b2c3d4-0000-4000-8000-0000000000c1';
@@ -380,15 +380,14 @@ test('a continuation names the session it continues, counts only its own tokens,
 
     const preview = await cli(['preview', next], { CODERS_TALK_CLAUDE_APP_DIR: app });
     assert.equal(preview.ok, true, preview.out);
-    assert.match(preview.out, new RegExp(`Continues: +session ${previous}`));
+    assert.match(preview.out, new RegExp(`Includes: +1 earlier session it continued, oldest first, as one Build: ${previous.slice(0, 8)}`));
+    assert.doesNotMatch(preview.out, /Continues:/, 'the session before is in this Build, not linked to another');
     assert.match(preview.out, /Title: +Rate limits\n/);
-    assert.match(preview.out, /Tokens: +7 \(claude-opus-5-5\)/, 'the copied lines were counted with the session before');
+    assert.match(preview.out, /Tokens: +17 \(claude-opus-5-5\)/, 'the copied lines are counted once');
     const send = await cli(['send', next], { CODERS_TALK_CLAUDE_APP_DIR: app });
     assert.equal(send.ok, true, send.out);
     const body = received.toString('utf8');
-    const continuation = JSON.parse(body.match(/name="continuation"\r\n\r\n(.*)\r\n/)[1]);
-    assert.equal(continuation.session_id, previous);
-    assert.ok(Date.parse(continuation.at) < Date.parse('2026-09-03T09:00:00.000Z'));
+    assert.doesNotMatch(body, /name="continuation"/);
     assert.match(body, /name="session_title"\r\n\r\nRate limits\r\n/);
     // The task number of its own first prompt; the copied prompts are the session before's (grouping plan, 25.2).
     assert.match(preview.out, /Task: +limits-plan 4:/);

@@ -31,6 +31,10 @@ To send a session without going back into it, run `coders-talk sessions` in the 
 
 A Coders Talk connector your organisation added in claude.ai is not visible on your computer, so `enable` cannot find it. If the agent then lists the library's tools twice, turn one of the two servers off in `/mcp`.
 
+### From Claude's plugin directory
+
+Coders Talk is listed in Claude's plugin directory. On claude.ai or in the Claude desktop app, open Customize → Plugins, find **Coders Talk** and press **Add**, then start a new session; the desktop app runs the plugin's scripts with Node.js 20 or newer. Claude Code in a terminal gets it too when it is signed in with the same account, as `coders-talk@synced`. Then `/coders-talk:login` as below. Keep one copy: next to a copy from `coders-talk enable` or the marketplace below, the hooks run twice.
+
 ### From the agent
 
 1. In Claude Code:

@@ -10,6 +10,9 @@
  * --yes. On the way:
  *   - the plugin from the GitHub marketplace (coders-talk@coders-talk) is replaced, or its hooks and snapshots would
  *     run twice; for Pi, the git package of the README;
+ *   - the plugin from Claude's plugin directory (coders-talk@synced, added on claude.ai) is left as it is: it has no
+ *     install record to uninstall, and the person chose it. Claude Code then gets no copy of ours, and any other copy
+ *     goes, so the hooks run once;
  *   - a Coders Talk MCP server added by hand is removed, or kept and the plugin brings none to that agent;
  *   - auto mode is one question for every agent found (--auto=off|on|team|push), off unless the person says otherwise.
  *     Codex's trust in the hooks stays Codex's: one line says where to give it;
@@ -38,6 +41,9 @@ const choicesFile = () => join(home(), 'enable.json');
 const AUTO = { off: null, on: 'all', all: 'all', team: 'team', push: 'push' };
 const autoName = (mode) => (mode === 'all' ? 'on' : mode ?? 'off');
 const MCP_KEY = { 'claude-code': 'claude', codex: 'codex', cursor: 'cursor' };
+/** What Claude Code calls a plugin added from Claude's plugin directory on claude.ai: coders-talk@synced. */
+const SYNCED = 'synced';
+const DIRECTORY = "Coders Talk from Claude's plugin directory";
 /** An agent the plugin can be put into from here: it has a command that installs it, or its files are all it takes. */
 const installable = (agent) => Boolean(agent.cli || agent.native);
 /** The command line Cursor runs a hook with (through PowerShell on Windows). */
@@ -73,8 +79,12 @@ export async function enable({ site, version, interactive, flags }) {
         // What is there.
         const state = agents.map((agent) => {
             const plugins = installedPlugins(agent);
+            const synced = plugins.find((p) => p.marketplace === SYNCED);
+            const ours = plugins.find((p) => p.marketplace === MARKETPLACE);
+            // Next to the directory's copy, ours is one more copy too.
+            const others = plugins.filter((p) => p !== synced && (synced || p !== ours));
 
-            return { agent, plugins, ours: plugins.find((p) => p.marketplace === MARKETPLACE), others: plugins.filter((p) => p.marketplace !== MARKETPLACE), servers: manualMcpServers(agent, site) };
+            return { agent, plugins, synced, ours: synced ? undefined : ours, others, servers: manualMcpServers(agent, site) };
         });
         console.log(`coders-talk ${version} (${selfProgram().join(' ')})`);
         console.log('Found:');
@@ -87,8 +97,10 @@ export async function enable({ site, version, interactive, flags }) {
         // The questions.
         for (const s of state) {
             if (!s.others.length || !installable(s.agent)) continue;
-            const answer = await ask(`${s.agent.name} has ${s.others.map((p) => p.id).join(', ')} installed; its hooks would run twice next to this one. Replace it? [Y/n]`, 'y');
-            s.replace = answer.startsWith('y');
+            const question = s.synced
+                ? `${s.agent.name} has ${DIRECTORY} (${s.synced.id}) and ${s.others.map((p) => p.id).join(', ')}; their hooks run twice. Uninstall ${s.others.map((p) => p.id).join(', ')}? [Y/n]`
+                : `${s.agent.name} has ${s.others.map((p) => p.id).join(', ')} installed; its hooks would run twice next to this one. Replace it? [Y/n]`;
+            s.replace = (await ask(question, 'y')).startsWith('y');
         }
         const withServers = state.filter((s) => s.servers.length && installable(s.agent));
         let mcp = flags.mcp;
@@ -115,11 +127,14 @@ export async function enable({ site, version, interactive, flags }) {
         const trailers = flags.trailers ?? true;
 
         // The plan, then the go-ahead.
-        const installing = state.filter((s) => installable(s.agent) && (!s.others.length || s.replace));
+        const installing = state.filter((s) => installable(s.agent) && !s.synced && (!s.others.length || s.replace));
         const plan = [`Lay out the plugin ${version} in ${pluginDir()}`];
         for (const s of state) {
             if (!installable(s.agent)) plan.push(`${s.agent.name}: its command is not in PATH, so install the plugin from inside it (printed at the end)`);
-            else if (s.others.length && !s.replace) plan.push(`${s.agent.name}: leave it as it is (it keeps ${s.others.map((p) => p.id).join(', ')})`);
+            else if (s.synced) {
+                plan.push(`${s.agent.name}: keep ${DIRECTORY} (${s.synced.id}), no copy of ours`);
+                if (s.replace) plan.push(`${s.agent.name}: uninstall ${s.others.map((p) => p.id).join(', ')}`);
+            } else if (s.others.length && !s.replace) plan.push(`${s.agent.name}: leave it as it is (it keeps ${s.others.map((p) => p.id).join(', ')})`);
             else {
                 if (s.replace) plan.push(`${s.agent.name}: uninstall ${s.others.map((p) => p.id).join(', ')}`);
                 if (s.servers.length && mcp === 'remove') plan.push(`${s.agent.name}: remove the MCP server ${s.servers.map(describeServer).join(', ')}`);
@@ -143,6 +158,7 @@ export async function enable({ site, version, interactive, flags }) {
         writeChoices(choices);
         const done = [];
         const notes = [];
+        for (const s of state.filter((x) => x.synced && x.replace)) for (const p of s.others) removeOther(s.agent, p);
         for (const s of state) {
             if (!installing.includes(s)) continue;
             const { agent } = s;
@@ -166,6 +182,9 @@ export async function enable({ site, version, interactive, flags }) {
 
         console.log('');
         for (const agent of done) console.log(installedLine(agent, version));
+        for (const s of state.filter((x) => x.synced && installable(x.agent))) {
+            console.log(`${s.agent.name}: ${DIRECTORY} stays; it runs its scripts with Node.js 20 or newer.${s.others.length && !s.replace ? ` ${s.others.map((p) => p.id).join(', ')} stays too, so the hooks run twice.` : ''}`);
+        }
         for (const note of notes) console.log(note);
         for (const s of state.filter((x) => !installable(x.agent))) console.log(manualSteps(s.agent));
         if (mode) {
@@ -202,7 +221,12 @@ export function refresh({ site, version }) {
 export async function disable({ interactive, flags }) {
     if (!interactive && !flags.yes) throw new Failure('coders-talk disable asks before it changes anything: run it in a terminal, or add --yes.');
     const agents = chosenAgents(flags.agents).filter(installable);
-    const state = agents.map((agent) => ({ agent, ours: installedPlugins(agent).find((p) => p.marketplace === MARKETPLACE) }));
+    const state = agents.map((agent) => {
+        const plugins = installedPlugins(agent);
+
+        return { agent, ours: plugins.find((p) => p.marketplace === MARKETPLACE), synced: plugins.find((p) => p.marketplace === SYNCED) };
+    });
+    const fromDirectory = state.filter((s) => s.synced).map((s) => `${s.agent.name}: ${DIRECTORY} stays; remove it on claude.ai, in Customize → Plugins.`);
     // Every repository enable put git hooks in, and this one.
     const repos = [...new Set([...(readChoices().git_hooks ?? []), hooksOf(process.cwd())?.root].filter(Boolean))]
         .map((root) => hooksOf(root))
@@ -218,7 +242,7 @@ export async function disable({ interactive, flags }) {
         ...repos.map((repo) => `Git hooks: take ours out of ${repo.dir}`),
         ...(existsSync(pluginDir()) ? [`Delete ${pluginDir()}`] : []),
     ];
-    if (!plan.length) return console.log(`${PLUGIN_ID} is not installed here; nothing to take off.`);
+    if (!plan.length) return console.log([`${PLUGIN_ID} is not installed here; nothing to take off.`, ...fromDirectory].join('\n'));
 
     console.log(`This will:\n${plan.map((p) => `  - ${p}`).join('\n')}`);
     if (!flags.yes) {
@@ -244,6 +268,7 @@ export async function disable({ interactive, flags }) {
     for (const repo of repos) removeHooks(repo);
     rmSync(pluginDir(), { recursive: true, force: true });
     rmSync(choicesFile(), { force: true });
+    for (const line of fromDirectory) console.log(line);
     console.log(`Done: the agents no longer run Coders Talk. The sign-in and settings stay in ${home()}; the coders-talk file stays too (${selfProgram()[0]}). To remove it, delete that file and the "Coders Talk CLI" line from your shell's rc file (on Windows, the folder from your user PATH).`);
 }
 
@@ -261,9 +286,12 @@ export function status({ site, version }) {
         const notes = [];
         if (!agent.cli && !agent.native) notes.push('its command is not in PATH, so the plugins cannot be listed');
         else if (!plugins.length) notes.push('no Coders Talk plugin (coders-talk enable)');
-        for (const p of plugins) notes.push(`${p.id} ${p.version ?? ''}`.trim() + (p === ours && p.version && p.version !== version ? ` (older than this file: coders-talk enable)` : ''));
+        for (const p of plugins) {
+            const from = p.marketplace === SYNCED ? " (from Claude's plugin directory)" : '';
+            notes.push(`${p.id} ${p.version ?? ''}`.trim() + from + (p === ours && p.version && p.version !== version ? ` (older than this file: coders-talk enable)` : ''));
+        }
         if (ours && agent.id === 'cursor') notes.push(`hooks ${ours.hooks ? 'in ~/.cursor/hooks.json' : 'missing (coders-talk enable)'}, ${ours.skills.length} of ${CURSOR_SKILLS.length} skills`);
-        if (ours && plugins.length > 1) notes.push('two Coders Talk plugins: their hooks run twice (coders-talk enable replaces the other)');
+        if (plugins.length > 1) notes.push('two Coders Talk plugins: their hooks run twice (coders-talk enable keeps one)');
         const servers = manualMcpServers(agent, site);
         if (servers.length) notes.push(`MCP server ${agent.id === 'cursor' ? 'in ~/.cursor/mcp.json' : 'added by hand'}: ${servers.map(describeServer).join(', ')}`);
         notes.push(`auto mode ${autoName(autoMode(site, agent.id))}`);

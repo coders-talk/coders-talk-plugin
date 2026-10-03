@@ -122,6 +122,31 @@ test('the plugin from GitHub is replaced, and a server added by hand removed or 
     assert.ok(existsSync(join(plugin(), '.mcp.json')), 'the plugin brings its own now');
 });
 
+test("the plugin from Claude's plugin directory stays: no copy of ours next to it, and another copy goes", async () => {
+    writeFileSync(join(dir, 'state.json'), JSON.stringify({ claude: { plugins: { 'coders-talk@synced': '0.14.4', 'coders-talk@coders-talk-local': '0.14.3' }, marketplaces: { 'coders-talk-local': '/x' }, mcp: [] } }));
+
+    const status = await cli(['status']);
+    assert.match(status.out, /coders-talk@synced 0\.14\.4 \(from Claude's plugin directory\)/);
+    assert.match(status.out, /two Coders Talk plugins: their hooks run twice \(coders-talk enable keeps one\)/);
+
+    const r = await cli(['enable', '--yes']);
+    assert.equal(r.ok, true, r.out);
+    assert.match(r.out, /- Claude Code: keep Coders Talk from Claude's plugin directory \(coders-talk@synced\), no copy of ours/);
+    assert.match(r.out, /- Claude Code: uninstall coders-talk@coders-talk-local\n/);
+    assert.match(r.out, /Claude Code: Coders Talk from Claude's plugin directory stays; it runs its scripts with Node\.js 20 or newer\./);
+    assert.deepEqual(Object.keys(agentState().claude.plugins), ['coders-talk@synced']);
+    assert.deepEqual(Object.keys(agentState().codex.plugins), ['coders-talk@coders-talk-local'], 'the other agents as always');
+    const claude = calls().filter((c) => c.agent === 'claude').map((c) => c.args.join(' '));
+    assert.ok(!claude.some((c) => c.includes('@synced') && !c.startsWith('plugin list')), claude.join('\n'));
+    assert.ok(!claude.some((c) => c.startsWith('plugin install') || c.startsWith('plugin update')), claude.join('\n'));
+
+    // Disable takes off what is ours and says where the directory's copy goes.
+    const off = await cli(['disable', '--yes']);
+    assert.equal(off.ok, true, off.out);
+    assert.match(off.out, /Claude Code: Coders Talk from Claude's plugin directory stays; remove it on claude\.ai, in Customize → Plugins\./);
+    assert.deepEqual(Object.keys(agentState().claude.plugins), ['coders-talk@synced']);
+});
+
 test('auto mode is one choice for both agents; push needs the git hooks', async () => {
     const push = await cli(['enable', '--yes', '--auto=push']);
     assert.match(push.out, /Auto mode is push: .*only those whose commits you push/);

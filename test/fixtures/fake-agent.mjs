@@ -37,7 +37,7 @@ if (agent === 'pi' && ['install', 'remove'].includes(a)) {
     writeFileSync(file, JSON.stringify(settings, null, 2));
     console.log(a === 'install' ? `Installed ${b}` : `Removed ${b}`);
 } else if (a === 'plugin' && b === 'list') {
-    const installed = Object.entries(state.plugins).map(([id, version]) => ({ id, version }));
+    const installed = Object.entries(state.plugins).map(([id, version]) => ({ id, version, ...(id.endsWith('@synced') ? { scope: 'synced' } : {}) }));
     if (agent === 'codex') {
         console.error('WARNING: proceeding, even though we could not create PATH aliases');
         console.log(JSON.stringify({ installed: installed.map((p) => ({ pluginId: p.id, name: p.id.split('@')[0], marketplaceName: p.id.split('@')[1], version: p.version, installed: true })), available: [] }));
@@ -59,6 +59,11 @@ if (agent === 'pi' && ['install', 'remove'].includes(a)) {
     state.plugins[c] = versionOf(c);
     save();
 } else if (a === 'plugin' && ['uninstall', 'remove'].includes(b)) {
+    // A plugin synced from claude.ai has no install record.
+    if (c.endsWith('@synced')) {
+        console.error(`Plugin "${c}" is not installed`);
+        process.exit(1);
+    }
     delete state.plugins[c];
     save();
 } else if (a === 'mcp' && b === 'remove') {

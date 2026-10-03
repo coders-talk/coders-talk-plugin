@@ -107,6 +107,7 @@ The commands are the same in every agent, typed its way: `/coders-talk:build` in
 | `/coders-talk:logout` | Forgets the token on this computer (revoke it on the site under Settings → Agent plugins). |
 | `/coders-talk:lookup <task>` | Searches the Coders Talk library for sessions of a similar task and shows what came back. The agent also does this by itself (see below). |
 | `/coders-talk:use <link>` | Shows a published Build's playbook as a skill for this agent: the whole text, where it goes and what changed since the version here. Asks, then writes it. `--as rule` or `--as prompt` for the other two forms; `--team <team> --stack <stack>` for your team's rules (see [Playbooks](#playbooks)). |
+| `/coders-talk:rules` | Shows the rules this repository's sessions get at their start, and why: its stacks, whose repository it is (see [Rules in every session](#rules-in-every-session)). `on` or `off` switches them for this computer; `--refresh` asks the site now. |
 
 Sending the same session again updates its draft until you publish it.
 
@@ -184,6 +185,18 @@ A published Build can come with a playbook: what its session taught, written for
 - Kept up with: at the start of a session in a repository with a team's block, the `SessionStart` hook says in one line when the team merged a proposal since the block was written, from what the last check found. It never goes to the network itself: when the last check is over six hours old it starts one in the background (`GET /t/<team>/rules/<stack>.md` with `If-None-Match` and your sign-in; the site answers 304 until a merge), and notes the result in `~/.coders-talk/team-rules.json`. It never rewrites the block: `use --team` does, when you run it.
 - Once written, it prints the Build's link with `?ref=use`: open it after your agent has worked with the playbook and say whether it worked for you.
 
+### Rules in every session
+
+Where your agent went wrong before, so you stop correcting it the same way twice. Your own rules are on the site at [/rules](https://coders.talk/rules): you add them in one click from the pitfalls of your sessions' playbooks (Suggested shows the ones you corrected in several sessions first) or write them, stack by stack. A team's rules are the ones its members merged through proposals.
+
+At the start of each session, in Claude Code, Codex, Cursor and Pi, the `SessionStart` hook adds the rules for the repository's stacks to the session's context, the way a `CLAUDE.md` is read. Nothing is written into the repository.
+
+- **Which stacks**: from the repository's manifests (`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `go.mod`, `Cargo.toml`, Gradle and Maven, .NET projects, `pubspec.yaml`, `Package.swift`, a `Dockerfile` or a compose file), at its root and one folder down. A repository without them gets no rules.
+- **Whose**: your own everywhere. In a repository of one of your teams (its GitHub owner is the team's), also the team's, first, when an owner or admin turned on "Add the rules to every session" in the team's settings. A rule both have is said once, in the team's words. A team block the repository already has in its own files (`use --team`) is not said again.
+- **When**: the hook never goes to the network. It reads what the last fetch kept and starts a new one in the background when that is an hour old or the repository's stacks changed, so a change on the site reaches the next session after it. The first session in a repository starts without rules.
+- **What you see**: one line at the start when the rules here change ("Coders Talk added 3 rules to this session: Laravel (2 yours, 1 from Acme)"), and `/coders-talk:rules` for the text. In Cursor the line is left out (it has no channel for it); in Pi the rules go into the system prompt.
+- **Off**: `coders-talk rules off` on this computer, or `CODERS_TALK_RULES=0` for a shell.
+
 ### On GitHub
 
 A published Build can tell whoever reviews the pull request how the change was built: `/coders-talk:share` (`$coders-talk:share` in Codex, `/coders-talk-share` in Cursor, `coders-talk share` in a terminal).
@@ -232,6 +245,7 @@ Each network call, and what goes with it:
 | `/mcp` `start_session_upload`, a `PUT` to the link it returns, `/mcp` `finish_session_upload` | `build` in a cloud session (Claude Code on the web) after your yes, through the Coders Talk connector | The same session and fields as `POST /api/v1/imports`, in one JSON file, put at a one-time link (15 minutes) in Coders Talk's storage (Cloudflare R2, `*.r2.cloudflarestorage.com`); the connector's own sign-in on claude.ai, never a token from the machine. The site deletes the file once the draft is made, or a day later. |
 | `GET /b/<slug>/use/<format>.md`, `/t/<team>/rules/<stack>.md` | `use` | `via=cli`, the agent, `write=1` when it writes. The token only for a team's own Build or rules. |
 | `GET /t/<team>/rules/<stack>.md`, `/t/<team>/rules/<stack>.json?since=<version>` | `SessionStart` (in the background, at most every six hours), `use --team` | `via=hook`, `If-None-Match` with the version in the repository, the token. Only for repositories with a team's block. |
+| `GET /api/v1/rules` | `SessionStart` (in the background, at most hourly per repository), `rules` | The repository's stacks (`laravel,php`), its GitHub owner (`acme`, nothing for other hosts), the names of team blocks already in its files, `If-None-Match` with the last version; the token. Not the repository's name, path or files. Not with rules off. |
 | `GET /api/v1/share`, `POST /api/v1/share/attachments` | `share` | The Build's slug or this session's id; after a change, the pull request's or the repository's address. The token. |
 | `PATCH /api/v1/share/settings`, `GET /api/v1/share/pending` | `share auto on\|off`; `SessionStart` with the share auto mode on (in the background, at most hourly per repository) | The switch; the GitHub `origin` address of the repository. The token. |
 | `gh pr view`, `gh pr list`, `gh pr edit` (your GitHub CLI) | `share --pr` after your yes; the share auto mode | The pull request's new description, with the block. Your own GitHub sign-in: the plugin never sees it. |
@@ -252,6 +266,7 @@ Each network call, and what goes with it:
 | `nudges/` | Where the Stop hook stopped reading, and the counts and slugs it found | 14 days |
 | `kept.json`, `privacy.json` | Hashes of values you chose to send; your words to hide | Until you edit them |
 | `share.json` | Whether the share auto mode is on, when each repository was last checked, what it did since the last start | Checks 30 days; the notes until the next start shows them |
+| `rules.json` | Per repository (by its path): the stacks and owner asked about, the rules' text the site answered, when; and whether rules are off on this computer | Each repository 30 days after its last session; the switch until you change it |
 | `enable.json`, `plugin/`, `update.json`, `nudge.json` | `enable`'s answers, the plugin it lays out, the update check, the suggestion switch | Until `disable` or the next `enable`/`update` |
 
 The preview writes `<temp folder>/coders-talk/<session>.jsonl.gz` and `.json` (a private folder, private files): deleted after a send, when you say no (`build`, or the `discard` step of the agent's build skill), and otherwise 30 minutes after the preview, by the next run of `coders-talk` or the next session start.
@@ -272,6 +287,7 @@ The preview writes `<temp folder>/coders-talk/<session>.jsonl.gz` and `.json` (a
 | Token | `/coders-talk:login` saves one per site; `CODERS_TALK_TOKEN` overrides it (for CI, or a token made in Settings by hand) | none |
 | Data folder | `CODERS_TALK_HOME` | `~/.coders-talk` |
 | Suggestion to share a session that used the library | `CODERS_TALK_NUDGE=0` turns it off for a shell; `coders-talk.mjs nudge off` for this computer | on |
+| Rules in every session | `CODERS_TALK_RULES=0` turns them off for a shell; `coders-talk rules off` for this computer | on |
 | Proxy | `HTTPS_PROXY` (`HTTP_PROXY` for an `http://` site, `ALL_PROXY` for both), `NO_PROXY` for hosts that go direct. Lower-case names work too. An `http://` or `https://` proxy, with `user:password@` if it asks; a `socks://` one is ignored. In Codex, if a variable does not reach the plugin, add it to `set` as above | none: direct |
 
 Node's own `fetch` ignores the proxy variables, so the plugin opens the proxy's `CONNECT` tunnel itself. Some networks reset a direct connection to the site after the first 16 KB, which lets `whoami` through but not an upload; there the proxy is what gets a session out.

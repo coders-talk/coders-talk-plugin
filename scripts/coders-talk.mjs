@@ -28,6 +28,9 @@
  *                                                 they ended (lib/auto.mjs, catchUp), other than the one starting
  *   node coders-talk.mjs team-rules-check --cwd=<repository>  what the SessionStart hook runs when a team's rules
  *                                                 in the repository were not checked for a while (lib/team-rules.mjs)
+ *   coders-talk rules [on|off] [--refresh]      the rules the SessionStart hook adds to sessions in this repository (lib/rules.mjs):
+ *                                                 the person's own and their team's for its stacks; on|off for this computer
+ *   node coders-talk.mjs rules-fetch --cwd=<repository>  what the SessionStart hook runs in the background for that
  *   node coders-talk.mjs whoami | logout
  *   node coders-talk.mjs mcp-call <tool> [--json='{…}' | --stdin]   one call of the Coders Talk library's MCP tools, for agents
  *                                                 that have no MCP of their own (Pi's extension registers the tools and runs this)
@@ -107,6 +110,7 @@ import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
 import { agentOfSession, describeSession, folderSessions, markSent, sentAt, sentUrl, sessionPath } from './lib/sessions.mjs';
 import { removeLeftover, update, updateNotice } from './lib/update.mjs';
 import { changesSince, checkRules, saveRulesState } from './lib/team-rules.mjs';
+import { fetchRules, repositoryFacts, rulesEntry, rulesOn, setRulesOn, summary as rulesSummary } from './lib/rules.mjs';
 import { addNotice, editPullRequest, findPullRequest, ghProblem, markShareChecked, readmeFile, readText, rememberAuto, withPrBlock, withReadmeBlock } from './lib/share.mjs';
 import { UsageCounter } from './lib/usage.mjs';
 
@@ -180,6 +184,8 @@ try {
     else if (command === 'auto-send') await autoSend(argId, { final: !args.includes('--sync'), push: args.includes('--push') });
     else if (command === 'auto-catch-up') await autoCatchUp(argId);
     else if (command === 'team-rules-check') await teamRulesCheck();
+    else if (command === 'rules') await rules(argId);
+    else if (command === 'rules-fetch') await rulesFetch();
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
     else if (command === 'mcp-call') await mcpCall(argId);
@@ -220,6 +226,7 @@ function help() {
         ['build [number|session-id]', 'preview a session, ask, then send it as a draft'],
         ['use <build> [--as=skill|rule|prompt]', "a published Build's playbook for this repository"],
         ['use --team=<team> --stack=<stack>', "a team's rules for a stack"],
+        ['rules [on|off] [--refresh]', 'the rules your sessions here get, or stop them on this computer'],
         ['share [build] [--pr] [--readme]', 'a published Build in its pull request or the README'],
         ['share auto [on|off]', 'attach published Builds to their pull requests by itself'],
         ['preview [session-id]', 'what would be sent, and where'],
@@ -1037,6 +1044,71 @@ async function teamRulesCheck() {
     } catch {
         // The next start tries again.
     }
+}
+
+/** What the SessionStart hook runs in the background when this repository's rules were not fetched for a while. */
+async function rulesFetch() {
+    if (!token || !rulesOn(site)) return;
+    try {
+        await fetchRules(site, projectRoot(option('cwd') || process.cwd()), (path, headers) => signedGet(path, headers, 5000));
+    } catch {
+        // The next start tries again.
+    }
+}
+
+/**
+ * `coders-talk rules` (coders.talk plan: personal rules, stage 37): what the sessions in this repository get at their
+ * start, and why: its stacks, whose repository it is, the text. `--refresh` asks the site now instead of using what the
+ * last fetch kept; `on` and `off` switch it for this computer. The rules themselves change on the site only.
+ */
+async function rules(mode) {
+    if (mode === 'on' || mode === 'off') {
+        setRulesOn(site, mode === 'on');
+        console.log(mode === 'on'
+            ? 'Rules are on: each session starts with your rules for its repository\'s stacks, and your team\'s where the team turns that on.'
+            : `Rules are off on this computer: sessions start without them. ${run('rules')} on turns them back on.`);
+        return;
+    }
+    if (mode) throw new Failure(`${run('rules')} takes on or off, or nothing to show the rules here.`);
+    if (!token) throw notConnected();
+    const root = projectRoot(process.cwd());
+    const facts = repositoryFacts(root);
+    if (!facts.stacks.length) {
+        console.log(`No stack found in ${root}: no composer.json, package.json, pyproject.toml or the like at its root or one folder down. Sessions here start without rules.`);
+        return;
+    }
+    let entry = rulesEntry(site, root);
+    if (args.includes('--refresh') || !entry) {
+        try {
+            entry = await fetchRules(site, root, (path, headers) => signedGet(path, headers, 8000));
+        } catch {
+            if (!entry) throw new Failure(`Could not reach ${site} to ask for the rules. Try again in a moment.`);
+            console.log(`Could not reach ${site}: this is what the last check found.`);
+        }
+    }
+
+    console.log(`Repository: ${root}`);
+    console.log(`Stacks found: ${facts.stacks.join(', ')}`);
+    const team = entry?.team;
+    if (team) {
+        console.log(team.applies
+            ? `GitHub owner ${facts.owner}: the ${team.name} team's. Its rules come first.`
+            : `GitHub owner ${facts.owner}: the ${team.name} team's. The team does not add its rules to sessions (an owner or admin turns it on in its settings, Team rules); ${run('use')} --team=${team.slug} writes them into a file instead.`);
+    }
+    for (const section of entry?.sections ?? []) {
+        if (section.in_repository) console.log(`The ${team?.name ?? 'team'} rules for ${section.label} are in this repository's own files already: not added again.`);
+    }
+    if (entry?.off) {
+        console.log(`\nRules are turned off for your account on the site: no session of yours gets any. Turn them on at ${site}/rules`);
+    } else if (!entry?.text) {
+        console.log(`\nNo rules for these stacks yet. Add yours from your sessions: ${site}/rules`);
+    } else {
+        console.log(`\n${rulesSummary(entry)}:\n`);
+        console.log(entry.text.trimEnd());
+        console.log(`\nChange them: ${entry.url ?? `${site}/rules`}`);
+    }
+    if (!rulesOn(site)) console.log(`\nRules are off on this computer: ${run('rules')} on turns them on.`);
+    else console.log(`\nA session here gets them at its start; a change on the site reaches the sessions within the hour. To stop: ${run('rules')} off`);
 }
 
 /**

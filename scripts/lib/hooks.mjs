@@ -7,8 +7,8 @@
  *
  * Every event the agent writes on stdin carries the same fields that matter here: session_id, transcript_path and cwd
  * (Cursor's are conversation_id, transcript_path and workspace_roots: cursorEvent renames them).
- * A hook prints nothing but one JSON systemMessage (the Stop hook's suggestion; at the start, a team's rules and what
- * the share auto mode did), and never fails the session: every error is swallowed.
+ * A hook prints nothing but one JSON object (the Stop hook's suggestion; at the start, a team's rules and what the
+ * share auto mode did, and the rules for the session's context), and never fails the session: every error is swallowed.
  *
  *   session-start  Claude Code, Cursor and Pi: HEAD at the start of the session, so /coders-talk:build can tell which
  *                  commits it made (Codex writes HEAD into the session itself; Cursor's first prompt does this when its
@@ -39,6 +39,7 @@ import { sessionPath } from './sessions.mjs';
 import { pruneSidecars, writeSidecar } from './sidecar.mjs';
 import { pruneSnapshots, takeSnapshot } from './snapshots.mjs';
 import { sweepPrepared } from './prepared.mjs';
+import { repositoryFacts, rulesAtSessionStart, rulesFetchDue, rulesOn } from './rules.mjs';
 import { rulesCheckDue, rulesNotice, teamRuleUses } from './team-rules.mjs';
 import { shareCheckDue, takeNotices } from './share.mjs';
 import { currentHead, repositoryRoot } from './git.mjs';
@@ -134,9 +135,17 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
         noteCursorEvent('start', event);
         pruneCursorNotes();
     }
+    const rules = rulesAtStart({ event, agent, site, agentArgs });
     // One systemMessage for everything the start has to say: the agents take one JSON object from a hook.
-    const messages = [teamRulesAtStart({ event, agent, site, agentArgs }), ...shareAtStart({ event, site, agentArgs })].filter(Boolean);
-    if (messages.length && SAYS(agent)) console.log(JSON.stringify({ systemMessage: messages.join('\n') }));
+    const messages = [teamRulesAtStart({ event, agent, site, agentArgs }), rules?.line, ...shareAtStart({ event, site, agentArgs })].filter(Boolean);
+    const out = {};
+    if (messages.length && SAYS(agent)) out.systemMessage = messages.join('\n');
+    // The rules go to the agent: Claude Code, Codex and Pi take additionalContext, Cursor its additional_context.
+    if (rules?.context) {
+        if (agent === 'cursor') out.additional_context = rules.context;
+        else out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: rules.context };
+    }
+    if (Object.keys(out).length) console.log(JSON.stringify(out));
 
     if (!id) return;
     const running = RUNNING_MODES.includes(autoMode(site, agent));
@@ -160,6 +169,19 @@ function teamRulesAtStart({ event, agent, site, agentArgs }) {
     if (signedIn(site) && rulesCheckDue(site, root).length) inBackground(['team-rules-check', `--cwd=${root}`, ...agentArgs]);
 
     return notice;
+}
+
+/**
+ * Rules in every session (coders.talk personal rules, stage 37): the person's own and their team's for this
+ * repository's stacks, from the last fetch, for the agent's context; and a new fetch in the background when it is due.
+ * No network here. Only with this site's sign-in, and not when rules are turned off on this computer.
+ */
+function rulesAtStart({ event, agent, site, agentArgs }) {
+    if (!event.cwd || !signedIn(site) || !rulesOn(site)) return null;
+    const root = projectRoot(event.cwd);
+    if (rulesFetchDue(site, root, repositoryFacts(root))) inBackground(['rules-fetch', `--cwd=${root}`, ...agentArgs]);
+
+    return rulesAtSessionStart(site, root, commandIn(agent, 'rules'));
 }
 
 /**

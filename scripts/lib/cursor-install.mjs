@@ -5,7 +5,7 @@
  * start, and need nothing switched on:
  *
  *   ~/.cursor/hooks.json          the four hooks, next to whatever else is there: `<program> hook cursor <event>`
- *   ~/.cursor/skills/coders-talk-<name>/SKILL.md   /coders-talk-build, -auto, -login, -logout, -use, -share and the library's lookup
+ *   ~/.cursor/skills/coders-talk-<name>/SKILL.md   /coders-talk-build, -auto, -login, -logout, -use, -share, -rules and the library's lookup
  *   ~/.cursor/mcp.json            the library, as a remote server (Cursor signs in to it through the browser: OAuth)
  *
  * Only what is ours is ever changed: our hook entries are found by their command (`… hook cursor <event>`), our skills by
@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 import { cursorHome } from './cursor.mjs';
 
-export const SKILLS = ['build', 'auto', 'login', 'logout', 'lookup', 'use', 'share'];
+export const SKILLS = ['build', 'auto', 'login', 'logout', 'lookup', 'use', 'share', 'rules'];
 
 /** Cursor's event names and what each runs. */
 export const HOOK_EVENTS = { sessionStart: 'session-start', beforeSubmitPrompt: 'prompt', stop: 'stop', sessionEnd: 'session-end' };

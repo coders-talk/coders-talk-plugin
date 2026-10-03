@@ -25,6 +25,11 @@ export function currentHead(cwd) {
     return cwd ? git(cwd, ['rev-parse', 'HEAD']) : null;
 }
 
+/** The address of the repository's origin as git has it, or null. */
+export function originUrl(cwd) {
+    return cwd ? git(cwd, ['remote', 'get-url', 'origin']) : null;
+}
+
 /** The top folder of the repository $cwd is in, or null. */
 export function repositoryRoot(cwd) {
     return cwd ? git(cwd, ['rev-parse', '--show-toplevel']) : null;

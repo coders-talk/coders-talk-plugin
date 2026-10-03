@@ -9,12 +9,15 @@
  *   /coders-talk:login   /coders-talk:logout                              connect this computer through the browser
  *   /coders-talk:use <build> [--as skill|rule|prompt]                     a published Build's playbook, into this repository
  *   /coders-talk:share [build] [--pr] [--readme]                          a published Build on GitHub
+ *   /coders-talk:rules [on | off] [--refresh]                              the rules this repository's sessions get
  *   /coders-talk:lookup <task>                                            the library, for the person to read
  *
  * Events, passed on to `coders-talk hook pi <event>` the way the other agents' hooks are (auto mode, the git snapshots,
  * the suggestion to share): session_start → session-start, agent_start → prompt, agent_settled → stop and
  * session_shutdown → session-end. The hook writes to the person's own ~/.coders-talk and starts what has to run in the
- * background; this file sends nothing.
+ * background; this file sends nothing. The rules the session-start hook hands over (the person's own and their team's
+ * for the repository's stacks, lib/rules.mjs) go into the system prompt at each start of the agent, as the other
+ * agents take them from their hooks' additionalContext.
  *
  * Tools the model may call itself: the Coders Talk library's three (search_coding_agent_sessions,
  * get_coding_agent_session, find_coding_agent_failures). Each runs `coders-talk mcp-call`, which asks the site with the
@@ -208,6 +211,23 @@ function showMessage(out, ctx) {
     }
 }
 
+/** The rules a session-start hook handed over for the agent's context (hookSpecificOutput.additionalContext), or ''. */
+export function hookContext(out) {
+    try {
+        const context = JSON.parse(out || '{}').hookSpecificOutput?.additionalContext;
+        return typeof context === 'string' ? context : '';
+    } catch {
+        return '';
+    }
+}
+
+/** The system prompt with the rules after it, once. */
+export function withRules(systemPrompt, rules) {
+    if (!rules || typeof systemPrompt !== 'string' || systemPrompt.includes(rules)) return undefined;
+
+    return `${systemPrompt}\n\n${rules}`;
+}
+
 const LIBRARY = [
     {
         name: 'search_coding_agent_sessions',
@@ -261,6 +281,7 @@ export default function (pi) {
         logout: ['Disconnect this computer from Coders Talk', passThrough('logout')],
         use: ['Put a Build\'s playbook into this repository as a skill or a rule', showThenWrite('use')],
         share: ['Put a published Build in its pull request or the README', showThenWrite('share')],
+        rules: ['Show the Coders Talk rules this repository\'s sessions get, or turn them on or off here', passThrough('rules')],
         lookup: ['Look up how others did a task in the Coders Talk library', lookup],
     };
     for (const [name, [description, handler]] of Object.entries(commands)) {
@@ -277,8 +298,17 @@ export default function (pi) {
     }
 
     // What the hooks of the other agents do at these moments, for auto mode and the git snapshots.
+    let rules = '';
     pi.on('session_start', async (event, ctx) => {
-        if (event.reason !== 'reload') showMessage(await hook('session-start', ctx), ctx);
+        if (event.reason === 'reload') return;
+        const out = await hook('session-start', ctx);
+        showMessage(out, ctx);
+        rules = hookContext(out);
+    });
+    // The rules from the start, for the agent: in the system prompt of every run, as a CLAUDE.md would be.
+    pi.on('before_agent_start', async (event) => {
+        const systemPrompt = withRules(event?.systemPrompt, rules);
+        return systemPrompt ? { systemPrompt } : undefined;
     });
     pi.on('agent_start', async (event, ctx) => {
         await hook('prompt', ctx);

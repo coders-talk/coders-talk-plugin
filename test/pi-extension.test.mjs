@@ -112,7 +112,7 @@ test('what the extension registers: eight commands, five events and the library\
     const pi = fakePi();
     assert.deepEqual([...pi.commands.keys()], ['coders-talk:build', 'coders-talk:auto', 'coders-talk:login', 'coders-talk:logout', 'coders-talk:use', 'coders-talk:share', 'coders-talk:rules', 'coders-talk:lookup']);
     for (const [, command] of pi.commands) assert.ok(command.description.length > 10);
-    assert.deepEqual([...pi.events.keys()].sort(), ['agent_settled', 'agent_start', 'before_agent_start', 'session_shutdown', 'session_start']);
+    assert.deepEqual([...pi.events.keys()].sort(), ['agent_settled', 'before_agent_start', 'session_shutdown', 'session_start']);
     assert.deepEqual([...pi.tools.keys()], ['search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures']);
 
     const search = pi.tools.get('search_coding_agent_sessions');
@@ -230,27 +230,38 @@ test('the events go to the hooks as the other agents\' do: a JSON event on stdin
     const c = fakeCtx();
 
     await pi.events.get('session_start')({ reason: 'startup' }, c);
-    await pi.events.get('agent_start')({}, c);
+    await pi.events.get('before_agent_start')({ prompt: 'Move the queues to Horizon', systemPrompt: 'You are Pi.' }, c);
     await pi.events.get('agent_settled')({}, c);
     await pi.events.get('session_shutdown')({ reason: 'quit' }, c);
 
     assert.deepEqual(called(), ['hook pi session-start', 'hook pi prompt', 'hook pi stop', 'hook pi session-end']);
     assert.deepEqual(JSON.parse(calls()[0].input), { hook_event_name: 'session-start', session_id: 'sess-1', transcript_path: sessionFile, cwd: work });
+    // The prompt goes to the hook on stdin, for the rules it is about; it is matched there, on this computer.
+    assert.equal(JSON.parse(calls()[1].input).prompt, 'Move the queues to Horizon');
     assert.deepEqual(said(c), ['Auto mode is on: this session will be sent.', 'Your agent used 1 Build from coders.talk in this session. Share yours: /coders-talk:build']);
 });
 
 test('the rules the start hands over go into the system prompt of every run, once (personal rules, stage 37)', async () => {
     const rules = '## Coders Talk rules\n- Runs artisan on the host — Run it in the app container.\n';
-    scenario([{ match: '^hook pi session-start', out: JSON.stringify({ systemMessage: 'Coders Talk added 1 rule to this session: Laravel (1 yours). To see them: /coders-talk:rules', hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: rules } }) }]);
+    const task = '## Coders Talk rules for this task\n- Workers stop after a deploy — Call horizon:terminate. (Laravel, yours)\n';
+    scenario([
+        { match: '^hook pi session-start', out: JSON.stringify({ systemMessage: 'Coders Talk added 1 rule to this session: Laravel (1 yours). To see them: /coders-talk:rules', hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: rules } }) },
+        { match: '^hook pi prompt', out: JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: task } }) },
+    ]);
+    const answers = JSON.parse(process.env.FAKE_SCENARIO);
+    // Before the start, and with a prompt no rule is about: nothing.
+    scenario([answers[0]]);
     const pi = fakePi();
     const c = fakeCtx();
     const before = pi.events.get('before_agent_start');
-    assert.equal(await before({ systemPrompt: 'You are Pi.' }, c), undefined, 'nothing before the start');
+    assert.equal(await before({ prompt: 'hello', systemPrompt: 'You are Pi.' }, c), undefined, 'nothing before the start');
 
     await pi.events.get('session_start')({ reason: 'startup' }, c);
+    scenario(answers);
     assert.deepEqual(said(c), ['Coders Talk added 1 rule to this session: Laravel (1 yours). To see them: /coders-talk:rules']);
-    assert.deepEqual(await before({ systemPrompt: 'You are Pi.' }, c), { systemPrompt: `You are Pi.\n\n${rules}` });
-    assert.equal(await before({ systemPrompt: `You are Pi.\n\n${rules}` }, c), undefined, 'not twice');
+    // The start's rules and the ones the prompt is about, in every run after it.
+    assert.deepEqual(await before({ prompt: 'Workers stopped again', systemPrompt: 'You are Pi.' }, c), { systemPrompt: `You are Pi.\n\n${rules}\n\n${task}` });
+    assert.equal(await before({ prompt: 'and again', systemPrompt: `You are Pi.\n\n${rules}\n\n${task}` }, c), undefined, 'not twice');
 
     assert.equal(ext.hookContext('not json'), '');
     assert.equal(ext.withRules('You are Pi.', ''), undefined);

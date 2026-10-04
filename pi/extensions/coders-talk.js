@@ -13,11 +13,11 @@
  *   /coders-talk:lookup <task>                                            the library, for the person to read
  *
  * Events, passed on to `coders-talk hook pi <event>` the way the other agents' hooks are (auto mode, the git snapshots,
- * the suggestion to share): session_start → session-start, agent_start → prompt, agent_settled → stop and
+ * the suggestion to share): session_start → session-start, before_agent_start → prompt, agent_settled → stop and
  * session_shutdown → session-end. The hook writes to the person's own ~/.coders-talk and starts what has to run in the
- * background; this file sends nothing. The rules the session-start hook hands over (the person's own and their team's
- * for the repository's stacks, lib/rules.mjs) go into the system prompt at each start of the agent, as the other
- * agents take them from their hooks' additionalContext.
+ * background; this file sends nothing. The rules the hooks hand over (lib/rules.mjs) go into the system prompt at each
+ * start of the agent, as the other agents take them from their hooks' additionalContext: the ones for every session
+ * from the start, and a stack's rules from the prompt they matter for, matched with the prompt on this computer.
  *
  * Tools the model may call itself: the Coders Talk library's three (search_coding_agent_sessions,
  * get_coding_agent_session, find_coding_agent_failures). Each runs `coders-talk mcp-call`, which asks the site with the
@@ -188,12 +188,12 @@ async function lookup(args, ctx) {
 }
 
 /** The hook of an event, as `coders-talk hook pi <name>` takes it. Returns what the hook printed. */
-async function hook(name, ctx, timeout = 15_000) {
+async function hook(name, ctx, timeout = 15_000, extra = {}) {
     try {
         const sm = ctx.sessionManager;
         const id = sm.getSessionId();
         if (!id) return '';
-        const event = { hook_event_name: name, session_id: id, transcript_path: sm.getSessionFile() ?? null, cwd: ctx.cwd };
+        const event = { hook_event_name: name, session_id: id, transcript_path: sm.getSessionFile() ?? null, cwd: ctx.cwd, ...extra };
 
         return (await run(['hook', 'pi', name], { cwd: ctx.cwd, input: JSON.stringify(event), timeout })).out;
     } catch {
@@ -304,14 +304,16 @@ export default function (pi) {
         const out = await hook('session-start', ctx);
         showMessage(out, ctx);
         rules = hookContext(out);
+        taskRules = [];
     });
-    // The rules from the start, for the agent: in the system prompt of every run, as a CLAUDE.md would be.
-    pi.on('before_agent_start', async (event) => {
-        const systemPrompt = withRules(event?.systemPrompt, rules);
-        return systemPrompt ? { systemPrompt } : undefined;
-    });
-    pi.on('agent_start', async (event, ctx) => {
-        await hook('prompt', ctx);
+    // The prompt: its git snapshot, and the stack rules it is about. Every rule given so far goes into the system
+    // prompt of every run, as a CLAUDE.md would be.
+    let taskRules = [];
+    pi.on('before_agent_start', async (event, ctx) => {
+        const extra = hookContext(await hook('prompt', ctx, 15_000, typeof event?.prompt === 'string' ? { prompt: event.prompt } : {}));
+        if (extra) taskRules = [...taskRules, extra];
+        const systemPrompt = [rules, ...taskRules].reduce((prompt, text) => withRules(prompt, text) ?? prompt, event?.systemPrompt);
+        return typeof systemPrompt === 'string' && systemPrompt !== event?.systemPrompt ? { systemPrompt } : undefined;
     });
     pi.on('agent_settled', async (event, ctx) => {
         showMessage(await hook('stop', ctx), ctx);

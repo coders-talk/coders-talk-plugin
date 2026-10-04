@@ -9,13 +9,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
 import { promisify } from 'node:util';
+import { matchRules, terms } from '../scripts/lib/rule-match.mjs';
 import { summary } from '../scripts/lib/rules.mjs';
 import { detectStacks } from '../scripts/lib/stacks.mjs';
 import { coders, hookCommand, waitFor } from './helpers.mjs';
 
 const run = promisify(execFile);
 const TOKEN = 'ct_member_token';
-const TEXT = "## Coders Talk rules\nWhere coding agents went wrong before on this repository's stack.\n\n### Acme team: Laravel\n- Workers stop after a deploy — Call horizon:terminate.\n\n### Your rules: Laravel\n- Runs artisan on the host — Run it in the app container.\n";
+const TEXT = "## Coders Talk rules\nWhere coding agents went wrong before on this repository's stack.\n\n### Acme team: Laravel\n- Workers stop after a deploy — Call horizon:terminate.\n\n### Your rules: Laravel\n- Runs artisan on the host — Run it in the app container.\n\n### Your rules: Everywhere\n- Says it is done without running it — Run it first.\n";
+// The start of a session gets the rules for every session; a stack's come with the prompts they matter for.
+const START = '## Coders Talk rules\nWhere coding agents went wrong before, whatever the task.\n\n### Your rules: Everywhere\n- Says it is done without running it — Run it first.\n';
+const MATCHED = [
+    { id: 'r1', scope: 'team', stack: 'laravel', label: 'Laravel', from: 'Acme team', line: 'Workers stop after a deploy — Call horizon:terminate.', keywords: ['horizon', 'queue', 'очередь', 'deploy', 'деплой', 'worker', 'воркер'] },
+    { id: 'r2', scope: 'personal', stack: 'laravel', label: 'Laravel', from: 'yours', line: 'Runs artisan on the host — Run it in the app container.', keywords: ['artisan', 'migration', 'миграция', 'container'] },
+];
 
 let answer = 'rules';
 const requests = [];
@@ -29,14 +36,17 @@ const server = createServer((req, res) => {
         ? { hash: '', text: '', stacks: ['laravel'], team: null, sections: [], rules: 0, url: 'http://x/rules', off: answer === 'off' }
         : {
             hash: 'abc123abc123',
-            text: TEXT,
+            text: START,
+            full_text: TEXT,
+            matched: MATCHED,
             stacks: url.searchParams.get('stacks').split(','),
             team: { slug: 'acme', name: 'Acme', applies: true },
             sections: [
                 { scope: 'team', stack: 'laravel', label: 'Laravel', name: 'team-acme-laravel', hash: 'x', rules: 1, in_repository: false },
                 { scope: 'personal', stack: 'laravel', label: 'Laravel', name: 'me-laravel', hash: 'y', rules: 1, in_repository: false },
+                { scope: 'personal', stack: '*', label: 'Everywhere', name: 'me-everywhere', hash: 'z', rules: 1, in_repository: false },
             ],
-            rules: 2,
+            rules: 3,
             url: 'http://x/rules',
         };
     res.writeHead(200, { 'Content-Type': 'application/json', ETag: `"${body.hash}"` }).end(JSON.stringify(body));
@@ -95,22 +105,66 @@ test('the rules reach the session at its start from the last fetch, which goes i
     assert.deepEqual(Object.fromEntries(asked.searchParams), { stacks: 'laravel,php', owner: 'acme' }, 'only the stacks and the GitHub owner leave the computer');
     assert.equal(requests[0].auth, `Bearer ${TOKEN}`);
 
-    // The next start hands the text to the agent and tells the person once.
+    // The next start hands the rules for every session to the agent and tells the person once.
     const first = JSON.parse(await startHook(signedIn));
     assert.equal(first.hookSpecificOutput.hookEventName, 'SessionStart');
-    assert.equal(first.hookSpecificOutput.additionalContext, TEXT);
-    assert.equal(first.systemMessage, 'Coders Talk added 2 rules to this session: Laravel (1 from Acme, 1 yours). To see them: /coders-talk:rules');
+    assert.equal(first.hookSpecificOutput.additionalContext, START, "a stack's rules wait for the prompt");
+    assert.equal(first.systemMessage, 'Coders Talk added 3 rules to this session: Laravel (1 from Acme, 1 yours), Everywhere (1 yours); 2 of them come with the prompts they matter for. To see them: /coders-talk:rules');
     const second = JSON.parse(await startHook(signedIn));
-    assert.equal(second.hookSpecificOutput.additionalContext, TEXT);
+    assert.equal(second.hookSpecificOutput.additionalContext, START);
     assert.equal(second.systemMessage, undefined, 'the same rules are not announced again');
     assert.equal(requests.length, 1, 'fetched a moment ago: no new ask');
 
-    // Codex takes the same JSON; Cursor its own field.
+    // Codex takes the same JSON; Cursor, whose prompt hook cannot add context, every rule at the start.
     const codex = JSON.parse(await startHook(signedIn, coders(['hook', 'codex', 'session-start'])));
-    assert.equal(codex.hookSpecificOutput.additionalContext, TEXT);
+    assert.equal(codex.hookSpecificOutput.additionalContext, START);
     const cursor = JSON.parse(await startHook(signedIn, coders(['hook', 'cursor', 'session-start'])));
     assert.equal(cursor.additional_context, TEXT);
     assert.equal(cursor.systemMessage, undefined);
+});
+
+const promptHook = (prompt, extra = {}, sessionId = '0b5e2c1a-7d4f-4e2b-9a3c-6f1d8e2b4a70', [program, args] = hookCommand('prompt')) => new Promise((resolve, reject) => {
+    const child = execFile(program, args, { env: { ...env, ...extra } }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+    child.stdin.end(JSON.stringify({ session_id: sessionId, cwd: join(repo, 'app'), hook_event_name: 'UserPromptSubmit', prompt }));
+});
+
+test("first the task, then its rules: a stack's rules come with the prompt they matter for, once a session", async () => {
+    await startHook(signedIn);
+    await waitFor(() => entry()?.hash === 'abc123abc123');
+    const before = requests.length;
+
+    // A prompt no rule is about adds nothing.
+    assert.equal(await promptHook('Поправь отступы у кнопки в шапке', signedIn), '');
+    // In Russian, about queues after a deploy: the team's rule, matched on this computer.
+    const said = JSON.parse(await promptHook('Почини воркеры очередей, после деплоя они опять остановились', signedIn));
+    assert.equal(said.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+    assert.match(said.hookSpecificOutput.additionalContext, /^## Coders Talk rules for this task\n/);
+    assert.ok(said.hookSpecificOutput.additionalContext.includes('- Workers stop after a deploy — Call horizon:terminate. (Laravel, Acme team)'));
+    assert.ok(!said.hookSpecificOutput.additionalContext.includes('artisan'));
+    // Said once a session; another rule when the task moves on; another session gets it again.
+    assert.equal(await promptHook('The queue workers stopped after the deploy again', signedIn), '');
+    assert.match(await promptHook('Now add a migration and run artisan migrate', signedIn), /Runs artisan on the host/);
+    assert.match(await promptHook('Почини воркеры очередей', signedIn, '1c6f3d2b-8e5a-4f3c-ab4d-7a2e9f3c5b81'), /Workers stop after a deploy/);
+    // Codex takes the same.
+    assert.match(await promptHook('Workers of the queue die after each deploy', signedIn, '2d7a4e3c-9f6b-4a4d-bc5e-8b3fa04d6c92', coders(['hook', 'codex', 'prompt'])), /Workers stop after a deploy/);
+
+    assert.equal(requests.length, before, 'the prompt never leaves the computer');
+    assert.ok(!readFileSync(join(home, 'ct', 'rules-given.json'), 'utf8').includes('воркеры'), 'and is not kept: only the ids given');
+    // Off, or signed out: nothing.
+    assert.equal(await promptHook('Почини воркеры очередей', { ...signedIn, CODERS_TALK_RULES: '0' }, '3e8b5f4d-0a7c-4b5e-8d6f-9c4a1b5e7da3'), '');
+    assert.equal(await promptHook('Почини воркеры очередей', {}, '3e8b5f4d-0a7c-4b5e-8d6f-9c4a1b5e7da3'), '');
+});
+
+test('words meet across forms and languages, and a weak match is no match', () => {
+    assert.ok(terms('Очереди и воркеры').has('очере'));
+    assert.ok(terms('очередь').has('очере'));
+    assert.ok(terms('workers').has('worke') && terms('worker').has('worke'));
+    assert.equal(terms('и в на the and 123').size, 0);
+    const rules = MATCHED;
+    assert.deepEqual(matchRules('почему падает очередь', rules).map((r) => r.id), ['r1'], 'one keyword is enough');
+    assert.deepEqual(matchRules('the app container', rules).map((r) => r.id), ['r2']);
+    assert.deepEqual(matchRules('the host', rules), [], 'one word of the rule itself is not');
+    assert.deepEqual(matchRules('очередь', rules, new Set(['r1'])), [], 'given already');
 });
 
 test('an hour later it asks again with the version it has, and a change of the stacks asks at once', async () => {
@@ -123,7 +177,7 @@ test('an hour later it asks again with the version it has, and a change of the s
     await startHook(signedIn);
     await waitFor(() => entry()?.checked_at > 0);
     assert.equal(requests[1].etag, '"abc123abc123"');
-    assert.equal(entry().text, TEXT, '304 keeps the text');
+    assert.equal(entry().full, TEXT, '304 keeps the text');
 
     // A package.json appears: new stacks, asked now, with no version (the answer is another one).
     writeFileSync(join(repo, 'package.json'), JSON.stringify({ dependencies: { vue: '^3' } }));
@@ -169,7 +223,8 @@ test('`rules` shows what a session here gets, and why', async () => {
     assert.equal(shown.ok, true, shown.out);
     assert.match(shown.out, /Stacks found: laravel, php/);
     assert.match(shown.out, /GitHub owner acme: the Acme team's\. Its rules come first\./);
-    assert.match(shown.out, /Coders Talk added 2 rules to this session: Laravel \(1 from Acme, 1 yours\):/);
+    assert.match(shown.out, /Coders Talk added 3 rules to this session: Laravel \(1 from Acme, 1 yours\), Everywhere \(1 yours\):/);
+    assert.match(shown.out, /The rules for Laravel come with the prompts they matter for/);
     assert.ok(shown.out.includes('- Runs artisan on the host — Run it in the app container.'));
     assert.match(shown.out, /Change them: http:\/\/x\/rules/);
 
@@ -181,7 +236,7 @@ test('`rules` shows what a session here gets, and why', async () => {
     assert.match((await cli(['--refresh'], signedIn)).out, /Rules are turned off for your account on the site/);
     assert.equal(await startHook(signedIn), '');
     rmSync(join(repo, 'composer.json'));
-    assert.match((await cli([], signedIn)).out, /No stack found/);
+    assert.match((await cli(['--refresh'], signedIn)).out, /No stack found .*: only your rules for every session apply here\./);
 });
 
 test('the line for the person names each stack and whose rules', () => {

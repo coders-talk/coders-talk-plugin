@@ -1094,10 +1094,6 @@ async function rules(mode) {
     if (!token) throw notConnected();
     const root = projectRoot(process.cwd());
     const facts = repositoryFacts(root);
-    if (!facts.stacks.length) {
-        console.log(`No stack found in ${root}: no composer.json, package.json, pyproject.toml or the like at its root or one folder down. Sessions here start without rules.`);
-        return;
-    }
     let entry = rulesEntry(site, root);
     if (args.includes('--refresh') || !entry) {
         try {
@@ -1109,7 +1105,9 @@ async function rules(mode) {
     }
 
     console.log(`Repository: ${root}`);
-    console.log(`Stacks found: ${facts.stacks.join(', ')}`);
+    console.log(facts.stacks.length
+        ? `Stacks found: ${facts.stacks.join(', ')}`
+        : 'No stack found (no composer.json, package.json, pyproject.toml or the like at its root or one folder down): only your rules for every session apply here.');
     const team = entry?.team;
     if (team) {
         console.log(team.applies
@@ -1121,11 +1119,14 @@ async function rules(mode) {
     }
     if (entry?.off) {
         console.log(`\nRules are turned off for your account on the site: no session of yours gets any. Turn them on at ${site}/rules`);
-    } else if (!entry?.text) {
+    } else if (!(entry?.full ?? entry?.text)) {
         console.log(`\nNo rules for these stacks yet. Add yours from your sessions: ${site}/rules`);
     } else {
         console.log(`\n${rulesSummary(entry)}:\n`);
-        console.log(entry.text.trimEnd());
+        // Every rule here: the ones for every session, and the stack's, which come with the prompts they matter for.
+        console.log((entry.full ?? entry.text).trimEnd());
+        if (Array.isArray(entry.matched) && entry.matched.length) console.log(`
+The rules for ${[...new Set(entry.matched.map((r) => r.label))].join(', ')} come with the prompts they matter for, matched on this computer; the rules for every session, at the start.`);
         console.log(`\nChange them: ${entry.url ?? `${site}/rules`}`);
     }
     if (!rulesOn(site)) console.log(`\nRules are off on this computer: ${run('rules')} on turns them on.`);

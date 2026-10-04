@@ -23,7 +23,9 @@
  *   session-end    auto mode only: hands the session to `auto-send` in the background and returns. Codex ends its hooks'
  *                  processes when it exits, so there the hook waits for the upload as long as its own timeout allows.
  *   prompt         the git snapshot; Cursor's hook also notes the prompt and which conversation its workspace is in
- *                  (lib/cursor.mjs), and answers {"continue": true}, since Cursor waits for it.
+ *                  (lib/cursor.mjs), and answers {"continue": true}, since Cursor waits for it. Claude Code, Codex and
+ *                  Pi: the repository's stack rules this prompt is about, as additionalContext (lib/rules.mjs,
+ *                  rulesForPrompt), matched here so the prompt never leaves the computer.
  *
  * Git snapshots (lib/snapshots.mjs) are every agent's but Codex's: at the start, at each prompt and after each answer.
  */
@@ -39,7 +41,7 @@ import { sessionPath } from './sessions.mjs';
 import { pruneSidecars, writeSidecar } from './sidecar.mjs';
 import { pruneSnapshots, takeSnapshot } from './snapshots.mjs';
 import { sweepPrepared } from './prepared.mjs';
-import { repositoryFacts, rulesAtSessionStart, rulesFetchDue, rulesOn } from './rules.mjs';
+import { repositoryFacts, rulesAtSessionStart, rulesFetchDue, rulesForPrompt, rulesOn } from './rules.mjs';
 import { rulesCheckDue, rulesNotice, teamRuleUses } from './team-rules.mjs';
 import { shareCheckDue, takeNotices } from './share.mjs';
 import { currentHead, repositoryRoot } from './git.mjs';
@@ -181,7 +183,8 @@ function rulesAtStart({ event, agent, site, agentArgs }) {
     const root = projectRoot(event.cwd);
     if (rulesFetchDue(site, root, repositoryFacts(root))) inBackground(['rules-fetch', `--cwd=${root}`, ...agentArgs]);
 
-    return rulesAtSessionStart(site, root, commandIn(agent, 'rules'));
+    // Cursor's prompt hook cannot add context: it gets every rule at the start.
+    return rulesAtSessionStart(site, root, commandIn(agent, 'rules'), undefined, { whole: agent === 'cursor' });
 }
 
 /**
@@ -198,6 +201,16 @@ function shareAtStart({ event, site, agentArgs }) {
     return notices;
 }
 
+/**
+ * First the task, then the rules for it (coders.talk personal rules, stage 41): the stack rules of this repository the
+ * prompt is about, each once a session. From what the last fetch kept: no network, and the prompt is not kept.
+ */
+function rulesAtPrompt({ event, site, id }) {
+    if (!id || !event.cwd || typeof event.prompt !== 'string' || !signedIn(site) || !rulesOn(site)) return null;
+
+    return rulesForPrompt(site, projectRoot(event.cwd), id, event.prompt);
+}
+
 const signedIn = (site) => process.env.CODERS_TALK_TOKEN || process.env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site);
 
 /**
@@ -206,7 +219,11 @@ const signedIn = (site) => process.env.CODERS_TALK_TOKEN || process.env.CLAUDE_P
  * what the start would, for the versions whose sessionStart does not run.
  */
 function prompt({ event, agent, site, id, agentArgs }) {
-    if (agent !== 'cursor') return;
+    if (agent !== 'cursor') {
+        const rules = rulesAtPrompt({ event, site, id });
+        if (rules) console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: rules } }));
+        return;
+    }
     const first = id && !readCursorSidecar(id)?.prompts?.length;
     noteCursorEvent('prompt', event);
     if (first) sessionStart({ event, agent, site, id, agentArgs });

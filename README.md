@@ -187,9 +187,9 @@ A published Build can come with a playbook: what its session taught, written for
 
 ### Rules in every session
 
-Where your agent went wrong before, so you stop correcting it the same way twice. Your own rules are on the site at [/rules](https://coders.talk/rules): you add them in one click from the pitfalls of your sessions' playbooks (Suggested shows the ones you corrected in several sessions first) or write them, stack by stack. A team's rules are the ones its members merged through proposals.
+Where your agent went wrong before, so you stop correcting it the same way twice. Your own rules are on the site at [/rules](https://coders.talk/rules): once a day a model reads your sessions together and suggests only the mistakes that came back in two conversations or more and are not one task's own; you add one in one click, for the stacks you pick or for every session, or write your own. A team's rules are the ones its members merged through proposals.
 
-At the start of each session, in Claude Code, Codex, Cursor and Pi, the `SessionStart` hook adds the rules for the repository's stacks to the session's context, the way a `CLAUDE.md` is read. Nothing is written into the repository.
+First the task, then the rules for it. The `SessionStart` hook adds the rules for every session (Everywhere) to the session's context, the way a `CLAUDE.md` is read. A stack's rules come with the prompt they matter for: the prompt hook (`UserPromptSubmit` in Claude Code and Codex, the extension in Pi) matches each prompt on this computer against the rules' keywords and words, and adds the ones it is about, each once a session. The prompt goes nowhere and is not kept. Cursor's prompt hook cannot add context, so Cursor gets every rule at the start. Nothing is written into the repository.
 
 - **Which stacks**: from the repository's manifests (`composer.json`, `package.json`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `go.mod`, `Cargo.toml`, Gradle and Maven, .NET projects, `pubspec.yaml`, `Package.swift`, a `Dockerfile` or a compose file), at its root and one folder down. A repository without them gets no rules.
 - **Whose**: your own everywhere. In a repository of one of your teams (its GitHub owner is the team's), also the team's, first, when an owner or admin turned on "Add the rules to every session" in the team's settings. A rule both have is said once, in the team's words. A team block the repository already has in its own files (`use --team`) is not said again.
@@ -267,6 +267,7 @@ Each network call, and what goes with it:
 | `kept.json`, `privacy.json` | Hashes of values you chose to send; your words to hide | Until you edit them |
 | `share.json` | Whether the share auto mode is on, when each repository was last checked, what it did since the last start | Checks 30 days; the notes until the next start shows them |
 | `rules.json` | Per repository (by its path): the stacks and owner asked about, the rules' text the site answered, when; and whether rules are off on this computer | Each repository 30 days after its last session; the switch until you change it |
+| `rules-given.json` | Per session: the ids of the stack rules its prompts were given, so each comes once. Not the prompts | 7 days |
 | `enable.json`, `plugin/`, `update.json`, `nudge.json` | `enable`'s answers, the plugin it lays out, the update check, the suggestion switch | Until `disable` or the next `enable`/`update` |
 
 The preview writes `<temp folder>/coders-talk/<session>.jsonl.gz` and `.json` (a private folder, private files): deleted after a send, when you say no (`build`, or the `discard` step of the agent's build skill), and otherwise 30 minutes after the preview, by the next run of `coders-talk` or the next session start.

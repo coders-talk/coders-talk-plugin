@@ -101,7 +101,7 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
     json('codex/hooks.json', {
         description: JSON.parse(source('codex/hooks.json')).description,
         // Codex gives a SessionEnd hook three seconds at most.
-        hooks: { SessionStart: [codexHook('session-start')], Stop: [codexHook('stop')], SessionEnd: [codexHook('session-end', 3)] },
+        hooks: { SessionStart: [codexHook('session-start')], UserPromptSubmit: [codexHook('prompt')], Stop: [codexHook('stop')], SessionEnd: [codexHook('session-end', 3)] },
     });
 
     if (serverFor.claude) {

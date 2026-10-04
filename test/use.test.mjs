@@ -44,6 +44,8 @@ let rulesVersion = 'a1';
 const requests = [];
 const auths = [];
 const server = createServer((req, res) => {
+    // The rules in every session (lib/rules.mjs, its own tests) are asked at each start, stacks or not: not counted here.
+    if (req.url.startsWith('/api/v1/rules')) return res.writeHead(404).end();
     requests.push(req.url);
     auths.push(req.headers.authorization ?? null);
     const member = req.headers.authorization === `Bearer ${MEMBER}`;

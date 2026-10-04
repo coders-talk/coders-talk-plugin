@@ -1,5 +1,5 @@
 {
-    "description": "Auto mode for Codex, and one suggestion to share a session. Sends nothing unless you turn auto mode on with $coders-talk:auto. Then it sends the session to Coders Talk in the background while it runs (every ten minutes of work), when it ends or idles for 30 minutes, and at the next start if it never said it ended. Nothing is published by it. With auto mode off, once per session, when Codex used Builds from the Coders Talk library and the session changed code, the Stop hook shows you a line suggesting to share it (CODERS_TALK_NUDGE=0 turns it off). In a repository with your team's rules (coders-talk use --team), the session-start hook says in one line when the team changed them, and checks the site for that in the background at most every six hours (it never rewrites the block). At the start of a session it also adds your Coders Talk rules for the repository's stacks to the session's context (and your team's in its repositories, when the team turns that on), from what a background fetch kept at most an hour ago; nothing is written into the repository, and `coders-talk rules off` stops it.",
+    "description": "Auto mode for Codex, and one suggestion to share a session. Sends nothing unless you turn auto mode on with $coders-talk:auto. Then it sends the session to Coders Talk in the background while it runs (every ten minutes of work), when it ends or idles for 30 minutes, and at the next start if it never said it ended. Nothing is published by it. With auto mode off, once per session, when Codex used Builds from the Coders Talk library and the session changed code, the Stop hook shows you a line suggesting to share it (CODERS_TALK_NUDGE=0 turns it off). In a repository with your team's rules (coders-talk use --team), the session-start hook says in one line when the team changed them, and checks the site for that in the background at most every six hours (it never rewrites the block). It also adds your Coders Talk rules to the session's context: the ones for every session at its start, and a stack's rules with the prompt they matter for (matched on this computer: the prompt goes nowhere) (and your team's in its repositories, when the team turns that on), from what a background fetch kept at most an hour ago; nothing is written into the repository, and `coders-talk rules off` stops it.",
     "hooks": {
         "SessionStart": [
             {
@@ -7,6 +7,17 @@
                     {
                         "type": "command",
                         "command": "node \"${PLUGIN_ROOT}/scripts/session-start.mjs\" --agent=codex",
+                        "timeout": 10
+                    }
+                ]
+            }
+        ],
+        "UserPromptSubmit": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"${PLUGIN_ROOT}/scripts/prompt.mjs\" --agent=codex",
                         "timeout": 10
                     }
                 ]

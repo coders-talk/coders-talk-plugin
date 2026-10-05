@@ -113,7 +113,7 @@ test('what the extension registers: eight commands, five events and the library\
     assert.deepEqual([...pi.commands.keys()], ['coders-talk:build', 'coders-talk:auto', 'coders-talk:login', 'coders-talk:logout', 'coders-talk:use', 'coders-talk:share', 'coders-talk:rules', 'coders-talk:lookup']);
     for (const [, command] of pi.commands) assert.ok(command.description.length > 10);
     assert.deepEqual([...pi.events.keys()].sort(), ['agent_settled', 'before_agent_start', 'session_shutdown', 'session_start']);
-    assert.deepEqual([...pi.tools.keys()], ['search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures']);
+    assert.deepEqual([...pi.tools.keys()], ['search_my_work', 'get_task_context', 'get_session_excerpt', 'attach_session_to_task', 'search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures']);
 
     const search = pi.tools.get('search_coding_agent_sessions');
     assert.equal(search.parameters.type, 'object');

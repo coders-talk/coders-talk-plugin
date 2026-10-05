@@ -95,6 +95,7 @@ import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { proxyFor, request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
 import { nudgeOn, setNudge } from './lib/nudge.mjs';
+import { MEMORY_TOOLS, workContext, memoryArguments } from './lib/work-memory.mjs';
 import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, formatBytes, formatDuration, isCodexPrompt, newestSessionId, promptText, summarize } from './lib/session.mjs';
 import { currentCursorSession, cursorPrompt, readCursorSidecar, withCursorTimes } from './lib/cursor.mjs';
 import { piPrompt } from './lib/pi.mjs';
@@ -188,6 +189,7 @@ try {
     else if (command === 'rules-fetch') await rulesFetch();
     else if (command === 'login') await login();
     else if (command === 'whoami') await whoami();
+    else if (command === 'context') console.log(JSON.stringify(localWorkContext()));
     else if (command === 'mcp-call') await mcpCall(argId);
     else if (command === 'logout') logout();
     else if (command === 'nudge') nudge(argId);
@@ -1702,8 +1704,19 @@ function mcpHeaders() {
  * an agent without MCP of its own gets its three tools from (Pi's extension registers them and runs this). Prints the
  * text of the answer; a refusal, an error the tool reports or an unreachable site is a failure with its reason.
  */
+function localWorkContext(detectRepository = true) {
+    const cwd = process.cwd();
+    if (detectRepository && !repositoryRoot(cwd)) {
+        for (let folder = cwd; ; folder = dirname(folder)) {
+            if (existsSync(join(folder, '.git'))) throw new Failure('Git could not read the current repository. Check Git and filesystem access before searching; do not substitute a folder key or silently broaden the search.');
+            if (dirname(folder) === folder) break;
+        }
+    }
+    return workContext(AGENT.id, detectRepository ? projectOf(cwd) : null, env, option('session-id'));
+}
+
 async function mcpCall(tool) {
-    const tools = ['search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures'];
+    const tools = [...MEMORY_TOOLS, 'search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures'];
     if (!tools.includes(tool)) throw new Failure(`mcp-call takes one of ${tools.join(', ')}.`);
     let params;
     try {
@@ -1712,6 +1725,8 @@ async function mcpCall(tool) {
         throw new Failure('The arguments of a tool are a JSON object: --json=\'{"query": "…"}\', or on stdin with --stdin.');
     }
     if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Failure('The arguments of a tool are a JSON object.');
+
+    if (MEMORY_TOOLS.includes(tool)) params = memoryArguments(tool, params, localWorkContext(tool === 'search_my_work' && params.scope !== 'all'));
 
     // The client is named the way the agent names itself, so the site knows whose sessions to weigh (LibraryTool::askingAgent).
     const client = { name: AGENT.id === 'pi' ? 'pi-coding-agent' : AGENT.client, version: VERSION };

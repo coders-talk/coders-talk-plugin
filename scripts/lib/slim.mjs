@@ -1,6 +1,6 @@
 // Generated from coders.talk resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:02c473322af9c522fcd0de5add75514a694b6638edce6ad0444285ba092bcc56
+// sha256:49f6629115cb84c00b26919e5a00cbe32373301e7c6d2a30e85d71ab114d3009
 
 /**
  * Claude Code and Codex sessions are mostly weight nobody reads: screenshots as base64, whole files
@@ -113,9 +113,9 @@ export function withheldReason(path) {
         return 'generated';
     return null;
 }
-const LIBRARY_TOOLS = ['search_coding_agent_sessions', 'find_coding_agent_failures', 'get_coding_agent_session'];
+const LIBRARY_TOOLS = ['search_coding_agent_sessions', 'find_coding_agent_failures', 'get_coding_agent_session', 'search_my_work', 'get_task_context', 'get_session_excerpt', 'attach_session_to_task'];
 /** A Codex script (the exec tool) that calls one of the library's tools. */
-const LIBRARY_SCRIPT = /(?:^|[^A-Za-z0-9_]|__)(?:search_coding_agent_sessions|find_coding_agent_failures|get_coding_agent_session)(?![A-Za-z0-9_])/;
+const LIBRARY_SCRIPT = /(?:^|[^A-Za-z0-9_]|__)(?:search_coding_agent_sessions|find_coding_agent_failures|get_coding_agent_session|search_my_work|get_task_context|get_session_excerpt|attach_session_to_task)(?![A-Za-z0-9_])/;
 /** Cursor calls the tools of an MCP server through these: the server and tool are in the input. */
 const MCP_WRAPPERS = ['callmcptool', 'calldynamictool'];
 /** Shell tools: the command's words are checked for secret files (`cat .env`, `type prod.env`). */

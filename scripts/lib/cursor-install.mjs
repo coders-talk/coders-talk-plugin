@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 import { cursorHome } from './cursor.mjs';
 
-export const SKILLS = ['build', 'auto', 'login', 'logout', 'lookup', 'use', 'share', 'rules'];
+export const SKILLS = ['build', 'auto', 'login', 'logout', 'lookup', 'resume', 'use', 'share', 'rules'];
 
 /** Cursor's event names and what each runs. */
 export const HOOK_EVENTS = { sessionStart: 'session-start', beforeSubmitPrompt: 'prompt', stop: 'stop', sessionEnd: 'session-end' };

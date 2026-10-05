@@ -131,7 +131,7 @@ function rememberStart(event, agent) {
     pruneSidecars();
 }
 
-function sessionStart({ event, agent, site, id, agentArgs }) {
+function sessionStart({ event, agent, site, id, agentArgs }, emit = true) {
     rememberStart(event, agent);
     if (agent === 'cursor') {
         noteCursorEvent('start', event);
@@ -147,7 +147,10 @@ function sessionStart({ event, agent, site, id, agentArgs }) {
         if (agent === 'cursor') out.additional_context = rules.context;
         else out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: rules.context };
     }
-    if (Object.keys(out).length) console.log(JSON.stringify(out));
+    if (agent === 'cursor' && id && SESSION_ID.test(id)) {
+        out.additional_context = [out.additional_context, `Coders Talk current session: client=cursor_plugin session_id=${id}. Use this exact id if attaching this conversation to a previous task; detect the repository again at query time.`].filter(Boolean).join('\n');
+    }
+    if (emit && Object.keys(out).length) console.log(JSON.stringify(out));
 
     if (!id) return;
     const running = RUNNING_MODES.includes(autoMode(site, agent));
@@ -226,7 +229,7 @@ function prompt({ event, agent, site, id, agentArgs }) {
     }
     const first = id && !readCursorSidecar(id)?.prompts?.length;
     noteCursorEvent('prompt', event);
-    if (first) sessionStart({ event, agent, site, id, agentArgs });
+    if (first) sessionStart({ event, agent, site, id, agentArgs }, false);
     console.log(JSON.stringify({ continue: true }));
 }
 

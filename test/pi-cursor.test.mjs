@@ -359,6 +359,8 @@ test('Cursor: the hooks note a conversation, and preview and send find it withou
     const prompt = await hook('prompt', { hook_event_name: 'beforeSubmitPrompt', prompt: 'Add rate limiting' });
     assert.equal(prompt.ok, true, prompt.out);
     assert.equal(prompt.out.trim(), '{"continue":true}', 'Cursor waits for this answer');
+    const start = await hook('session-start');
+    assert.match(JSON.parse(start.out).additional_context, new RegExp('session_id=' + CURSOR_ID));
     const stop = await hook('stop', { hook_event_name: 'stop', status: 'completed', input_tokens: 5000, output_tokens: 400, cache_read_tokens: 4000, cache_write_tokens: 500 });
     assert.equal(stop.ok, true, stop.out);
     assert.equal(stop.out.trim(), '', 'nothing to say to Cursor: it has no channel for it');
@@ -434,7 +436,7 @@ test('mcp-call fails with the reason: a tool that reports an error, one that doe
 
     const unknown = await cli(['mcp-call', 'delete_everything', '--agent=pi']);
     assert.equal(unknown.ok, false);
-    assert.match(unknown.out, /mcp-call takes one of search_coding_agent_sessions, get_coding_agent_session, find_coding_agent_failures\./);
+    assert.match(unknown.out, /mcp-call takes one of search_my_work, get_task_context, get_session_excerpt, attach_session_to_task, search_coding_agent_sessions, get_coding_agent_session, find_coding_agent_failures\./);
 
     const odd = await cli(['mcp-call', 'search_coding_agent_sessions', '--stdin', '--agent=pi'], {}, '[1, 2]');
     assert.equal(odd.ok, false);
@@ -444,4 +446,22 @@ test('mcp-call fails with the reason: a tool that reports an error, one that doe
     const signedOut = await cli(['mcp-call', 'search_coding_agent_sessions', '--json={"query":"x"}', '--agent=pi'], { CODERS_TALK_TOKEN: '', CODERS_TALK_HOME: join(home, 'ct-signed-out') });
     assert.equal(signedOut.ok, false);
     assert.match(signedOut.out, /Run \/coders-talk:login to connect this computer\./);
+});
+
+
+test('private bridge detects the repository for each request and attaches the actual Pi session', async () => {
+    await run('git', ['init', work]);
+    await run('git', ['-C', work, 'remote', 'add', 'origin', 'git@github.com:acme/first.git']);
+    const context = await cli(['context', '--agent=pi']);
+    assert.equal(context.ok, true, context.out);
+    const first = JSON.parse(context.out);
+    const ask = () => cli(['mcp-call', 'search_my_work', '--stdin', '--agent=pi'], {}, JSON.stringify({query:'certbot'}));
+    assert.equal((await ask()).ok, true);
+    assert.equal(mcp.at(-1).rpc.params.arguments.project_key, first.project_key);
+    await run('git', ['-C', work, 'remote', 'set-url', 'origin', 'https://github.com/acme/second.git']);
+    assert.equal((await ask()).ok, true);
+    assert.notEqual(mcp.at(-1).rpc.params.arguments.project_key, first.project_key);
+    const attached = await cli(['mcp-call', 'attach_session_to_task', '--stdin', '--agent=pi'], {PI_SESSION_ID:PI_ID}, JSON.stringify({task_id:'chosen'}));
+    assert.equal(attached.ok, true, attached.out);
+    assert.deepEqual(mcp.at(-1).rpc.params.arguments, {task_id:'chosen', client:'pi_plugin', session_id:PI_ID});
 });

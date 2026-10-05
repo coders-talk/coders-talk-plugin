@@ -230,6 +230,24 @@ export function withRules(systemPrompt, rules) {
 
 const LIBRARY = [
     {
+        name: 'search_my_work', label: 'Coders Talk: find my task',
+        description: 'Find your previous work to recall or continue it across Claude Code, Codex, Cursor and Pi. Detects the current repository at request time. Offer multiple matches newest first. Only use scope all for an explicitly broader search.',
+        snippet: 'search_my_work: recall or continue your own previous task', guidelines: ['Use this before asking the user to explain previous work. Choose between multiple results with the user.'],
+        parameters: () => ({ query: Type.String(), scope: Type.Optional(Type.String({ enum: ['project', 'all'] })), cursor: Type.Optional(Type.String()) }),
+    },
+    {
+        name: 'get_task_context', label: 'Coders Talk: task context', description: 'Read source excerpts for the selected private task without a summary API call. Verify the current checkout before acting.',
+        snippet: 'get_task_context: read previous task context', guidelines: [], parameters: () => ({task_id: Type.String(), max_chars: Type.Optional(Type.Integer()), cursor: Type.Optional(Type.String())}),
+    },
+    {
+        name: 'get_session_excerpt', label: 'Coders Talk: more context', description: 'Read more source messages when task context is incomplete.',
+        snippet: 'get_session_excerpt: read additional source messages', guidelines: [], parameters: () => ({session_id: Type.String(), cursor: Type.Optional(Type.Integer()), limit: Type.Optional(Type.Integer()), text_offset: Type.Optional(Type.Integer())}),
+    },
+    {
+        name: 'attach_session_to_task', label: 'Coders Talk: continue task', description: 'Attach this actual Pi session to the task selected for continuation. Later sync links it to that task. Does not upload the session or enable auto sync.',
+        snippet: 'attach_session_to_task: keep continuing work in the same task', guidelines: ['Attach only after selecting the task the user wants to continue.'], parameters: () => ({task_id: Type.String()}),
+    },
+    {
         name: 'search_coding_agent_sessions',
         label: 'Coders Talk: search sessions',
         description: 'Coders Talk library: find published sessions where developers did a similar task with a coding agent. Use before a non-trivial task on a known stack, or when the user asks how others did something; skip small edits and questions about this repository. Returns up to 5 cards with the outcome, how long it took and how often the human had to step in. Query: the task in a few words, e.g. "migrate queues to horizon". An empty result means nobody has published such a session yet.',
@@ -332,7 +350,7 @@ export default function (pi) {
             promptGuidelines: tool.guidelines,
             parameters: Type.Object(tool.parameters()),
             async execute(toolCallId, params, signal, onUpdate, ctx) {
-                const r = await run(['mcp-call', tool.name, '--stdin', '--agent=pi'], { cwd: ctx.cwd, input: JSON.stringify(params ?? {}), signal, timeout: 60_000 });
+                const r = await run(['mcp-call', tool.name, '--stdin', '--agent=pi'], { cwd: ctx.cwd, env: sessionEnv(ctx), input: JSON.stringify(params ?? {}), signal, timeout: 60_000 });
                 // A failed call fails the tool: the model sees the reason and goes on with the task.
                 if (r.code !== 0) throw new Error(shown(r));
 

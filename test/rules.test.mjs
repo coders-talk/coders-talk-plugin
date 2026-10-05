@@ -119,7 +119,8 @@ test('the rules reach the session at its start from the last fetch, which goes i
     const codex = JSON.parse(await startHook(signedIn, coders(['hook', 'codex', 'session-start'])));
     assert.equal(codex.hookSpecificOutput.additionalContext, START);
     const cursor = JSON.parse(await startHook(signedIn, coders(['hook', 'cursor', 'session-start'])));
-    assert.equal(cursor.additional_context, TEXT);
+    assert.ok(cursor.additional_context.startsWith(TEXT));
+    assert.match(cursor.additional_context, /client=cursor_plugin session_id=0b5e2c1a-7d4f-4e2b-9a3c-6f1d8e2b4a70/);
     assert.equal(cursor.systemMessage, undefined);
 });
 

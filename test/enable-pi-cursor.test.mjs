@@ -99,7 +99,7 @@ test('enable installs the package into Pi with pi install, and the hooks, skills
 
     const status = await cli(['status']);
     assert.match(status.out, /Pi +coders-talk@coders-talk-local \S+; auto mode off/);
-    assert.match(status.out, /Cursor +coders-talk@coders-talk-local \S+; hooks in ~\/\.cursor\/hooks\.json, 8 of 8 skills; MCP server in ~\/\.cursor\/mcp\.json: coders-talk; auto mode off/);
+    assert.match(status.out, /Cursor +coders-talk@coders-talk-local \S+; hooks in ~\/\.cursor\/hooks\.json, 9 of 9 skills; MCP server in ~\/\.cursor\/mcp\.json: coders-talk; auto mode off/);
 
     // Again: nothing is doubled, Pi is not asked to install what it has, and our own library entry stays ours.
     writeFileSync(join(dir, 'calls.log'), '');

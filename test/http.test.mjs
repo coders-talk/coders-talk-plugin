@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request as forward } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
-import { connect } from 'node:net';
+import { connect, createServer as createTcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -55,17 +55,71 @@ proxy.on('connect', (req, socket, head) => {
     upstream.on('error', () => socket.destroy());
 });
 
+/**
+ * A SOCKS5 proxy (RFC 1928, 1929): CONNECT by name or IPv4; with `socksAuth` set it wants that username and password.
+ * What it was asked to reach goes into `seen`.
+ */
+let socksAuth = null;
+const socks = createTcpServer((client) => {
+    let buffer = Buffer.alloc(0);
+    let stage = 'hello';
+    const onData = (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (stage === 'hello' && buffer.length >= 2 + buffer[1]) {
+            const methods = [...buffer.subarray(2, 2 + buffer[1])];
+            buffer = buffer.subarray(2 + buffer[1]);
+            const method = socksAuth ? (methods.includes(2) ? 2 : 255) : 0;
+            client.write(Buffer.from([5, method]));
+            if (method === 255) return client.end();
+            stage = method === 2 ? 'auth' : 'connect';
+        }
+        if (stage === 'auth' && buffer.length >= 2 && buffer.length >= 3 + buffer[1] && buffer.length >= 3 + buffer[1] + buffer[2 + buffer[1]]) {
+            const user = buffer.subarray(2, 2 + buffer[1]).toString();
+            const password = buffer.subarray(3 + buffer[1], 3 + buffer[1] + buffer[2 + buffer[1]]).toString();
+            buffer = buffer.subarray(3 + buffer[1] + buffer[2 + buffer[1]]);
+            const ok = `${user}:${password}` === socksAuth;
+            client.write(Buffer.from([1, ok ? 0 : 1]));
+            if (!ok) return client.end();
+            stage = 'connect';
+        }
+        if (stage === 'connect' && buffer.length >= 5) {
+            const type = buffer[3];
+            const length = type === 1 ? 4 : type === 3 ? 1 + buffer[4] : 16;
+            if (buffer.length < 4 + length + 2) return;
+            const host = type === 1 ? [...buffer.subarray(4, 8)].join('.') : buffer.subarray(5, 5 + buffer[4]).toString();
+            const port = buffer.readUInt16BE(4 + length);
+            const rest = buffer.subarray(4 + length + 2);
+            seen.push(`SOCKS ${host}:${port}`);
+            stage = 'done';
+            client.removeListener('data', onData);
+            const upstream = connect(port, host === 'localhost' ? '127.0.0.1' : host, () => {
+                client.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]));
+                upstream.write(rest);
+                upstream.pipe(client);
+                client.pipe(upstream);
+            });
+            upstream.on('error', () => {
+                client.end(Buffer.from([5, 5, 0, 1, 0, 0, 0, 0, 0, 0]));
+            });
+        }
+    };
+    client.on('data', onData);
+    client.on('error', () => {});
+});
+
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 let siteUrl;
 let plainUrl;
 let proxyUrl;
+let socksUrl;
 before(async () => {
-    await Promise.all([listen(site), listen(plainSite), listen(proxy)]);
+    await Promise.all([listen(site), listen(plainSite), listen(proxy), listen(socks)]);
+    socksUrl = `socks5://127.0.0.1:${socks.address().port}`;
     siteUrl = `https://localhost:${site.address().port}`;
     plainUrl = `http://127.0.0.1:${plainSite.address().port}`;
     proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
 });
-after(() => [site, plainSite, proxy].forEach((s) => s.close()));
+after(() => [site, plainSite, proxy, socks].forEach((s) => s.close()));
 
 const upload = (size) => {
     const form = new FormData();
@@ -83,7 +137,9 @@ test('proxyFor reads HTTPS_PROXY, HTTP_PROXY, ALL_PROXY and NO_PROXY the way cur
     assert.equal(proxyFor(https, { HTTP_PROXY: 'http://127.0.0.1:2081' }), null, 'HTTP_PROXY is for http:// sites');
     assert.equal(proxyFor('http://localhost:8000/x', { HTTP_PROXY: 'http://p:1' }).host, 'p:1');
     assert.equal(proxyFor(https, { ALL_PROXY: 'http://p:1' }).host, 'p:1');
-    assert.equal(proxyFor(https, { HTTPS_PROXY: 'socks5://127.0.0.1:1080' }), null, 'socks is not ours to speak');
+    assert.equal(proxyFor(https, { HTTPS_PROXY: 'socks5://127.0.0.1:1080' }).protocol, 'socks5:');
+    assert.equal(proxyFor(https, { ALL_PROXY: 'socks5h://u:p@127.0.0.1:1080' }).username, 'u');
+    assert.equal(proxyFor(https, { HTTPS_PROXY: 'socks4://127.0.0.1:1080' }), null, 'socks4 is not ours to speak');
     assert.equal(proxyFor(https, { HTTPS_PROXY: '::not a url' }), null);
 
     const behind = { HTTPS_PROXY: 'http://p:1', HTTP_PROXY: 'http://p:1' };
@@ -131,6 +187,34 @@ test('an http site goes to the proxy with the whole URL, and NO_PROXY goes direc
     const direct = await request(`${plainUrl}/api/v1/me`, {}, { env: { HTTP_PROXY: proxyUrl, NO_PROXY: '127.0.0.1' } });
     assert.equal(direct.status, 401);
     assert.deepEqual(seen, []);
+});
+
+test('through a SOCKS5 proxy (a VPN client in system-proxy mode): https upload by name, http site, and credentials', async () => {
+    seen = [];
+    socksAuth = null;
+    const response = await request(`${siteUrl}/api/v1/imports`, { method: 'POST', headers: { Authorization: 'Bearer good' }, body: upload(1024 * 1024) }, { env: { HTTPS_PROXY: socksUrl }, ca });
+    assert.equal(response.status, 202);
+    const got = await response.json();
+    assert.equal(got.has_file, true);
+    assert.ok(got.size > 1024 * 1024);
+    assert.deepEqual(seen, [`SOCKS localhost:${site.address().port}`], 'the site goes by its name, for the proxy to resolve');
+
+    seen = [];
+    socksAuth = 'mara:s3cret';
+    const withAuth = socksUrl.replace('socks5://', 'socks5h://mara:s3cret@');
+    const plain = await request(`${plainUrl}/api/v1/me?x=1`, { headers: { Authorization: 'Bearer good' } }, { env: { ALL_PROXY: withAuth } });
+    assert.equal(plain.status, 202);
+    assert.equal((await plain.json()).path, '/api/v1/me?x=1');
+    assert.deepEqual(seen, [`SOCKS 127.0.0.1:${plainSite.address().port}`]);
+
+    const wrong = socksUrl.replace('socks5://', 'socks5://mara:nope@');
+    await assert.rejects(request(`${siteUrl}/api/v1/me`, {}, { env: { HTTPS_PROXY: wrong }, ca }), (e) => {
+        assert.equal(e.code, 'EPROXYREFUSED');
+        assert.match(e.message, /wrong username or password \(through the proxy 127\.0\.0\.1:\d+\)/);
+        assert.doesNotMatch(e.message, /nope/);
+        return true;
+    });
+    socksAuth = null;
 });
 
 test('proxy credentials from the URL are sent, and a refusal names the proxy without them', async () => {

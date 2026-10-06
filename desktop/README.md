@@ -36,6 +36,11 @@ and runs that one. The agents' hooks call the file by its path, so they keep wor
 login shell for its PATH, so `claude`, `codex` and `pi` are found. A session whose folder is gone (a removed worktree) is
 still sent: coders-talk finds it by its id, run from the home folder.
 
+A VPN that takes all traffic needs nothing. One in system-proxy mode (v2rayN, Clash, Hiddify and the like) sets a proxy in
+the system settings. The standalone CLI reads Windows manual settings itself; the app also resolves PAC/WPAD. Before each
+command the main process asks Chromium which proxy the site goes through (`session.resolveProxy`) and passes it on as
+`HTTPS_PROXY`/`HTTP_PROXY` (`src/main/proxy.mjs`), an HTTP or SOCKS5 one. A proxy named in the environment stays.
+
 ## Develop
 
 ```bash
@@ -105,3 +110,5 @@ Tag `desktop--vX.Y.Z` (matching `package.json`): `.github/workflows/desktop.yml`
 Intel) and the Windows `.exe` with the CLI of that commit inside, and publishes them as a release that is never marked
 latest (the CLI's installers and `coders-talk update` use the latest release). Without signing secrets the macOS app is
 signed ad hoc and the Windows installer is unsigned; the workflow says which secrets sign and notarize them.
+
+The CLI now also reads Windows manual Internet Settings when run without the app (including agent hooks), if no proxy environment variable is set. The app still resolves PAC/WPAD with Chromium; standalone CLI supports manual settings only. See the plugin README for precedence and bypass rules.

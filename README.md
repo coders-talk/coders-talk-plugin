@@ -298,7 +298,9 @@ The preview writes `<temp folder>/coders-talk/<session>.jsonl.gz` and `.json` (a
 | Data folder | `CODERS_TALK_HOME` | `~/.coders-talk` |
 | Suggestion to share a session that used the library | `CODERS_TALK_NUDGE=0` turns it off for a shell; `coders-talk.mjs nudge off` for this computer | on |
 | Rules in every session | `CODERS_TALK_RULES=0` turns them off for a shell; `coders-talk rules off` for this computer | on |
-| Proxy | `HTTPS_PROXY` (`HTTP_PROXY` for an `http://` site, `ALL_PROXY` for both), `NO_PROXY` for hosts that go direct. Lower-case names work too. An `http://` or `https://` proxy, with `user:password@` if it asks; a `socks://` one is ignored. In Codex, if a variable does not reach the plugin, add it to `set` as above | none: direct |
+| Proxy | `HTTPS_PROXY` (`HTTP_PROXY` for an `http://` site, `ALL_PROXY` for both), `NO_PROXY` for hosts that go direct. Lower-case names work too. An `http://` or `https://` proxy, with `user:password@` if it asks; SOCKS5 proxies are supported too (socks://, socks5://, socks5h://). In Codex, if a variable does not reach the plugin, add it to `set` as above | none: direct |
+
+On Windows, when no proxy variable is set, the CLI and agent hooks read the enabled manual proxy from Internet Settings before each request. Shared and per-protocol HTTP/SOCKS5 proxies, ProxyOverride wildcards, ports and <local> are supported; loopback stays direct. Machine-wide settings are used when the ProxySettingsPerUser policy is disabled. Explicit proxy variables and NO_PROXY keep their priority. Reading settings has a two-second timeout per registry query; missing or unreadable settings use a direct connection. An unavailable configured proxy reports an error without retrying directly. PAC/WPAD scripts are not evaluated by the CLI; use an explicit proxy variable for those networks, or the desktop app's Chromium resolver.
 
 Node's own `fetch` ignores the proxy variables, so the plugin opens the proxy's `CONNECT` tunnel itself. Some networks reset a direct connection to the site after the first 16 KB, which lets `whoami` through but not an upload; there the proxy is what gets a session out.
 

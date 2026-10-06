@@ -3,13 +3,14 @@
  * says what the window may ask of it). The window has no Node and no network of its own: it asks through the preload
  * (preload.cjs), and only for the methods api.mjs has. Links open in the person's browser, and only the site's.
  */
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, net, session, shell } from 'electron';
 import electronUpdater from 'electron-updater';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createApi } from './src/main/api.mjs';
 import { CLI_NAME, cliEnv, ensureCli, runCli } from './src/main/cli.mjs';
+import { withSystemProxy } from './src/main/proxy.mjs';
 import { createUpdater } from './src/main/updater.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -69,8 +70,14 @@ function start() {
         cliError = e.message;
     }
     api = createApi({
-        // A session's folder may be gone (a removed worktree): coders-talk finds the session by its id from anywhere.
-        run: (args, options = {}) => (cli ? runCli(cli.path, args, { env, ...options, cwd: options.cwd && existsSync(options.cwd) ? options.cwd : app.getPath('home') }) : Promise.resolve({ ok: false, result: null, events: [], error: cliError, details: null })),
+        run: async (args, options = {}) => {
+            if (!cli) return { ok: false, result: null, events: [], error: cliError, details: null };
+            // The system's proxy, asked again for each command: a VPN client may have been switched on or off meanwhile.
+            const target = process.env.CODERS_TALK_URL || site || 'https://coders.talk';
+            const withProxy = await withSystemProxy(env, target, (url) => session.defaultSession.resolveProxy(url));
+            // A session's folder may be gone (a removed worktree): coders-talk finds the session by its id from anywhere.
+            return runCli(cli.path, args, { env: withProxy, ...options, cwd: options.cwd && existsSync(options.cwd) ? options.cwd : app.getPath('home') });
+        },
     });
 }
 

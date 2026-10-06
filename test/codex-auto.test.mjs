@@ -127,10 +127,14 @@ test('in Codex the Stop hook syncs the session, and the session-end hook waits f
     appendFileSync(path, readFileSync(fixture('codex.jsonl'), 'utf8').split('\n').slice(1, 3).join('\n') + '\n');
     const started = Date.now();
     await hook('session-end', { session_id: thread, transcript_path: path, cwd: home, hook_event_name: 'SessionEnd', reason: 'other' });
+    const waited = Date.now() - started;
     // The hook caps its own wait at 2.5 s (CODEX_WAIT_MS); starting Node on a loaded CI runner comes on top of that,
     // so this only catches a hook that waits for the site with no cap at all.
-    assert.ok(Date.now() - started < 8000, 'the hook does not wait for the send without a limit');
-    assert.match(autoLog(), new RegExp(`codex ${thread} sent to your private Builds: http`), 'sent before the hook returned');
+    assert.ok(waited < 8000, 'the hook does not wait for the send without a limit');
+    // It returns once the send is in, or at its cap: on a loaded CI runner the send in the background can take longer
+    // than that (it then goes at the next start), so only a hook that returned without it before its cap fails here.
+    assert.ok(state()[thread].sent?.final || waited >= 2500, 'the hook waits for the send, up to its cap');
+    await logged(new RegExp(`codex ${thread} sent to your private Builds: http`));
     assert.equal(field(bodies.at(-1), 'final'), '1');
     assert.equal(state()[thread].sent.final, true);
     await cli(['auto', 'off', '--agent=codex']);

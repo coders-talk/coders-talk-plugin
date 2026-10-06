@@ -13,9 +13,10 @@
  * One session can choose for itself (`auto session on|off`, trackSession's `own`): `on` sends it as `all` would even
  * when the computer's mode is off, `off` never sends it whatever that mode is. Turned on only by the person, like the rest.
  *
- * A session goes while it runs (the Stop hook syncs it every SYNC_EVERY_MS of work), once more when it ends
- * (SessionEnd), and at the next start if it never said it ended: a crash, a closed terminal (SessionStart catches up).
- * The site asks the model for moments once, when the session is over.
+ * A session goes while it runs (syncIfDue: the Stop hook after each answer, and Claude Code's PostToolUse during a long
+ * turn, sync it every SYNC_EVERY_MS of work), once more when it ends (SessionEnd), and at the next start if it never
+ * said it ended: a crash, a closed terminal (SessionStart catches up). The site asks the model for moments when the
+ * session is over, and again when it went on after that.
  *
  * Every agent runs the same hooks (lib/hooks.mjs): hooks/hooks.json for Claude Code, codex/hooks.json for Codex, the
  * hooks.json Cursor reads from ~/.cursor, and Pi's extension, each with --agent=<id>. Codex runs a plugin's hooks only
@@ -41,8 +42,8 @@ const NESTED = AGENT_IDS.filter((id) => id !== 'claude-code');
 const LOG_LINES = 500;
 const LOG_DAYS = 30;
 
-/** A session that is still going is sent again at most this often. */
-export const SYNC_EVERY_MS = 10 * 60_000;
+/** A session that is still going is sent again at most this often: the draft is never more than this behind. */
+export const SYNC_EVERY_MS = 5 * 60_000;
 /** Quiet this long, a session is over; the site waits as long before it asks for moments. */
 export const IDLE_MS = 30 * 60_000;
 /** Written to this recently, the session is still open somewhere: its own hooks send it. */
@@ -226,6 +227,25 @@ export function syncDue(session, now = Date.now()) {
     if (!file || file.size <= doneWith(session)) return false;
 
     return now - Math.max(session.seen ?? 0, session.tried ?? 0) >= SYNC_EVERY_MS;
+}
+
+/**
+ * Auto mode's sync of a running session, from a hook that fires while it runs: sends it in the background as still
+ * going when syncDue says so. Whether a sync started. Reads auto-sessions.json and writes it only when there is
+ * something to write: Claude Code runs the PostToolUse hook after every tool call, several at once for parallel ones.
+ * Two of those finding it due together start two uploads; the site takes the first and turns the other down
+ * (import_running), which auto-send leaves unsaid.
+ */
+export function syncIfDue(site, id, { path, agent = 'claude-code', args = [] } = {}, dir = home(), now = Date.now(), env = process.env) {
+    if (!id || !RUNNING_MODES.includes(sessionAutoMode(site, id, agent, dir, env))) return false;
+    let session = autoSession(site, id, dir);
+    // Auto mode turned on in the middle of a session starts with it from here.
+    if (!session || (path && session.path !== path) || (session.agent ?? 'claude-code') !== agent) session = trackSession(site, id, { path, agent }, dir, now);
+    if (!syncDue(session, now)) return false;
+    trackSession(site, id, { tried: now }, dir, now);
+    inBackground(['auto-send', id, '--sync', ...args], env);
+
+    return true;
 }
 
 /**

@@ -27,8 +27,13 @@ test('every skill and manifest of the repository is there, in the file\'s versio
 
 test('Claude Code hooks run the file without a shell, one command per event', () => {
     const hooks = JSON.parse(lay(true, WIN)['hooks/hooks.json']).hooks;
-    assert.deepEqual(Object.keys(hooks), ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']);
+    assert.deepEqual(Object.keys(hooks), ['SessionStart', 'UserPromptSubmit', 'Stop', 'PostToolUse', 'SessionEnd']);
     assert.deepEqual(hooks.Stop[0].hooks, [{ type: 'command', command: WIN[0], args: ['hook', 'claude-code', 'stop'], timeout: 10 }]);
+    // After every tool call: only auto mode's sync, and the agent does not wait for it.
+    assert.deepEqual(hooks.PostToolUse[0].hooks, [{ type: 'command', command: WIN[0], args: ['hook', 'claude-code', 'tool'], timeout: 10, async: true }]);
+    // The repository's own hooks, for the plugin from Claude's directory: the same events.
+    assert.deepEqual(Object.keys(JSON.parse(sources['hooks/hooks.json']).hooks), Object.keys(hooks));
+    assert.equal(JSON.parse(sources['hooks/hooks.json']).hooks.PostToolUse[0].hooks[0].async, true);
     // Node and the script, when enable runs from the repository.
     const dev = JSON.parse(lay(false, ['/usr/bin/node', '/src/scripts/coders-talk.mjs'])['hooks/hooks.json']).hooks;
     assert.deepEqual(dev.SessionStart[0].hooks[0].args, ['/src/scripts/coders-talk.mjs', 'hook', 'claude-code', 'session-start']);

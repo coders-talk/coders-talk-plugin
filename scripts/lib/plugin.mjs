@@ -91,11 +91,18 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
         plugins: [{ name: 'coders-talk', source: { source: 'local', path: './' }, policy: { installation: 'AVAILABLE' }, category: 'Developer Tools' }],
     });
 
-    // One command per event: the file takes the git snapshot in the same run (lib/hooks.mjs).
-    const claudeHook = (event) => ({ hooks: [{ type: 'command', command: program[0], args: [...program.slice(1), 'hook', 'claude-code', event], timeout: 10 }] });
+    // One command per event: the file takes the git snapshot in the same run (lib/hooks.mjs). After a tool call only auto
+    // mode's sync runs, and the agent does not wait for it (async).
+    const claudeHook = (event, extra = {}) => ({ hooks: [{ type: 'command', command: program[0], args: [...program.slice(1), 'hook', 'claude-code', event], timeout: 10, ...extra }] });
     json('hooks/hooks.json', {
         description: JSON.parse(source('hooks/hooks.json')).description,
-        hooks: { SessionStart: [claudeHook('session-start')], UserPromptSubmit: [claudeHook('prompt')], Stop: [claudeHook('stop')], SessionEnd: [claudeHook('session-end')] },
+        hooks: {
+            SessionStart: [claudeHook('session-start')],
+            UserPromptSubmit: [claudeHook('prompt')],
+            Stop: [claudeHook('stop')],
+            PostToolUse: [claudeHook('tool', { async: true })],
+            SessionEnd: [claudeHook('session-end')],
+        },
     });
     const codexHook = (event, timeout = 10) => ({ hooks: [{ type: 'command', command: `${codexRun} hook codex ${event}`, timeout }] });
     json('codex/hooks.json', {

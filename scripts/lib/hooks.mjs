@@ -17,11 +17,14 @@
  *                  repository on github.com, the share auto mode's check in the background when due (lib/share.mjs),
  *                  and one line on what it put into pull requests since the last start.
  *   stop           after each answer. Auto mode: sends the session in the background as still going when it grew and
- *                  the last send is ten minutes old (lib/auto.mjs, syncDue). Otherwise, once per session that used
+ *                  the last send is five minutes old (lib/auto.mjs, syncIfDue). Otherwise, once per session that used
  *                  Builds from the library and changed code, one line suggesting to share it (lib/nudge.mjs): a JSON
  *                  systemMessage, which both agents show to the person, and the only output Codex takes from a Stop hook.
  *   session-end    auto mode only: hands the session to `auto-send` in the background and returns. Codex ends its hooks'
  *                  processes when it exits, so there the hook waits for the upload as long as its own timeout allows.
+ *   tool           Claude Code's PostToolUse, after every tool call, run without the agent waiting for it (async):
+ *                  auto mode's sync, as at stop, so a turn the agent works on for an hour is not sent only at its end.
+ *                  Nothing else, and no snapshot. scripts/tool.mjs runs it without loading the rest of this file.
  *   prompt         the git snapshot; Cursor's hook also notes the prompt and which conversation its workspace is in
  *                  (lib/cursor.mjs), and answers {"continue": true}, since Cursor waits for it. Claude Code, Codex and
  *                  Pi: the repository's stack rules this prompt is about, as additionalContext (lib/rules.mjs,
@@ -30,10 +33,11 @@
  * Git snapshots (lib/snapshots.mjs) are every agent's but Codex's: at the start, at each prompt and after each answer.
  */
 import { agentArgs, commandIn } from './agent.mjs';
-import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, sessionAutoMode, settled, stillHeld, syncDue, trackSession, waitForSend } from './auto.mjs';
+import { autoMode, catchUp, inBackground, removeStaleTemps, RUNNING_MODES, sessionAutoMode, settled, stillHeld, syncIfDue, trackSession, waitForSend } from './auto.mjs';
 import { siteUrl } from './config.mjs';
 import { savedToken } from './credentials.mjs';
 import { cursorEvent, noteCursorEvent, pruneCursorNotes, readCursorSidecar } from './cursor.mjs';
+import { readEvent } from './event.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
 import { projectRoot } from './playbooks.mjs';
 import { SESSION_ID } from './session.mjs';
@@ -46,7 +50,7 @@ import { rulesCheckDue, rulesNotice, teamRuleUses } from './team-rules.mjs';
 import { shareCheckDue, takeNotices } from './share.mjs';
 import { currentHead, repositoryRoot } from './git.mjs';
 
-export const HOOK_EVENTS = ['session-start', 'prompt', 'stop', 'session-end'];
+export const HOOK_EVENTS = ['session-start', 'prompt', 'stop', 'tool', 'session-end'];
 
 /** Codex gives a SessionEnd hook three seconds at most (codex/hooks.json asks for all of them). */
 const CODEX_WAIT_MS = 2500;
@@ -55,12 +59,7 @@ const CODEX_WAIT_MS = 2500;
 const SNAPSHOTS = { 'session-start': 'start', prompt: 'prompt', stop: 'stop' };
 
 /** The event the agent wrote on stdin. */
-export async function readEvent(input = process.stdin) {
-    let text = '';
-    for await (const chunk of input) text += chunk;
-
-    return JSON.parse(text);
-}
+export { readEvent };
 
 /**
  * Runs the hook of $name for $agent (claude-code, codex, cursor or pi). $snapshot takes the git snapshot of the event in
@@ -95,6 +94,7 @@ export async function runHook(agent, name, { snapshot = agent !== 'codex', event
             sessionStart(context);
         } else if (name === 'prompt') prompt(context);
         else if (name === 'stop') stop(context);
+        else if (name === 'tool') syncIfDue(context.site, context.id, { path: event.transcript_path, agent, args: context.agentArgs });
         else if (name === 'session-end') await sessionEnd(context);
     } catch {
         // A missing git, an unreadable home folder or odd input must not get in the way of the session.
@@ -239,12 +239,7 @@ function stop({ event, agent, site, id, agentArgs }) {
     // Push mode sends at the push; it needs no suggestion either.
     if (id && mode === 'push') return;
     if (id && mode) {
-        // Auto mode turned on in the middle of a session starts with it from here.
-        const session = trackSession(site, id, { path: event.transcript_path, agent });
-        if (syncDue(session)) {
-            trackSession(site, id, { tried: Date.now() });
-            inBackground(['auto-send', id, '--sync', ...agentArgs]);
-        }
+        syncIfDue(site, id, { path: event.transcript_path, agent, args: agentArgs });
     } else if (id && nudgeOn() && SAYS(agent)) {
         const path = event.transcript_path || sessionPath(agent, id);
         const builds = path ? nudgeDue({ agent, id, path }) : null;

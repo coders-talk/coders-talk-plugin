@@ -99,7 +99,7 @@ test('Codex has a switch of its own, and its hooks send nothing while it is off'
     assert.equal(bodies.length, 0);
 
     const on = await cli(['auto', 'on', '--agent=codex']);
-    assert.match(on, /Auto mode is on\. Codex sessions on this computer are sent to .* every ten minutes while they run and once more when they end or sit idle for 30 minutes/);
+    assert.match(on, /Auto mode is on\. Codex sessions on this computer are sent to .* every five minutes while they run and once more when they end or sit idle for 30 minutes/);
     assert.match(on, /type \/hooks in Codex and trust the three Coders Talk hooks/);
     assert.match(await cli(['auto', '--agent=codex']), /every Codex session on this computer is sent while it runs and when it ends or sits idle for 30 minutes/);
     await cli(['auto', 'off']);

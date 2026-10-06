@@ -135,13 +135,16 @@ Off until you turn it on, per computer, per site and per agent: `/coders-talk:au
 
 One session can choose for itself. `/coders-talk:auto session on` sends the current session the way `on` would, even while auto mode is off for the computer; other sessions are not touched. `/coders-talk:auto session off` keeps the current session on the computer whatever the mode, the git hooks' push included (what it already sent stays a draft). The choice is kept in `auto-sessions.json` with the session, so a resumed session keeps it, and `/coders-talk:auto off` does not forget it. `CODERS_TALK_AUTO=0` still stops everything.
 
-Three hooks do the sending, each in a background process so the agent never waits for an upload:
+These hooks do the sending, each in a background process so the agent never waits for an upload:
 
-- `Stop`, after an answer of the agent: when the session grew and the last send is ten minutes old, it is sent as still going. The draft stays up to date, and a crash loses at most those minutes. A session shorter than ten minutes is only sent at its end.
+- `Stop`, after an answer of the agent: when the session grew and the last send is five minutes old, it is sent as still going. The draft stays up to date, and a crash loses at most those minutes. A session shorter than five minutes is only sent at its end.
+- `PostToolUse` (Claude Code), after each tool call: the same check, so a turn the agent works on for an hour is sent while it runs, not only once it answers. Claude Code runs it without waiting for it (`async`), and it loads nothing but auto mode.
 - `SessionEnd`: the session is sent once more, as ended. Codex also ends a session after 30 idle minutes, which is what ends one in its desktop app.
 - `SessionStart`: sessions that never said they ended (a crash, a closed terminal) and grew since their last send are sent at the next start, up to three at a time. One quiet for half an hour goes as ended; a fresher one as still going. Only sessions auto mode saw while it was on, or turned on for themselves, are considered, never older history.
 
-The site asks the model for moments once per session, when it is over: when the plugin says it ended, or after half an hour without anything new. Sending a session that is still going costs nothing and does not count against the daily limit.
+The site asks the model for moments when a session is over: when the plugin says it ended, or after half an hour without anything new. A session that goes on after that is asked about again at its next end, from the whole session, as long as you have not changed the timeline yourself. Sending a session that is still going costs nothing and does not count against the daily limit.
+
+A conversation in the Claude app can be several sessions: the app starts a new one, with the lines up to there copied in, whenever you edit a message you sent and when a conversation is continued. The plugin sends such a chain as one session, under the newest one's id, and names the sessions before it (`chain`), so the site keeps updating the one draft. A late send of a session the conversation already went on from is left alone (`skipped: the conversation went on in a later session`).
 
 Nothing is published by it. A session you already published is left alone. Every send gets a line in `~/.coders-talk/auto.log`: sent or synced (with the draft link), skipped and why, or failed. The log keeps its last 500 lines, none older than 30 days. `~/.coders-talk/auto-sessions.json` remembers which sessions auto mode saw and how much of each went, never their content; `/coders-talk:auto off` forgets it. `CODERS_TALK_AUTO=0` in the environment turns auto mode off for that shell.
 

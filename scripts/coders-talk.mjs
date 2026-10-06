@@ -398,7 +398,7 @@ async function preview(id) {
     writePrepared(out.file, gz);
     // Findings by number and hash, for --keep; the values stay in memory only.
     const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
-    writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library, project, continuation, title, task_keys: taskKeys }));
+    writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library, project, continuation, title, task_keys: taskKeys, chain: earlier }));
     // Sent before, by hand or by auto mode: the site updates that draft rather than make a second one.
     const draft = sentUrl(site, id) ?? autoSession(site, id)?.sent?.url;
 
@@ -616,7 +616,7 @@ async function send(id) {
     // The Build this session continues, as a slug or a link: the draft becomes its next part (a series).
     const continues = option('continues');
     // Only a space the person chose; otherwise the site routes by the repository, as the preview said.
-    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project, continuation: meta.continuation, title: meta.title, taskKeys: meta.task_keys });
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues, privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project, continuation: meta.continuation, title: meta.title, taskKeys: meta.task_keys, chain: meta.chain });
 
     let started;
     try {
@@ -702,7 +702,7 @@ async function sendToLink(id, link) {
         throw new Failure('Nothing prepared to send. Run the preview step first, then confirm.');
     }
     const meta = JSON.parse(readFileSync(out.meta, 'utf8'));
-    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues: option('continues'), privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project, continuation: meta.continuation, title: meta.title, taskKeys: meta.task_keys });
+    const form = importForm(id, readFileSync(out.file), { git: meta.git, gitFolders: meta.git_folders, usage: meta.usage, space: meta.space, continues: option('continues'), privacy: meta.privacy, fork: meta.fork, library: meta.library, project: meta.project, continuation: meta.continuation, title: meta.title, taskKeys: meta.task_keys, chain: meta.chain });
     const fields = {};
     let file = null;
     for (const [name, value] of form.entries()) {
@@ -1475,7 +1475,7 @@ async function siteGet(path, { signed = false } = {}) {
 }
 
 /** The multipart body of POST /api/v1/imports: the packed session and what goes with it. */
-function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null, project = null, continuation = null, title = null, taskKeys = null } = {}) {
+function importForm(id, gz, { git = null, gitFolders = null, usage = null, space = null, continues = null, trigger = 'manual', final = true, privacy = null, fork = null, library = null, project = null, continuation = null, title = null, taskKeys = null, chain = null } = {}) {
     const form = new FormData();
     form.append('agent', AGENT.id);
     form.append('session_id', id);
@@ -1499,6 +1499,9 @@ function importForm(id, gz, { git = null, gitFolders = null, usage = null, space
     if (project) form.append('project', JSON.stringify(project));
     // The session this one continues and when it left it (grouping plan, 24.1), and the title the Claude app gave it.
     if (continuation) form.append('continuation', JSON.stringify(continuation));
+    // The sessions before this one that the file holds, oldest first (lib/continuation.mjs, continuationChain): the site
+    // updates the draft any of them went into, so one conversation stays one draft however often the app began another.
+    if (chain?.length) form.append('chain', JSON.stringify(chain));
     if (title) form.append('session_title', title);
     // Task numbers (25.2); an empty list says there are none, so the site does not look for them itself.
     if (taskKeys) form.append('task_keys', JSON.stringify(taskKeys));
@@ -1565,7 +1568,7 @@ async function auto(mode) {
     if (chosen === 'push') {
         console.log(`Auto mode is push. A ${AGENT.name} session is sent to ${site} as @${me.username} when you push its commits, from repositories with the Coders Talk git hooks (coders-talk enable in each repository puts them in): to your team's space when the repository is one of your team's, else to your private Builds. Sessions whose code you never push stay on this computer. Nothing is published.`);
     } else if (chosen === 'all') {
-        console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every ten minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before a session is sent; anything it does not recognise goes as it is, so read a draft before you publish it. Moments are suggested once a session is over.${trust}`);
+        console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every five minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before a session is sent; anything it does not recognise goes as it is, so read a draft before you publish it. Moments are suggested once a session is over.${trust}`);
     } else {
         console.log(asking.length
             ? `Auto mode is on for team repositories. Sessions in repositories of ${asking.map((t) => `${t.name} (${t.github_owners.map((o) => `${o}/*`).join(', ')})`).join('; ')} are sent to the team while they run and ${ends}. Everything else stays on this computer.${trust}`
@@ -1620,15 +1623,28 @@ async function autoForSession(endsOne, trust) {
     const me = await api('GET', '/api/v1/me');
     const path = autoSession(site, id)?.path ?? sessionPath(AGENT.id, id, env, AGENT.id === 'cursor' ? readCursorSidecar(id, env)?.transcript_path : null);
     trackSession(site, id, { own: 'on', agent: AGENT.id, path: path ?? undefined });
-    console.log(`Auto mode is on for this session. It is sent to ${site} as @${me.username} by itself, every ten minutes while it runs and once more ${endsOne}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before it is sent; anything it does not recognise goes as it is, so read the draft before you publish it. Other sessions follow the auto mode for this computer (${computerSays}).${trust}`);
+    console.log(`Auto mode is on for this session. It is sent to ${site} as @${me.username} by itself, every five minutes while it runs and once more ${endsOne}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before it is sent; anything it does not recognise goes as it is, so read the draft before you publish it. Other sessions follow the auto mode for this computer (${computerSays}).${trust}`);
     console.log(`Turn it off for this session with ${run('auto')} session off. What it sent is listed in ${logFile()}.`);
 }
 
 /**
+ * Why the site left a session auto mode sent alone, as the auto log says it; an unknown reason reads as the last. A
+ * function, not a table: this file runs its command before the rest of it is read.
+ */
+function skipReason(reason) {
+    if (reason === 'published') return 'already published';
+    // A later session of the same conversation went on from it (an edit of a sent message): its draft is that one's.
+    if (reason === 'superseded') return 'the conversation went on in a later session, whose draft has this one';
+
+    return 'its draft is not yours to change';
+}
+
+/**
  * Run by the hooks in the background, if auto mode wants the session: SessionEnd sends one that ended ($final), Stop
- * syncs one that is still going, SessionStart catches up on those that never said they ended ($caughtUp), the pre-push
- * git hook sends those behind a push ($push; the only sends of push mode). Never prints (nobody is watching); every
- * outcome goes to the auto log instead, and what went to auto-sessions.json.
+ * (and Claude Code's PostToolUse, during a long turn) syncs one that is still going, SessionStart catches up on those
+ * that never said they ended ($caughtUp), the pre-push git hook sends those behind a push ($push; the only sends of
+ * push mode). Never prints (nobody is watching); every outcome goes to the auto log instead, and what went to
+ * auto-sessions.json.
  */
 async function autoSend(id, { final = true, caughtUp = false, push = false } = {}) {
     const mode = sessionAutoMode(site, id, AGENT.id);
@@ -1669,14 +1685,14 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
         space = asking[0].slug;
     }
 
-    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork, library: session.library, project: session.project, continuation: session.continuation, title: session.title, taskKeys: session.taskKeys });
+    const form = () => importForm(id, session.gz, { git: session.git, gitFolders: session.gitFolders, usage: session.usage, space, trigger: 'auto', final, privacy: privacySummary(session.privacy), fork: session.fork, library: session.library, project: session.project, continuation: session.continuation, title: session.title, taskKeys: session.taskKeys, chain: session.earlier });
     // A sync still being imported holds the draft for a moment; the end of the session waits for it rather than get lost.
     for (let attempt = 1; ; attempt++) {
         try {
             const r = await api('POST', '/api/v1/imports', form(), true, 60000);
             if (r.status === 'skipped') {
                 remember({ skip: r.reason });
-                return log(`skipped: ${r.reason === 'published' ? 'already published' : 'its draft is not yours to change'}`);
+                return log(`skipped: ${skipReason(r.reason)}`);
             }
             const sent = { at: Date.now(), size: session.session.bytes, final };
             const went = r.space ? { type: r.space.type === 'team' ? 'team' : 'personal', name: r.space.type === 'team' ? r.space.name : null } : undefined;
@@ -1701,6 +1717,8 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
                 await sleep(RETRY_MS[Math.min(attempt, RETRY_MS.length) - 1]);
                 continue;
             }
+            // A sync while another one of it is being imported (two hooks found it due at once): that one has it all.
+            if (!final && e.code === 'import_running') return;
             return giveUp(`failed: ${e.message}`);
         }
     }

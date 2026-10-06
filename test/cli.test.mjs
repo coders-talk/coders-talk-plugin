@@ -41,6 +41,8 @@ let alreadyPublished = false;
 let busyOnce = false;
 // The site finds nothing in the next session sent and deletes the draft made for it.
 let discardOnce = false;
+// The next auto send is of a session a later one of its conversation went on from.
+let supersededOnce = false;
 let polls = 0;
 let tokenPolls = 0;
 // The next request is throttled: {retryAfter, header} say how the site says how long to wait.
@@ -94,6 +96,10 @@ const server = createServer((req, res) => {
             received = Buffer.concat(chunks);
             bodies.push(received.toString('latin1'));
             if (alreadyPublished) return reply(200, { status: 'skipped', reason: 'published', build_slug: 'shipped' });
+            if (supersededOnce) {
+                supersededOnce = false;
+                return reply(200, { status: 'skipped', reason: 'superseded', build_slug: 'draft-x' });
+            }
             const series = received.includes('name="continues"') ? { slug: 'rate-limits', title: 'Rate limits', url: `${base}/s/rate-limits` } : null;
             // The site's routing, in short: a named space, else the team whose repository it is, else private.
             const body = received.toString('utf8');
@@ -388,6 +394,8 @@ test('a continuation sends the sessions it continued with its own, as one Build,
     assert.equal(send.ok, true, send.out);
     const body = received.toString('utf8');
     assert.doesNotMatch(body, /name="continuation"/);
+    // The site is told which sessions the file holds: their draft is this one's (one conversation, one draft).
+    assert.deepEqual(JSON.parse(body.match(/name="chain"\r\n\r\n(.*)\r\n/)[1]), [previous]);
     assert.match(body, /name="session_title"\r\n\r\nRate limits\r\n/);
     // The task number of its own first prompt; the copied prompts are the session before's (grouping plan, 25.2).
     assert.match(preview.out, /Task: +limits-plan 4:/);
@@ -397,6 +405,7 @@ test('a continuation sends the sessions it continued with its own, as one Build,
     await cli(['preview', previous], { CODERS_TALK_CLAUDE_APP_DIR: app });
     await cli(['send', previous], { CODERS_TALK_CLAUDE_APP_DIR: app });
     assert.doesNotMatch(received.toString('latin1'), /name="continuation"/);
+    assert.doesNotMatch(received.toString('latin1'), /name="chain"/);
 });
 
 test('Builds the agent got from the library are shown in the preview and go with the session', async () => {
@@ -491,7 +500,7 @@ test('auto mode is off until the person turns it on, and then sends a session th
 
     const on = await cli(['auto', 'on']);
     assert.equal(on.ok, true, on.out);
-    assert.match(on.out, /Auto mode is on\. Claude Code sessions on this computer are sent to .* as @mara by themselves, every ten minutes while they run and once more when they end/);
+    assert.match(on.out, /Auto mode is on\. Claude Code sessions on this computer are sent to .* as @mara by themselves, every five minutes while they run and once more when they end/);
     assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL].mode, 'all');
 
     const sent = await cli(['auto-send', id]);
@@ -619,7 +628,7 @@ test('auto mode for one session: on sends it with the computer\'s mode off, off 
     writeFileSync(join(home, 'ct', 'auto-sessions.json'), '{}');
 });
 
-test('the Stop hook syncs a running session every ten minutes of work, as still going', async () => {
+test('the Stop hook syncs a running session every five minutes of work, as still going', async () => {
     await cli(['auto', 'on']);
     const event = { session_id: id, transcript_path: transcript, hook_event_name: 'Stop' };
 
@@ -653,6 +662,43 @@ test('the Stop hook syncs a running session every ten minutes of work, as still 
     // Turned off, it forgets the sessions it saw: turned on later, it never sends what grew in between.
     await cli(['auto', 'off']);
     assert.deepEqual(sessionsState(), {});
+});
+
+test('after a tool call a long turn is synced as after an answer; a sync that meets another says nothing', async () => {
+    await cli(['auto', 'on']);
+    const event = { session_id: id, transcript_path: transcript, hook_event_name: 'PostToolUse', tool_name: 'Bash' };
+    const synced = () => autoLog().split('\n').filter((l) => l.includes(`${id} synced, still going,`)).length;
+    const before = synced();
+
+    bodies.length = 0;
+    assert.equal(await hookRun('tool', event), '', 'the hook prints nothing');
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(bodies.length, 0, 'a session that just started is not synced');
+
+    sawSession(id, transcript, 6 * 60_000);
+    await hookRun('tool', event);
+    await waitFor(() => synced() === before + 1);
+    assert.equal(synced(), before + 1);
+    assert.match(bodies.at(-1), /name="final"\r\n\r\n0/);
+    // The next tool call, at once: nothing new, nothing more.
+    await hookRun('tool', event);
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(bodies.length, 1);
+
+    // Two hooks found it due at once: the site turns the second down while the first is imported, and that is no failure.
+    const lines = autoLog().length;
+    busyOnce = true;
+    await cli(['auto-send', id, '--sync']);
+    assert.equal(busyOnce, false);
+    assert.equal(autoLog().length, lines);
+    assert.equal(sessionsState()[id].failed, undefined);
+
+    // A session its conversation went on from (an edit of a sent message) is never sent again.
+    supersededOnce = true;
+    await cli(['auto-send', id]);
+    await logged(new RegExp(`${id} skipped: the conversation went on in a later session, whose draft has this one`));
+    assert.equal(sessionsState()[id].skip, 'superseded');
+    await cli(['auto', 'off']);
 });
 
 test('the next start catches up on sessions that never said they ended', async () => {

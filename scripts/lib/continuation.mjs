@@ -44,7 +44,7 @@ export function copiedUuids(id, dir = home()) {
 
 /**
  * findContinuation, remembered: what a session continues is settled when it starts (the copy is made then), so the
- * auto mode's syncs every ten minutes look it up once. {session_id, at, inherited} or null.
+ * auto mode's syncs every five minutes look it up once. {session_id, at, inherited} or null.
  */
 export async function continuationOf(id, path, cwd, options = {}) {
     if (!SESSION_ID.test(id ?? '')) return null;

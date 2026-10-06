@@ -4,7 +4,7 @@ description: Turn automatic sending of Claude Code sessions to Coders Talk on or
 disable-model-invocation: true
 ---
 
-Auto mode sends each Claude Code session on this computer to Coders Talk by itself, every ten minutes while it runs and once more when it ends: `on` sends every session (to the user's team space when the repository is one of their team's, else to their private Builds), `team` sends only sessions in repositories of teams that ask for it, `push` sends a session only when its commits are pushed (from repositories with the Coders Talk git hooks), `off` stops it. `session on` sends only the current session this way, even when auto mode is off for the computer; `session off` keeps the current session on this computer whatever the mode. Nothing is ever published by it.
+Auto mode sends each Claude Code session on this computer to Coders Talk by itself, every five minutes while it runs and once more when it ends: `on` sends every session (to the user's team space when the repository is one of their team's, else to their private Builds), `team` sends only sessions in repositories of teams that ask for it, `push` sends a session only when its commits are pushed (from repositories with the Coders Talk git hooks), `off` stops it. `session on` sends only the current session this way, even when auto mode is off for the computer; `session off` keeps the current session on this computer whatever the mode. Nothing is ever published by it.
 
 1. Run the command that matches what the user wrote after the command name.
 

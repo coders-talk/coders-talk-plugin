@@ -46,6 +46,8 @@ beforeEach(() => {
         CLAUDE_CONFIG_DIR: join(dir, 'claude'),
         CODEX_HOME: join(dir, 'codex'),
         CODERS_TALK_HOME: join(dir, 'ct'),
+        // The Claude desktop app's folder of this computer stays out of it too.
+        CODERS_TALK_CLAUDE_APP_DATA: join(dir, 'app'),
         FAKE_AGENT_STATE: join(dir, 'state.json'),
         FAKE_AGENT_LOG: join(dir, 'calls.log'),
         CODERS_TALK_NO_UPDATE_CHECK: '1',
@@ -145,6 +147,23 @@ test("the plugin from Claude's plugin directory stays: no copy of ours next to i
     assert.equal(off.ok, true, off.out);
     assert.match(off.out, /Claude Code: Coders Talk from Claude's plugin directory stays; remove it on claude\.ai, in Customize → Plugins\./);
     assert.deepEqual(Object.keys(agentState().claude.plugins), ['coders-talk@synced']);
+});
+
+test("the plugin the Claude desktop app brings from the directory is found in its own folder, and no copy of ours goes next to it", async () => {
+    const rpm = join(dir, 'app', 'local-agent-mode-sessions', 'account', 'organization', 'rpm');
+    mkdirSync(join(rpm, 'plugin_other', '.claude-plugin'), { recursive: true });
+    writeFileSync(join(rpm, 'plugin_other', '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'legal', version: '1.0.0' }));
+    mkdirSync(join(rpm, 'plugin_ours', '.claude-plugin'), { recursive: true });
+    writeFileSync(join(rpm, 'plugin_ours', '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'coders-talk', version: '0.14.8' }));
+
+    const status = await cli(['status']);
+    assert.match(status.out, /Claude Code +.*coders-talk@synced 0\.14\.8 \(from Claude's plugin directory\)/);
+    assert.doesNotMatch(status.out, /Claude Code +.*no Coders Talk plugin/);
+
+    const r = await cli(['enable', '--yes']);
+    assert.equal(r.ok, true, r.out);
+    assert.match(r.out, /- Claude Code: keep Coders Talk from Claude's plugin directory \(coders-talk@synced\), no copy of ours/);
+    assert.deepEqual(Object.keys(agentState().claude?.plugins ?? {}), []);
 });
 
 test('auto mode is one choice for both agents; push needs the git hooks', async () => {

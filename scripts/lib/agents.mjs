@@ -14,7 +14,7 @@
  * the plugin's own, the agent would see the same tools twice, and the desktop app mixes up their sign-ins. Pi has no MCP.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { home } from './credentials.mjs';
@@ -134,6 +134,46 @@ function jsonOf({ ok, stdout }) {
     }
 }
 
+/** Where the Claude desktop app keeps its data: %APPDATA%\Claude, ~/Library/Application Support/Claude, ~/.config/Claude (CODERS_TALK_CLAUDE_APP_DATA, for the tests). */
+function claudeAppData(env) {
+    if (env.CODERS_TALK_CLAUDE_APP_DATA) return env.CODERS_TALK_CLAUDE_APP_DATA;
+    if (process.platform === 'win32') return join(env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude');
+    if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Claude');
+
+    return join(env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'Claude');
+}
+
+/**
+ * The version of Coders Talk the Claude desktop app brought from Claude's plugin directory (added on claude.ai), or null.
+ * `claude plugin list` does not show it: the app keeps the plugins of the account in its own folder,
+ * local-agent-mode-sessions/<account>/<organization>/rpm/plugin_*, and hands them to the sessions it starts. That layout
+ * is the app's, not ours: whatever does not look as expected is "not there".
+ */
+export function appDirectoryPlugin(env = process.env) {
+    const root = join(claudeAppData(env), 'local-agent-mode-sessions');
+    const dirs = (path) => {
+        try {
+            return readdirSync(path, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => join(path, d.name));
+        } catch {
+            return [];
+        }
+    };
+    for (const account of dirs(root)) {
+        for (const organization of dirs(account)) {
+            for (const plugin of dirs(join(organization, 'rpm'))) {
+                try {
+                    const manifest = JSON.parse(readFileSync(join(plugin, '.claude-plugin', 'plugin.json'), 'utf8'));
+                    if (manifest?.name === 'coders-talk') return { version: typeof manifest.version === 'string' ? manifest.version : null };
+                } catch {
+                    // not a plugin folder, or not readable
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
 /** The Coders Talk plugins installed in the agent: [{id, version, marketplace}] (empty when it cannot tell). */
 export function installedPlugins(agent, env = process.env) {
     if (agent.id === 'pi') return piPackages(env);
@@ -152,9 +192,12 @@ export function installedPlugins(agent, env = process.env) {
     if (agent.id === 'claude-code') {
         const list = jsonOf(runCli(agent.cli, ['plugin', 'list', '--json'], { env }));
 
-        return (Array.isArray(list) ? list : [])
+        const found = (Array.isArray(list) ? list : [])
             .filter((p) => typeof p.id === 'string' && p.id.startsWith('coders-talk@'))
             .map((p) => ({ id: p.id, version: p.version ?? null, marketplace: p.id.slice('coders-talk@'.length) }));
+        const app = found.some((p) => p.marketplace === 'synced') ? null : appDirectoryPlugin(env);
+
+        return app ? [...found, { id: 'coders-talk@synced', version: app.version, marketplace: 'synced' }] : found;
     }
     const list = jsonOf(runCli(agent.cli, ['plugin', 'list', '--json'], { env }));
 

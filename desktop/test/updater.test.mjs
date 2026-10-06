@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import { createUpdater } from '../src/main/updater.mjs';
+import { channelFile } from '../src/main/updates.mjs';
 
 function deps({ version = '0.1.0', releases = [], store = false, packaged = true } = {}) {
     const asked = [];
@@ -31,7 +32,8 @@ function deps({ version = '0.1.0', releases = [], store = false, packaged = true
     return { updater, asked, states, autoUpdater };
 }
 
-const release = (tag) => ({ tag_name: tag, draft: false, prerelease: false, assets: [{ name: 'latest.yml' }] });
+// The update file of the platform the tests run on: the CI's Linux reads latest-linux.yml, not Windows' latest.yml.
+const release = (tag) => ({ tag_name: tag, draft: false, prerelease: false, assets: [{ name: channelFile() }] });
 
 test('a copy from the Microsoft Store leaves updates to the Store: it never asks GitHub', async () => {
     const { updater, asked } = deps({ store: true, releases: [release('desktop--v9.0.0')] });

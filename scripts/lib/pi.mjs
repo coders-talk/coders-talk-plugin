@@ -106,20 +106,20 @@ export function newestPiSession(cwd, env = process.env) {
     return piSessions([cwd], env).sort((a, b) => b.mtimeMs - a.mtimeMs)[0] ?? null;
 }
 
-/** The Pi sessions that ran in one of $folders: [{agent: 'pi', id, path, mtimeMs}]. */
+/** The Pi sessions that ran in one of $folders, or all of them when $folders is null: [{agent: 'pi', id, path, mtimeMs}]. */
 export function piSessions(folders, env = process.env) {
     const root = piSessionsDir(env);
-    const wanted = folders.map(piFolderName);
+    const wanted = folders?.map(piFolderName) ?? [];
     const found = [];
     for (const name of names(root)) {
         const path = join(root, name);
         if (NAME.test(name)) {
             // A flat folder: the header says where it ran.
             const cwd = piHeader(path)?.cwd;
-            if (typeof cwd === 'string' && folders.some((f) => samePath(f, cwd.replace(/[\\/]+$/, '')))) found.push({ agent: 'pi', id: piIdOf(name), path });
+            if (folders === null || (typeof cwd === 'string' && folders.some((f) => samePath(f, cwd.replace(/[\\/]+$/, ''))))) found.push({ agent: 'pi', id: piIdOf(name), path });
             continue;
         }
-        if (!wanted.some((w) => samePath(w, name))) continue;
+        if (folders !== null && !wanted.some((w) => samePath(w, name))) continue;
         for (const file of names(path)) if (NAME.test(file)) found.push({ agent: 'pi', id: piIdOf(file), path: join(path, file) });
     }
 

@@ -40,7 +40,8 @@
  *   node coders-talk.mjs hook <agent> <event>   the plugin's hooks in one command (lib/hooks.mjs): claude-code or codex,
  *                                                 session-start, prompt, stop or session-end
  *   coders-talk update [version]                the single file only: replaces itself with the latest release (lib/update.mjs)
- *   coders-talk sessions [--limit=N]            the Claude Code and Codex sessions of this folder, newest first (lib/sessions.mjs)
+ *   coders-talk sessions [--limit=N]            the Claude Code, Codex, Cursor and Pi sessions of this folder, newest first (lib/sessions.mjs)
+ *     --all [--days=N]                            every folder's, changed in the last 30 days, each with its project
  *   coders-talk build [number|session-id]       in a terminal: preview, a yes or no, send. The number is one from
  *                                                 `sessions`; without one, the newest session. Takes preview's and
  *                                                 send's options. Not without a terminal: nothing may skip the question
@@ -63,7 +64,13 @@
  *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
  *     --yes  --agent=claude-code,codex  --auto=off|on|team|push  --mcp=remove|keep
  *     --git-hooks | --no-git-hooks | --no-trailers   this repository's git hooks (lib/githooks.mjs)
+ *   coders-talk privacy [set --stdin]           the words to hide in every session (privacy.json); set takes a JSON list on stdin
  *   coders-talk version | help
+ *   --json                                      for a program (the desktop app, desktop/): status, sessions, preview, send,
+ *                                                 discard, login, whoami, logout, enable, disable, auto, rules, nudge and
+ *                                                 privacy print JSON, one object a line; long commands an {"event"} per
+ *                                                 step; a failure is {"error": "…"} on stdout. login --json waits for
+ *                                                 Connect until the code expires, and --client=desktop names the token
  *   --site=https://…                            another Coders Talk (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
@@ -77,16 +84,16 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createReadStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { createInterface as createPrompt } from 'node:readline/promises';
 import { gzipSync } from 'node:zlib';
 import { AUTO_MODES, autoMode, autoSession, catchUp, currentSize, logAuto, logFile, recentAuto, RUNNING_MODES, sessionAutoMode, setAutoMode, trackSession } from './lib/auto.mjs';
 import { siteUrl } from './lib/config.mjs';
-import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savePendingLogin, saveToken } from './lib/credentials.mjs';
+import { clearPendingLogin, forgetToken, home as credentialsHome, pendingLogin, savedToken, savedUsername, savePendingLogin, saveToken, writePrivate } from './lib/credentials.mjs';
 import { Failure } from './lib/failure.mjs';
 import { folderGitContexts, gitContext, normalizeRemote, projectOf, repositoryRoot, worktrees } from './lib/git.mjs';
-import { disable, enable, refresh, status } from './lib/enable.mjs';
+import { agentStatus, disable, enable, refresh, status } from './lib/enable.mjs';
 import { runGitHook } from './lib/githooks.mjs';
 import { AGENT_IDS, AGENTS, agentArgs, agentId, commandIn, hasPluginOptions } from './lib/agent.mjs';
 import { detectAgents, forgetMcpNeedsAuth, installedPlugins } from './lib/agents.mjs';
@@ -103,12 +110,12 @@ import { continuationChain, continuationOf } from './lib/continuation.mjs';
 import { extractTaskKeys } from './lib/grouping.mjs';
 import { readSidecar } from './lib/sidecar.mjs';
 import { PRIVACY_LABELS } from './lib/privacy.mjs';
-import { keep, privacyScan, privacySummary, sha256 } from './lib/privacy-settings.mjs';
+import { decodeText, keep, privacyScan, privacySummary, sha256, terms } from './lib/privacy-settings.mjs';
 import { discardPrepared, PREPARED_TTL_MS, prepared, sweepPrepared, writePrepared } from './lib/prepared.mjs';
 import { agentTimes, gitChangeLines, pruneSnapshots, withGitLines } from './lib/snapshots.mjs';
 import { addedFolders, slimLine } from './lib/slim.mjs';
-import { BINARY_VERSION, selfCommand, version } from './lib/runtime.mjs';
-import { agentOfSession, describeSession, folderSessions, markSent, sentAt, sentUrl, sessionPath } from './lib/sessions.mjs';
+import { BINARY_VERSION, selfCommand, selfProgram, version } from './lib/runtime.mjs';
+import { agentOfSession, allSessions, describeSession, folderSessions, lastSent, markSent, sentAt, sentUrl, sessionCwd, sessionPath } from './lib/sessions.mjs';
 import { removeLeftover, update, updateNotice } from './lib/update.mjs';
 import { changesSince, checkRules, saveRulesState } from './lib/team-rules.mjs';
 import { fetchRules, repositoryFacts, rulesEntry, rulesOn, setRulesOn, summary as rulesSummary } from './lib/rules.mjs';
@@ -143,8 +150,12 @@ const AGENT = AGENTS[agentId(option('agent')) ?? 'claude-code'];
 const CODEX = AGENT.id === 'codex';
 // Run by a person in a terminal rather than by an agent, which gives its commands no terminal.
 const TERMINAL = Boolean(process.stdout.isTTY && process.stdin.isTTY);
+// --json: for a program that reads the output (the desktop app, desktop/): one JSON object per line on stdout, and a
+// failure as {"error": "…"}. Commands that take long say each step as it happens ({"event": …}).
+const JSON_OUT = args.includes('--json');
+const emit = (data) => console.log(JSON.stringify(data));
 /** How the person runs one of the plugin's commands: in this agent, or in the terminal they typed it in. */
-const run = (name) => (TERMINAL ? `coders-talk ${name}` : commandIn(AGENT.id, name));
+const run = (name) => (TERMINAL || JSON_OUT ? `coders-talk ${name}` : commandIn(AGENT.id, name));
 
 const site = siteUrl(option('site'), !hasPluginOptions(AGENT.id));
 const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
@@ -200,10 +211,12 @@ try {
     else if (command === 'use') await use(argId);
     else if (command === 'share') await share(argId);
     else if (command === 'share-auto') await shareAuto();
-    else if (command === 'enable') await enable({ site, version: VERSION, interactive: TERMINAL, flags: setupFlags() });
-    else if (command === 'disable') await disable({ interactive: TERMINAL, flags: setupFlags() });
+    else if (command === 'privacy') await privacyWords(argId);
+    else if (command === 'enable') await enable({ site, version: VERSION, interactive: TERMINAL, flags: setupFlags(), json: JSON_OUT });
+    else if (command === 'disable') await disable({ interactive: TERMINAL, flags: setupFlags(), json: JSON_OUT });
     else if (command === 'status') {
-        status({ site, version: VERSION });
+        if (JSON_OUT) emit(statusJson());
+        else status({ site, version: VERSION });
         pruneOwnSnapshots();
     }
     // What `update` runs with the new file: the plugin laid out again, in the new version.
@@ -213,7 +226,9 @@ try {
     // Only to a person at a terminal: never into an agent's context, nor from hooks and background runs.
     if (TERMINAL && command !== 'update') updateNotice(VERSION);
 } catch (e) {
-    console.error(e instanceof Failure ? e.message : `Unexpected error: ${e?.message ?? e}`);
+    const message = e instanceof Failure ? e.message : `Unexpected error: ${e?.message ?? e}`;
+    if (JSON_OUT) emit({ error: message, ...(e?.details ? { details: e.details } : {}) });
+    else console.error(message);
     process.exit(1);
 }
 
@@ -224,7 +239,7 @@ function help() {
         ['enable', 'connect Claude Code and Codex to Coders Talk'],
         ['disable', 'take that off again'],
         ['status', 'how things are: sign-in, agents, auto mode'],
-        ['sessions [--limit=N]', "this folder's sessions, newest first"],
+        ['sessions [--limit=N] [--all]', "this folder's sessions, newest first; --all: every folder's"],
         ['build [number|session-id]', 'preview a session, ask, then send it as a draft'],
         ['use <build> [--as=skill|rule|prompt]', "a published Build's playbook for this repository"],
         ['use --team=<team> --stack=<stack>', "a team's rules for a stack"],
@@ -239,13 +254,14 @@ function help() {
         ['whoami', 'the account this computer is signed in to'],
         ['logout', 'forget the sign-in on this computer'],
         ['nudge [on|off]', 'the suggestion to share a session that used the library'],
+        ['privacy', 'the words hidden in every session'],
         ['update [version]', 'update to the latest release (the installed coders-talk only)'],
         ['version', 'the version of coders-talk'],
         ['help', 'this list'],
     ];
     const width = Math.max(...commands.map(([c]) => c.length));
 
-    return ['Usage: coders-talk <command> [--site=URL] [--agent=codex]', ...commands.map(([c, what]) => `  ${c.padEnd(width)}  ${what}`)].join('\n');
+    return ['Usage: coders-talk <command> [--site=URL] [--agent=codex] [--json]', ...commands.map(([c, what]) => `  ${c.padEnd(width)}  ${what}`)].join('\n');
 }
 
 /** The options of enable and disable. */
@@ -289,6 +305,7 @@ function notConnected() {
 /** The person said no to the preview: what it prepared goes now rather than in 30 minutes. */
 function discard(id) {
     discardPrepared(id);
+    if (JSON_OUT) return emit({ discarded: true });
     console.log('Nothing was sent, and the prepared file is deleted.');
 }
 
@@ -382,6 +399,39 @@ async function preview(id) {
     // Findings by number and hash, for --keep; the values stay in memory only.
     const findings = privacy.findings().map((f) => ({ n: f.n, type: f.type, hash: sha256(f.value) }));
     writePrepared(out.meta, JSON.stringify({ session_id: id, created_at: Date.now(), git, git_folders: gitFolders, space: SPACE, usage, privacy: privacySummary(privacy), findings, fork, library, project, continuation, title, task_keys: taskKeys }));
+    // Sent before, by hand or by auto mode: the site updates that draft rather than make a second one.
+    const draft = sentUrl(site, id) ?? autoSession(site, id)?.sent?.url;
+
+    if (JSON_OUT) {
+        // What the desktop app's confirmation shows. Findings by number and kind, never a value nor its first characters.
+        return emit({
+            session_id: id,
+            agent: AGENT.id,
+            site,
+            project: project?.name ?? stats.project ?? null,
+            folders: session.folders.map((f) => f.label),
+            prompts: stats.prompts,
+            tool_calls: stats.toolCalls,
+            duration: formatDuration(stats.durationSec),
+            size: { session: formatBytes(session.bytes), trimmed: formatBytes(Buffer.byteLength(slim)), compressed: formatBytes(gz.length) },
+            git: [git ? describeGit(git) : null, ...gitFolders.map((g) => `${g.folder}: ${describeGit(g)}`)].filter(Boolean),
+            code: session.code.files.size ? describeCode(session.code) : null,
+            tokens: usage ? describeUsage(usage) : null,
+            library: library ? describeLibrary(library) : null,
+            title,
+            fork: fork?.session_id ?? null,
+            includes: earlier,
+            continues: continuation?.session_id ?? null,
+            goes_to: goesTo,
+            draft_url: draft ?? null,
+            privacy: {
+                findings: privacy.findings().map((f) => ({ n: f.n, type: f.type, label: PRIVACY_LABELS[f.type] ?? f.type, count: f.count, kept: Boolean(f.kept) })),
+                paths: privacy.paths,
+                words_file: join(credentialsHome(), 'privacy.json'),
+            },
+            connected: Boolean(token),
+        });
+    }
 
     console.log(`Ready to send to ${site}. Nothing is published: you review and publish the draft on the site.`);
     console.log(`  Project:    ${project?.name ?? stats.project ?? 'unknown'}${project ? ': its name and a hash that tells it apart go, never its path' : ''}`);
@@ -401,9 +451,7 @@ async function preview(id) {
     if (fork) console.log(`  Fork of:    session ${fork.session_id}: the draft and that session's Build link to each other once both are on the site`);
     if (earlier.length) console.log(`  Includes:   ${earlier.length} earlier session${earlier.length === 1 ? '' : 's'} it continued, oldest first, as one Build: ${earlier.map((e) => e.slice(0, 8)).join(', ')}`);
     if (continuation) console.log(`  Continues:  session ${continuation.session_id}: its lines at the start are that session's, counted there; the two Builds are linked on the site`);
-    console.log(`  Goes to:    ${goesTo}`);
-    // Sent before, by hand or by auto mode: the site updates that draft rather than make a second one.
-    const draft = sentUrl(site, id) ?? autoSession(site, id)?.sent?.url;
+    console.log(`  Goes to:    ${goesTo.text}`);
     if (draft) console.log(`  Updates your draft: ${draft} (sent before; while it is a draft, no second one is made)`);
     console.log(describePrivacy(privacy));
     if (VIA_CONNECTOR) console.log('Goes through the Coders Talk connector: it hands out a one-time upload link, then makes the draft.');
@@ -578,32 +626,35 @@ async function send(id) {
         throw uploadByHand(out.file, e);
     }
     rmSync(out.file, { force: true });
-    markSent(site, id, started.edit_url);
+    const team = started.space?.type === 'team' ? started.space : null;
+    const space = started.space ? { type: team ? 'team' : 'personal', name: team?.name ?? null } : null;
+    markSent(site, id, started.edit_url, Date.now(), { space, agent: AGENT.id });
     rmSync(out.meta, { force: true });
 
-    const team = started.space?.type === 'team' ? started.space : null;
+    // The text for a person, or the event for the desktop app.
+    const say = (text, event = null) => (JSON_OUT ? event && emit(event) : console.log(text));
     const where = team ? ` in ${team.name} (the team sees it, nobody else)` : started.space ? ' (private: only you see it)' : '';
-    console.log(`${started.reused ? 'Updating the draft of this session' : 'Draft created'}${where}: ${started.edit_url}`);
-    if (started.series) console.log(`Linked as the next part of the series "${started.series.title}": ${started.series.url}`);
-    else if (continues) console.log(`Could not link it to "${continues}": use the link or slug of one of your own Builds. You can link it in the draft instead.`);
-    if (meta.fork) console.log(started.forked_from?.url ? `A fork of "${started.forked_from.title}": ${started.forked_from.url}. Both Builds link to each other.` : 'A fork of a session that is not on the site yet: the two link to each other once it is sent too.');
+    say(`${started.reused ? 'Updating the draft of this session' : 'Draft created'}${where}: ${started.edit_url}`, { event: 'created', edit_url: started.edit_url, reused: Boolean(started.reused), space });
+    if (started.series) say(`Linked as the next part of the series "${started.series.title}": ${started.series.url}`);
+    else if (continues) say(`Could not link it to "${continues}": use the link or slug of one of your own Builds. You can link it in the draft instead.`);
+    if (meta.fork) say(started.forked_from?.url ? `A fork of "${started.forked_from.title}": ${started.forked_from.url}. Both Builds link to each other.` : 'A fork of a session that is not on the site yet: the two link to each other once it is sent too.');
 
     let state = started;
     let stage = null;
     const deadline = Date.now() + POLL_FOR_MS;
     while (state.status === 'queued' || state.status === 'running') {
         if (Date.now() > deadline) {
-            console.log(`Still importing. The draft page shows the progress: ${started.edit_url}`);
+            say(`Still importing. The draft page shows the progress: ${started.edit_url}`, { event: 'pending', edit_url: started.edit_url });
             return;
         }
         await sleep(POLL_MS);
         state = await api('GET', new URL(started.status_url).pathname);
         if (state.stage && state.stage !== stage) {
             stage = state.stage;
-            console.log(`  ${STAGES[stage] ?? stage}…`);
             // A long session is read in parts and then put together on the site, about a minute each.
             const parts = state.result?.label_part_count;
-            if (stage === 'labeling' && parts > 1) console.log(`  This session is long, so the model reads it in ${parts} parts and then puts one timeline together: it takes about ${parts + 1} minutes.`);
+            say(`  ${STAGES[stage] ?? stage}…`, { event: 'stage', stage, label: STAGES[stage] ?? stage, minutes: stage === 'labeling' && parts > 1 ? parts + 1 : null });
+            if (stage === 'labeling' && parts > 1) say(`  This session is long, so the model reads it in ${parts} parts and then puts one timeline together: it takes about ${parts + 1} minutes.`);
         }
     }
 
@@ -619,6 +670,9 @@ async function send(id) {
 
     const r = state.result ?? {};
     const secrets = (r.secrets ?? 0) + (r.warnings ?? 0);
+    if (JSON_OUT) {
+        return emit({ event: 'done', edit_url: started.edit_url, team: team?.name ?? null, turns: r.turns ?? 0, moments: Boolean(r.moments_created), kept_timeline: Boolean(r.label_skipped), label_error: r.label_error ?? null, site_redacted: secrets });
+    }
     console.log(`Imported ${r.turns ?? 0} turns${r.moments_created ? ', with suggested moments' : ''}.`);
     if (r.label_skipped) console.log('The draft already had a timeline, so it was kept as it is; the new turns are waiting in its side rail.');
     if (r.label_error) console.log(`No suggestions this time (${r.label_error}); the timeline can be built by hand.`);
@@ -680,9 +734,11 @@ async function sendToLink(id, link) {
  */
 async function destination(git) {
     const own = 'your private Builds: only you see the draft';
-    if (SPACE === 'personal') return own;
-
     let teams = null;
+    // {text, space: personal|team|unknown, team, teams}: the teams too, for the desktop app to offer the others.
+    const to = (text, team = null, space = team ? 'team' : 'personal') => ({ text, space, team: team ? { slug: team.slug, name: team.name } : null, teams: teams?.map((t) => ({ slug: t.slug, name: t.name })) ?? null });
+    if (SPACE === 'personal' && !JSON_OUT) return to(own);
+
     if (token) {
         try {
             const me = await api('GET', '/api/v1/me', undefined, true, 5000);
@@ -694,23 +750,24 @@ async function destination(git) {
         }
     }
 
+    if (SPACE === 'personal') return to(own);
     if (SPACE) {
         const team = teams?.find((t) => t.slug === SPACE);
         if (teams && !team) throw new Failure(`You are not in a team called "${SPACE}".${teams.length ? ` Your teams: ${teams.map((t) => t.slug).join(', ')}.` : ''}`);
 
-        return `the ${team?.name ?? SPACE} team: the team sees the draft, nobody else`;
+        return to(`the ${team?.name ?? SPACE} team: the team sees the draft, nobody else`, team ?? { slug: SPACE, name: SPACE });
     }
 
     const owner = git?.remote?.match(/^https:\/\/github\.com\/([^/]+)\//)?.[1]?.toLowerCase();
     if (teams === null) {
-        return `${own}, or your team's space if ${owner ? `${owner}/* belongs to one of your teams` : 'the site finds the repository belongs to a team'}`;
+        return to(`${own}, or your team's space if ${owner ? `${owner}/* belongs to one of your teams` : 'the site finds the repository belongs to a team'}`, null, 'unknown');
     }
     const matches = owner ? teams.filter((t) => (t.github_owners ?? []).includes(owner)) : [];
     if (matches.length === 1) {
-        return `the ${matches[0].name} team, because ${owner}/* is the team's: the team sees the draft, nobody else. Add --private to keep it to yourself.`;
+        return to(`the ${matches[0].name} team, because ${owner}/* is the team's: the team sees the draft, nobody else.${JSON_OUT ? '' : ' Add --private to keep it to yourself.'}`, matches[0]);
     }
 
-    return own;
+    return to(own);
 }
 
 /**
@@ -724,6 +781,7 @@ async function login() {
     if (token && !wait) {
         try {
             const me = await api('GET', '/api/v1/me');
+            if (JSON_OUT) return emit({ event: 'connected', username: me.username, already: true });
             console.log(`Already connected to ${site} as @${me.username}. To connect again, run: logout, then login.`);
             return;
         } catch {
@@ -753,10 +811,14 @@ async function login() {
         console.log(`Open ${codes.verification_url ?? pending.url} in a browser, sign in, enter the code ${pending.user_code} and press Connect.`);
     } else {
         openBrowser(pending.url);
-        console.log(`Opened ${pending.url} in the browser. Check that the page shows the code ${pending.user_code} and press Connect.`);
-        console.log('If no browser opened, open that link yourself.');
+        if (JSON_OUT) emit({ event: 'opened', url: pending.url, user_code: pending.user_code, expires_at: new Date(pending.expires_at).toISOString() });
+        else {
+            console.log(`Opened ${pending.url} in the browser. Check that the page shows the code ${pending.user_code} and press Connect.`);
+            console.log('If no browser opened, open that link yourself.');
+        }
     }
-    if (TERMINAL) return waitForApproval(pending.expires_at);
+    // A program reading --json waits like a terminal does: it is not an agent that stops a command after two minutes.
+    if (TERMINAL || JSON_OUT) return waitForApproval(pending.expires_at);
 }
 
 /**
@@ -765,6 +827,7 @@ async function login() {
  * or a script: the CLI.
  */
 function clientName() {
+    if (option('client') === 'desktop') return 'Coders Talk app';
     if (TERMINAL) return 'Coders Talk CLI';
     if (option('agent') && agentId(option('agent'))) return AGENT.name;
     if (env.CODEX_THREAD_ID) return 'Codex';
@@ -778,11 +841,11 @@ function clientName() {
 async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
     const pending = pendingLogin(site);
     if (!pending) {
-        if (token) return console.log(`Connected to ${site}.`);
+        if (token) return JSON_OUT ? emit({ event: 'connected', username: savedUsername(site) }) : console.log(`Connected to ${site}.`);
         throw new Failure(`Nothing to wait for: run ${run('login')} to start.`);
     }
 
-    if (TERMINAL) console.log('Waiting for Connect in the browser (Ctrl+C to stop)…');
+    if (TERMINAL && !JSON_OUT) console.log('Waiting for Connect in the browser (Ctrl+C to stop)…');
     const deadline = Math.min(until, pending.expires_at);
     while (Date.now() < deadline) {
         const state = await api('POST', '/api/v1/device/token', json({ device_code: pending.device_code }), false);
@@ -791,6 +854,7 @@ async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
             clearPendingLogin();
             // A Claude Code started before the sign-in noted the server's 401 and keeps it for about 15 minutes.
             forgetMcpNeedsAuth();
+            if (JSON_OUT) return emit({ event: 'connected', username: state.username });
             console.log(`Connected to ${site} as @${state.username}. ${run('build')} can send sessions now.`);
             if (AGENT.id === 'claude-code') console.log('If Claude Code is open, run /mcp → Reconnect for coders-talk, or start a new session: its library tools connect then.');
             return;
@@ -802,42 +866,86 @@ async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
         await sleep(Math.max(POLL_MS, (pending.interval ?? 5) * 1000));
     }
 
+    if (JSON_OUT) {
+        if (Date.now() >= pending.expires_at) {
+            clearPendingLogin();
+            throw new Failure('The sign-in link expired before Connect was pressed. Start again for a new one.');
+        }
+        return emit({ event: 'waiting', url: pending.url, user_code: pending.user_code });
+    }
     console.log(`Still waiting for Connect at ${pending.url} (code ${pending.user_code}).`);
 }
 
 function logout() {
     const forgot = forgetToken(site);
     clearPendingLogin();
+    if (JSON_OUT) return emit({ signed_out: forgot, site });
     console.log(forgot
         ? `Signed out of ${site} on this computer. The token still exists on the site: remove it under Settings → Agent plugins.`
         : `This computer was not signed in to ${site}.`);
 }
 
-/** `coders-talk sessions`: this folder's sessions, numbered for `coders-talk build <number>`. */
+/**
+ * `coders-talk sessions`: this folder's sessions, numbered for `coders-talk build <number>`. `--all`: every folder's,
+ * changed in the last 30 days (--days=N), each with the project it ran in.
+ */
 async function sessions() {
+    const all = args.includes('--all');
     const list = await folderList(Number(option('limit')) || 10);
-    if (!list.length) return console.log(`No ${SESSION_KINDS} sessions with prompts in ${process.cwd()}.`);
+    if (JSON_OUT) {
+        const project = all ? null : projectOf(process.cwd());
+        return emit({
+            folder: all ? null : process.cwd(),
+            project: project?.name ?? null,
+            sessions: list.map((s) => ({
+                id: s.id,
+                agent: s.agent,
+                agent_name: AGENTS[s.agent]?.name ?? s.agent,
+                ...(all ? { folder: s.cwd ?? null, project: s.project ?? null } : {}),
+                last_active: new Date(s.mtimeMs).toISOString(),
+                prompts: s.prompts,
+                title: s.title ?? null,
+                first_prompt: s.firstPrompt?.slice(0, 300) ?? '',
+                sent_at: s.sent ? new Date(s.sent).toISOString() : null,
+                draft_url: sentUrl(site, s.id) ?? autoSession(site, s.id)?.sent?.url ?? null,
+            })),
+        });
+    }
+    if (!list.length) return console.log(all ? `No ${SESSION_KINDS} sessions with prompts on this computer in the last ${Number(option('days')) || 30} days.` : `No ${SESSION_KINDS} sessions with prompts in ${process.cwd()}.`);
 
     // A repository's sessions are its project's (grouping plan, 27.4): its main folder's and its worktrees'.
-    const project = projectOf(process.cwd());
+    const project = all ? null : projectOf(process.cwd());
     const repository = project && worktrees(project.root).length > 0;
-    console.log(repository ? `Sessions of ${project.name} and its worktrees, newest first:` : `Sessions in ${process.cwd()}, newest first:`);
-    console.log(`  #   ${'Last active'.padEnd(17)} ${'Agent'.padEnd(12)} Prompts  Sent  Title or first prompt`);
+    console.log(all ? 'Sessions on this computer, newest first:' : repository ? `Sessions of ${project.name} and its worktrees, newest first:` : `Sessions in ${process.cwd()}, newest first:`);
+    console.log(`  #   ${'Last active'.padEnd(17)} ${'Agent'.padEnd(12)} ${all ? `${'Project'.padEnd(16)} ` : ''}Prompts  Sent  Title or first prompt`);
     list.forEach((s, i) => {
         const text = s.title ?? s.firstPrompt;
         const first = text.length > 60 ? `${text.slice(0, 59)}…` : text;
-        console.log(`  ${String(i + 1).padEnd(3)} ${when(s.mtimeMs).padEnd(17)} ${(AGENTS[s.agent]?.name ?? s.agent).padEnd(12)} ${String(s.prompts).padEnd(8)} ${(s.sent ? 'yes' : '-').padEnd(5)} ${first}`);
+        const where = all ? `${(s.project ?? '?').slice(0, 16).padEnd(16)} ` : '';
+        console.log(`  ${String(i + 1).padEnd(3)} ${when(s.mtimeMs).padEnd(17)} ${(AGENTS[s.agent]?.name ?? s.agent).padEnd(12)} ${where}${String(s.prompts).padEnd(8)} ${(s.sent ? 'yes' : '-').padEnd(5)} ${first}`);
     });
-    console.log('Send one: coders-talk build <#>');
+    console.log(`Send one: coders-talk build <#>${all ? ' --all' : ''}`);
 }
 
-/** The sessions with prompts, described; $limit of them. */
+/** The sessions with prompts, described; $limit of them. With --all, every folder's, each with where it ran. */
 async function folderList(limit) {
+    const all = args.includes('--all');
     const described = [];
-    for (const s of folderSessions(process.cwd())) {
+    const projects = new Map();
+    const projectName = (cwd) => {
+        if (!cwd) return null;
+        if (!projects.has(cwd)) projects.set(cwd, projectOf(cwd)?.name ?? basename(cwd));
+        return projects.get(cwd);
+    };
+    for (const s of all ? allSessions({ days: Number(option('days')) || 30 }) : folderSessions(process.cwd())) {
         if (described.length >= limit) break;
         const about = await describeSession(s);
-        if (about.prompts) described.push({ ...s, ...about, sent: sentAt(site, s.id) });
+        if (!about.prompts) continue;
+        // Cursor's transcript does not say where it ran: its workspace folder's name stands for the project.
+        const cwd = all ? sessionCwd(s) : null;
+        const parts = s.path.split(/[\\/]/);
+        const project = all ? (projectName(cwd) ?? (s.agent === 'cursor' ? (parts[parts.lastIndexOf('agent-transcripts') - 1] ?? null) : null)) : null;
+        described.push({ ...s, ...about, sent: sentAt(site, s.id), ...(all ? { cwd, project } : {}) });
     }
 
     return described;
@@ -1085,6 +1193,10 @@ async function rulesFetch() {
  * last fetch kept; `on` and `off` switch it for this computer. The rules themselves change on the site only.
  */
 async function rules(mode) {
+    if (JSON_OUT && (mode === 'on' || mode === 'off' || !mode)) {
+        if (mode) setRulesOn(site, mode === 'on');
+        return emit({ rules: rulesOn(site) });
+    }
     if (mode === 'on' || mode === 'off') {
         setRulesOn(site, mode === 'on');
         console.log(mode === 'on'
@@ -1415,6 +1527,14 @@ async function auto(mode) {
     const endsOne = CODEX ? 'when it ends or sits idle for 30 minutes' : AGENT.id === 'cursor' ? 'when a turn ends, and once more at the next start if it never said it ended' : 'when it ends';
     const trust = CODEX ? ` Codex runs a plugin's hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks. Until then nothing is sent.` : '';
     if (mode === 'session') return autoForSession(endsOne, trust);
+    if (JSON_OUT) {
+        const chosen = mode ? { on: 'all', all: 'all', team: 'team', push: 'push', off: null }[mode] : autoMode(site, AGENT.id);
+        if (chosen === undefined) throw new Failure('auto takes on, team, push or off.');
+        if (chosen && mode && !token) throw notConnected();
+        if (mode) setAutoMode(site, chosen, AGENT.id);
+
+        return emit({ agent: AGENT.id, auto: chosen === 'all' ? 'on' : (chosen ?? 'off') });
+    }
 
     if (!mode) {
         const current = autoMode(site, AGENT.id);
@@ -1559,7 +1679,8 @@ async function autoSend(id, { final = true, caughtUp = false, push = false } = {
                 return log(`skipped: ${r.reason === 'published' ? 'already published' : 'its draft is not yours to change'}`);
             }
             const sent = { at: Date.now(), size: session.session.bytes, final };
-            remember({ sent: { ...sent, url: r.edit_url ?? undefined }, held: null, skip: null });
+            const went = r.space ? { type: r.space.type === 'team' ? 'team' : 'personal', name: r.space.type === 'team' ? r.space.name : null } : undefined;
+            remember({ sent: { ...sent, url: r.edit_url ?? undefined, space: went }, held: null, skip: null });
             const where = r.space?.type === 'team' ? r.space.name : 'your private Builds';
             const sentLine = `${final ? 'sent' : 'synced, still going,'} to ${where}${caughtUp ? ' at the next start' : push ? ' at a push' : ''}: ${r.edit_url}`;
             // Codex ends the session-end hook's processes when it exits, maybe before the import is done: said at once.
@@ -1764,6 +1885,7 @@ async function mcpCall(tool) {
 function nudge(mode) {
     if (mode === 'on' || mode === 'off') setNudge(mode === 'on');
     else if (mode) throw new Failure('Use: nudge on, or nudge off.');
+    if (JSON_OUT) return emit({ nudge: nudgeOn() });
     console.log(nudgeOn()
         ? `After an answer that used Builds from the Coders Talk library in a session that changed code, ${AGENT.name} suggests once to share the session with ${run('build')}. It sends nothing. Turn it off with: nudge off`
         : 'The suggestion to share a session that used the library is off. Turn it on with: nudge on');
@@ -1773,7 +1895,72 @@ async function whoami() {
     if (!token) throw notConnected();
     const me = await api('GET', '/api/v1/me');
     if (me.share) rememberAuto(site, Boolean(me.share.auto_pr));
+    if (JSON_OUT) return emit({ site, username: me.username, token_name: me.token?.name ?? null, teams: (me.teams ?? []).map((t) => ({ slug: t.slug, name: t.name })) });
     console.log(`Connected to ${site} as @${me.username} (token "${me.token.name}").`);
+}
+
+/**
+ * `status --json`: how things are, for the desktop app, read from this computer only (the agents' own commands list their
+ * plugins; nothing goes to the site). account is the name the sign-in saved; `whoami` asks the site whether it still works.
+ */
+function statusJson() {
+    const pending = pendingLogin(site);
+    let words = [];
+    let wordsError = null;
+    try {
+        words = terms();
+    } catch (e) {
+        wordsError = e.message;
+    }
+    const username = savedUsername(site);
+    const last = lastSent(site);
+
+    return {
+        version: VERSION,
+        program: selfProgram()[0],
+        site,
+        signed_in: Boolean(token),
+        account: username ? { username } : null,
+        login_pending: pending ? { url: pending.url, user_code: pending.user_code, expires_at: new Date(pending.expires_at).toISOString() } : null,
+        agents: agentStatus({ site, version: VERSION }),
+        rules: rulesOn(site),
+        nudge: nudgeOn(),
+        privacy: { file: join(credentialsHome(), 'privacy.json'), words, error: wordsError },
+        last_sent: last ? { ...last, at: new Date(last.at).toISOString() } : null,
+        what_leaves: `${site}/plugins#what-leaves-your-machine`,
+    };
+}
+
+/**
+ * `coders-talk privacy`: the words to hide in every session (lib/privacy-settings.mjs, privacy.json). `privacy set --stdin`
+ * takes the new list as a JSON array of strings, for the desktop app's field; the file's other keys stay as they are.
+ */
+async function privacyWords(action) {
+    const file = join(credentialsHome(), 'privacy.json');
+    if (action === 'set') {
+        let words;
+        try {
+            words = JSON.parse((await readAll(process.stdin)) || '[]');
+        } catch {
+            throw new Failure('privacy set takes a JSON list of words on stdin, like ["Globex", "billing-core"].');
+        }
+        if (!Array.isArray(words) || words.some((w) => typeof w !== 'string')) throw new Failure('privacy set takes a JSON list of words, like ["Globex", "billing-core"].');
+        let settings = {};
+        if (existsSync(file)) {
+            try {
+                settings = JSON.parse(decodeText(readFileSync(file)));
+            } catch {
+                // Unreadable: the list given now replaces it, which is what the person sees in the field.
+            }
+        }
+        const redact = [...new Set(words.map((w) => w.trim()).filter(Boolean))];
+        writePrivate(file, JSON.stringify({ ...(settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {}), redact }, null, 2) + '\n');
+    } else if (action) throw new Failure('Use: privacy, or privacy set --stdin with a JSON list of words.');
+
+    const words = terms();
+    if (JSON_OUT) return emit({ file, words });
+    console.log(words.length ? `Hidden in every session as [REDACTED:TERM]: ${words.join(', ')}` : 'No words to hide in every session.');
+    console.log(`They are kept in ${file} as {"redact": [...]}.`);
 }
 
 /**

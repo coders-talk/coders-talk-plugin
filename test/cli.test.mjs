@@ -978,3 +978,110 @@ test('an unknown session is reported, not guessed', async () => {
     assert.equal(r.ok, false);
     assert.match(r.out, /Could not find this session/);
 });
+
+/** The JSON lines a --json command printed: nothing else may be on stdout. */
+function events(out) {
+    const lines = out.trim().split('\n').filter(Boolean);
+    assert.ok(lines.every((l) => l.startsWith('{')), `only JSON on stdout:\n${out}`);
+
+    return lines.map((l) => JSON.parse(l));
+}
+const jsonCli = (args, extra = {}) => run(...coders([...args, '--json']), { env: { ...env, ...extra } }).then(
+    ({ stdout }) => ({ ok: true, events: events(stdout) }),
+    (e) => ({ ok: false, events: events(e.stdout), stderr: e.stderr }),
+);
+
+test('--json: the desktop app signs in, waiting for Connect, and a failure is {"error"} on stdout', async () => {
+    await cli(['logout']);
+    const failed = await jsonCli(['send', id]);
+    assert.equal(failed.ok, false);
+    assert.deepEqual(failed.events, [{ error: `This computer is not connected to ${env.CODERS_TALK_URL} yet. Run coders-talk login first: it signs you in through the browser.` }]);
+
+    const r = await jsonCli(['login', '--client=desktop']);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.events.map((e) => e.event), ['opened', 'connected']);
+    assert.equal(r.events[0].user_code, 'WDJB-MJHT');
+    assert.match(r.events[0].url, /\/connect\/01request$/);
+    assert.deepEqual(r.events[1], { event: 'connected', username: 'mara' });
+    assert.equal(deviceRequests.at(-1).client_name, 'Coders Talk app');
+
+    assert.deepEqual((await jsonCli(['login'])).events, [{ event: 'connected', username: 'mara', already: true }]);
+    assert.deepEqual((await jsonCli(['whoami'])).events, [{ site: env.CODERS_TALK_URL, username: 'mara', token_name: 'laptop', teams: [{ slug: 'acme', name: 'Acme' }] }]);
+});
+
+test('--json: preview gives what the confirmation shows, findings without values, and send says each step', async () => {
+    const sid = 'a1b2c3d4-0000-4000-8000-0000000000aa';
+    const leaky = join(home, 'projects', 'C--code-shop', `${sid}.jsonl`);
+    const secret = 'ghp_' + 'Z'.repeat(36);
+    copyFileSync(transcript, leaky);
+    appendFileSync(leaky, JSON.stringify({ type: 'user', message: { role: 'user', content: `use ${secret} for the API` } }) + '\n');
+
+    const preview = await jsonCli(['preview', sid, '--whole']);
+    assert.equal(preview.ok, true, JSON.stringify(preview));
+    const [p] = preview.events;
+    assert.equal(p.session_id, sid);
+    assert.equal(p.agent, 'claude-code');
+    assert.equal(p.connected, true);
+    assert.equal(typeof p.prompts, 'number');
+    assert.deepEqual(p.privacy.findings, [{ n: 1, type: 'GITHUB_TOKEN', label: p.privacy.findings[0].label, count: 1, kept: false }]);
+    assert.doesNotMatch(JSON.stringify(preview.events), /ZZZZ/, 'no value and no part of one');
+    // The teams come along, for the app to offer them; this repository is nobody's team's.
+    assert.equal(p.goes_to.space, 'personal');
+    assert.deepEqual(p.goes_to.teams, [{ slug: 'acme', name: 'Acme' }]);
+
+    const team = (await jsonCli(['preview', sid, '--whole', '--team=acme'])).events[0];
+    assert.equal(team.goes_to.space, 'team');
+    assert.deepEqual(team.goes_to.team, { slug: 'acme', name: 'Acme' });
+    const own = (await jsonCli(['preview', sid, '--whole', '--private'])).events[0];
+    assert.equal(own.goes_to.space, 'personal');
+    assert.deepEqual(own.goes_to.teams, [{ slug: 'acme', name: 'Acme' }], 'the teams are listed to switch back');
+
+    polls = 0;
+    const send = await jsonCli(['send', sid]);
+    assert.equal(send.ok, true, JSON.stringify(send));
+    assert.deepEqual(send.events.map((e) => e.event), ['created', 'stage', 'done']);
+    assert.deepEqual(send.events[0].space, { type: 'personal', name: null });
+    assert.deepEqual(send.events[1], { event: 'stage', stage: 'labeling', label: 'Proposing moments', minutes: 4 });
+    assert.equal(send.events[2].turns, 9);
+    assert.doesNotMatch(received.toString('utf8'), new RegExp(secret));
+
+    const status = (await jsonCli(['status'])).events[0];
+    assert.equal(status.last_sent.session_id, sid);
+    assert.equal(status.last_sent.how, 'manual');
+    assert.equal(status.last_sent.agent, 'claude-code');
+    assert.deepEqual(status.last_sent.space, { type: 'personal', name: null });
+    assert.match(status.last_sent.url, /\/b\/draft-x\/edit$/);
+
+    assert.deepEqual((await jsonCli(['discard', sid])).events, [{ discarded: true }]);
+});
+
+test('--json: the settings the app shows, one command each; privacy set keeps the file\'s other keys', async () => {
+    assert.deepEqual((await jsonCli(['rules', 'off'])).events, [{ rules: false }]);
+    assert.deepEqual((await jsonCli(['rules'])).events, [{ rules: false }]);
+    assert.deepEqual((await jsonCli(['rules', 'on'])).events, [{ rules: true }]);
+    assert.deepEqual((await jsonCli(['nudge', 'off'])).events, [{ nudge: false }]);
+    assert.deepEqual((await jsonCli(['nudge', 'on'])).events, [{ nudge: true }]);
+    assert.deepEqual((await jsonCli(['auto', 'team', '--agent=codex'])).events, [{ agent: 'codex', auto: 'team' }]);
+    assert.deepEqual((await jsonCli(['auto', '--agent=codex'])).events, [{ agent: 'codex', auto: 'team' }]);
+    assert.deepEqual((await jsonCli(['auto', 'off', '--agent=codex'])).events, [{ agent: 'codex', auto: 'off' }]);
+
+    const file = join(home, 'ct', 'privacy.json');
+    writeFileSync(file, JSON.stringify({ redact: ['Old'], note: 'mine' }));
+    const set = await new Promise((resolve) => {
+        const child = execFile(...coders(['privacy', 'set', '--json']), { env }, (error, stdout) => resolve({ ok: !error, events: events(stdout) }));
+        child.stdin.end(JSON.stringify([' Globex ', 'billing-core', 'Globex', '']));
+    });
+    assert.deepEqual(set.events, [{ file, words: ['Globex', 'billing-core'] }]);
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { redact: ['Globex', 'billing-core'], note: 'mine' });
+    assert.deepEqual((await jsonCli(['privacy'])).events, [{ file, words: ['Globex', 'billing-core'] }]);
+    writeFileSync(file, JSON.stringify({ redact: [] }));
+
+    const sessions = await run(...coders(['sessions', '--json']), { env, cwd: temp });
+    assert.deepEqual(JSON.parse(sessions.stdout).sessions, []);
+    // From any folder, --all lists every project's sessions, each with where it ran.
+    const everywhere = JSON.parse((await run(...coders(['sessions', '--all', '--limit=50', '--json']), { env, cwd: temp })).stdout);
+    const one = everywhere.sessions.find((s) => s.id === id);
+    assert.ok(one, JSON.stringify(everywhere));
+    assert.ok('folder' in one && 'project' in one);
+    assert.equal(everywhere.folder, null);
+});

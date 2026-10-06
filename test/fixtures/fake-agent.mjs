@@ -2,7 +2,7 @@
 // Keeps its plugins, marketplaces and MCP servers in FAKE_AGENT_STATE and writes every call to FAKE_AGENT_LOG. Pi keeps its
 // packages where Pi does: `packages` in <PI_CODING_AGENT_DIR>/settings.json.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 // node --test picks up every file under test/: run that way, there is nothing to do.
 if (!process.env.FAKE_AGENT_STATE) process.exit(0);
@@ -23,17 +23,31 @@ const versionOf = (id) => {
     }
 };
 
-if (agent === 'pi' && ['install', 'remove'].includes(a)) {
-    const file = join(process.env.PI_CODING_AGENT_DIR, 'settings.json');
+// FAKE_AGENT_BROKEN=<agent>: that agent fails to install anything, the way a full disk or a permission does.
+if (process.env.FAKE_AGENT_BROKEN === agent && a === 'plugin' && ['install', 'update', 'add'].includes(b)) {
+    console.error('Error: EACCES: permission denied, mkdir plugins/cache');
+    process.exit(1);
+} else if (agent === 'pi' && ['install', 'remove'].includes(a)) {
+    // As Pi 0.74 does (core/package-manager.js): a local package is saved relative to the agent folder, a saved one is
+    // read from there, and the path given on the command line is read from the folder the command runs in.
+    const agentDir = process.env.PI_CODING_AGENT_DIR;
+    const file = join(agentDir, 'settings.json');
     let settings = {};
     try {
         settings = JSON.parse(readFileSync(file, 'utf8'));
     } catch {
         // no settings yet
     }
-    const others = (settings.packages ?? []).filter((p) => (typeof p === 'string' ? p : p?.source) !== b);
-    settings.packages = a === 'install' ? [...others, b] : others;
-    mkdirSync(process.env.PI_CODING_AGENT_DIR, { recursive: true });
+    const local = (source) => !/^(npm:|git:|https?:|ssh:)/.test(source);
+    const key = (source, base) => (local(source) ? `local:${resolve(base, source).toLowerCase()}` : source);
+    const given = key(b, process.cwd());
+    const others = (settings.packages ?? []).filter((p) => key(typeof p === 'string' ? p : p?.source, agentDir) !== given);
+    if (a === 'remove' && others.length === (settings.packages ?? []).length) {
+        console.error(`No matching package found for ${b}`);
+        process.exit(1);
+    }
+    settings.packages = a === 'install' ? [...others, local(b) ? relative(agentDir, resolve(b)) || '.' : b] : others;
+    mkdirSync(agentDir, { recursive: true });
     writeFileSync(file, JSON.stringify(settings, null, 2));
     console.log(a === 'install' ? `Installed ${b}` : `Removed ${b}`);
 } else if (a === 'plugin' && b === 'list') {

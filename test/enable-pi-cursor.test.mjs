@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { beforeEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -71,7 +71,8 @@ test('enable installs the package into Pi with pi install, and the hooks, skills
     assert.match(r.out, /Open Cursor → Settings → MCP → coders-talk and press Connect/);
 
     // Pi: the package is the folder enable laid out, one extension, and it runs the installed program.
-    assert.deepEqual(json(join(pi(), 'settings.json')).packages, [join(plugin(), 'pi')]);
+    // Saved as Pi saves a local package: relative to its own folder.
+    assert.deepEqual(json(join(pi(), 'settings.json')).packages, [relative(pi(), join(plugin(), 'pi'))]);
     assert.deepEqual(calls().map((c) => `${c.agent} ${c.args[0]}`), ['pi install']);
     const manifest = json(join(plugin(), 'pi', 'package.json'));
     assert.deepEqual(manifest.pi, { extensions: ['./extensions/coders-talk.js'] });
@@ -202,7 +203,7 @@ test('Pi: the git package of the README is replaced, other packages and settings
     assert.deepEqual(calls().map((c) => c.args.join(' ')), ['remove git:github.com/coders-talk/coders-talk-plugin', `install ${join(plugin(), 'pi')}`]);
     const settings = json(join(pi(), 'settings.json'));
     assert.equal(settings.theme, 'dark');
-    assert.deepEqual(settings.packages, ['npm:@acme/tools', join(plugin(), 'pi')]);
+    assert.deepEqual(settings.packages, ['npm:@acme/tools', relative(pi(), join(plugin(), 'pi'))]);
     assert.match((await cli(['status'])).out, /Pi +coders-talk@coders-talk-local \S+; auto mode off/);
 
     const off = await cli(['disable', '--yes', '--agent=pi']);
@@ -225,6 +226,13 @@ test('Pi: a package another person installed by a relative path is still ours, a
     assert.equal(again.ok, true, again.out);
     assert.match(again.out, /- Pi: update the package/);
     assert.deepEqual(calls(), []);
+
+    // pi remove reads the path it is given from the folder it runs in, not from Pi's: the relative source would match
+    // nothing there ("No matching package found"), so the package goes by its absolute path.
+    const off = await cli(['disable', '--yes', '--agent=pi']);
+    assert.equal(off.ok, true, off.out);
+    assert.deepEqual(calls().map((c) => c.args.join(' ')), [`remove ${join(plugin(), 'pi')}`]);
+    assert.deepEqual(json(join(pi(), 'settings.json')).packages, []);
 });
 
 test('the agents are asked for by name, and an unknown one is refused', async () => {

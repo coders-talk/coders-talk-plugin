@@ -209,6 +209,68 @@ test('disable takes it all off and keeps the sign-in; refresh lays it out again 
     assert.match((await cli(['disable', '--yes'])).out, /is not installed here; nothing to take off/);
 });
 
+/** The JSON lines a --json command printed. */
+const events = (out) => out.split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
+
+test('enable --json says each step as an event; one agent failing does not stop the others (the desktop app)', async () => {
+    env.FAKE_AGENT_BROKEN = 'codex';
+    const r = await cli(['enable', '--yes', '--json']);
+    const said = events(r.out);
+    assert.equal(said.length, r.out.trim().split('\n').length, `only JSON on stdout:\n${r.out}`);
+    assert.deepEqual(said.map((e) => e.event).filter((e, i, all) => all.indexOf(e) === i), ['found', 'plan', 'step', 'done']);
+    assert.ok(said.find((e) => e.event === 'plan').steps.includes('Claude Code: install coders-talk@coders-talk-local'));
+    const steps = said.filter((e) => e.event === 'step').map((e) => `${e.agent} ${e.status}`);
+    assert.deepEqual(steps, ['claude-code running', 'claude-code done', 'codex running', 'codex failed']);
+    const failed = said.find((e) => e.event === 'step' && e.status === 'failed');
+    assert.equal(failed.message, 'Codex said: Error: EACCES: permission denied, mkdir plugins/cache');
+    assert.match(failed.details, /codex(\.cmd)? plugin add coders-talk@coders-talk-local\n[^]*EACCES: permission denied/);
+    const done = said.at(-1);
+    assert.deepEqual(done.installed.map((a) => a.id), ['claude-code']);
+    assert.equal(done.installed[0].restart, 'Restart Claude Code');
+    assert.deepEqual(done.failed.map((f) => f.agent), ['codex']);
+    assert.ok(done.notes.some((n) => /Not signed in/.test(n)));
+    assert.equal(done.auto, 'off');
+
+    // Without --yes it asks, so the app always passes it.
+    assert.deepEqual(events((await cli(['enable', '--json'])).out), [{ error: 'coders-talk enable asks before it changes anything: run it in a terminal, or add --yes to go ahead with the defaults.' }]);
+});
+
+test('status --json says how things are, per agent; disable of one agent keeps the plugin for the others', async () => {
+    mkdirSync(join(dir, 'ct'), { recursive: true });
+    writeFileSync(join(dir, 'ct', 'credentials.json'), JSON.stringify({ [SITE]: { token: 'ct_x', username: 'mara' } }));
+    await cli(['enable', '--yes']);
+    const status = JSON.parse((await cli(['status', '--json'])).out);
+    assert.equal(status.site, SITE);
+    assert.deepEqual(status.account, { username: 'mara' });
+    assert.equal(status.signed_in, true);
+    assert.equal(status.what_leaves, `${SITE}/plugins#what-leaves-your-machine`);
+    assert.deepEqual(status.privacy.words, []);
+    assert.equal(status.rules, true);
+    assert.equal(status.nudge, true);
+    assert.equal(status.last_sent, null);
+    const claude = status.agents.find((a) => a.id === 'claude-code');
+    assert.equal(claude.present, true);
+    assert.equal(claude.connected, true);
+    assert.equal(claude.managed, true);
+    assert.equal(claude.auto, 'off');
+    assert.deepEqual(claude.plugins.map((p) => p.source), ['local']);
+    assert.equal(status.agents.find((a) => a.id === 'codex').connected, true);
+
+    const off = await cli(['disable', '--yes', '--agent=codex', '--json']);
+    const said = events(off.out);
+    assert.deepEqual(said.at(-1), { event: 'done', removed: ['codex'], failed: [], notes: [] });
+    assert.ok(!said.find((e) => e.event === 'plan').steps.some((s) => s.startsWith('Delete')), 'the laid-out plugin stays for Claude Code');
+    assert.ok(existsSync(plugin()));
+    assert.ok(agentState().claude.plugins['coders-talk@coders-talk-local']);
+    assert.deepEqual(agentState().codex.plugins, {});
+    const after = JSON.parse((await cli(['status', '--json'])).out);
+    assert.deepEqual(after.agents.filter((a) => a.connected).map((a) => a.id), ['claude-code']);
+
+    // The last agent off: then everything goes, as a plain disable.
+    await cli(['disable', '--yes', '--agent=claude-code']);
+    assert.equal(existsSync(plugin()), false);
+});
+
 test("a sign-in takes the plugin's server out of Claude Code's needs-authorization note, and nothing else", async () => {
     const { forgetMcpNeedsAuth, PLUGIN_MCP_SERVER } = await import('../scripts/lib/agents.mjs');
     const config = mkdtempSync(join(tmpdir(), 'ct-needs-auth-'));

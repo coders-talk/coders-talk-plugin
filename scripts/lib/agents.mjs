@@ -72,9 +72,11 @@ const samePath = (a, b) => (process.platform === 'win32' ? resolve(a).toLowerCas
 export const piPackageDir = (env = process.env) => join(home(env), 'plugin', 'pi');
 
 /**
- * The Coders Talk packages Pi has in its settings: [{id, version, marketplace, source}]. Ours is the local folder enable
- * lays out (a relative source is read from the agent folder, as Pi does); any other source that names coders-talk (the
- * git package the README shows) is another install of it.
+ * The Coders Talk packages Pi has in its settings: [{id, version, marketplace, source, removeAs}]. Ours is the local folder
+ * enable lays out (a relative source is read from the agent folder, as Pi does); any other source that names coders-talk
+ * (the git package the README shows) is another install of it. removeAs: what `pi remove` takes for it. Pi saves a local
+ * package relative to its agent folder but reads the path given to `pi remove` from the folder the command runs in, so a
+ * local one goes by its absolute path.
  */
 export function piPackages(env = process.env) {
     let settings;
@@ -90,7 +92,8 @@ export function piPackages(env = process.env) {
         .filter((source) => typeof source === 'string')
         .flatMap((source) => {
             const local = !/^(npm:|git:|https?:|ssh:)/.test(source);
-            if (local && samePath(resolve(piHome(env), source), ours)) {
+            const removeAs = local ? resolve(piHome(env), source.replace(/^~(?=$|[\\/])/, homedir())) : source;
+            if (local && samePath(removeAs, ours)) {
                 let version = null;
                 try {
                     version = JSON.parse(readFileSync(join(ours, 'package.json'), 'utf8')).version ?? null;
@@ -98,10 +101,10 @@ export function piPackages(env = process.env) {
                     // laid out again, or not yet
                 }
 
-                return [{ id: PLUGIN_ID, version, marketplace: MARKETPLACE, source }];
+                return [{ id: PLUGIN_ID, version, marketplace: MARKETPLACE, source, removeAs }];
             }
 
-            return /coders-talk/i.test(source) ? [{ id: 'coders-talk@coders-talk', version: null, marketplace: 'coders-talk', source }] : [];
+            return /coders-talk/i.test(source) ? [{ id: 'coders-talk@coders-talk', version: null, marketplace: 'coders-talk', source, removeAs }] : [];
         });
 }
 

@@ -92,13 +92,13 @@ export function findCursorTranscript(id, env = process.env, hint = null) {
 
 const dirnameHas = (path, id) => path.replace(/\\/g, '/').endsWith(`/${id}.jsonl`);
 
-/** The conversations of the workspaces $folders: [{agent: 'cursor', id, path, mtimeMs}]. */
+/** The conversations of the workspaces $folders, or of every workspace when $folders is null: [{agent: 'cursor', id, path, mtimeMs}]. */
 export function cursorSessions(folders, env = process.env) {
     const projects = join(cursorHome(env), 'projects');
-    const wanted = new Set(folders.map(cursorSlug).filter(Boolean));
+    const wanted = new Set((folders ?? []).map(cursorSlug).filter(Boolean));
     const found = [];
     for (const slug of names(projects)) {
-        if (![...wanted].some((w) => samePath(w, slug))) continue;
+        if (folders !== null && ![...wanted].some((w) => samePath(w, slug))) continue;
         found.push(...transcriptsIn(join(projects, slug, 'agent-transcripts')));
     }
 

@@ -13,7 +13,7 @@
 import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
-import { autoSession } from './auto.mjs';
+import { autoSession, autoSessions } from './auto.mjs';
 import { home, writePrivate } from './credentials.mjs';
 import { projectOf, repositoryRoot, worktrees } from './git.mjs';
 import { cursorSessions, describeCursor, findCursorTranscript } from './cursor.mjs';
@@ -45,6 +45,37 @@ export function folderSessions(folder, { env = process.env, now = Date.now() } =
     return [...newest.values()];
 }
 
+/**
+ * Every agent's sessions on this computer, whatever folder they ran in, newest first, changed in the last $days:
+ * `sessions --all`, the desktop app's list. Each with {cwd}: the folder it ran in when its file says so (Cursor's does not).
+ */
+export function allSessions({ env = process.env, now = Date.now(), days = CODEX_DAYS } = {}) {
+    const since = now - days * 86_400_000;
+    const found = [...claudeSessions(null, configDir(env), null), ...codexSessions(null, codexHome(env), now, null), ...piSessions(null, env), ...cursorSessions(null, env)].filter((s) => s.mtimeMs >= since);
+    const newest = new Map();
+    for (const s of found.sort((a, b) => b.mtimeMs - a.mtimeMs)) if (!newest.has(`${s.agent}:${s.id}`)) newest.set(`${s.agent}:${s.id}`, s);
+
+    return [...newest.values()];
+}
+
+/** The folder a session ran in, from the start of its file: Claude Code's lines, Codex's session_meta, Pi's header. */
+export function sessionCwd({ agent, path }) {
+    if (agent === 'codex') return rolloutCwd(path);
+    if (agent === 'cursor') return null;
+    const buffer = Buffer.alloc(256 * 1024);
+    let fd;
+    try {
+        fd = openSync(path, 'r');
+        const raw = buffer.toString('utf8', 0, readSync(fd, buffer, 0, buffer.length, 0)).match(/"cwd":"((?:[^"\\]|\\.)*)"/)?.[1];
+
+        return raw === undefined ? null : JSON.parse(`"${raw}"`);
+    } catch {
+        return null;
+    } finally {
+        if (fd !== undefined) closeSync(fd);
+    }
+}
+
 /** The file of a session by its id, for the agent that ran it; $hint is a path the agent's hook was told (Cursor's transcript). */
 export function sessionPath(agent, id, env = process.env, hint = null) {
     if (agent === 'codex') return findRollout(id, codexHome(env));
@@ -68,11 +99,11 @@ function claudeSessions(folders, dir, removed) {
         return [];
     }
     const encode = (f) => f.replace(/[^a-zA-Z0-9]/g, '-');
-    const wanted = folders.map(encode);
+    const wanted = (folders ?? []).map(encode);
     const under = removed ? `${encode(removed)}-` : null;
 
     return names
-        .filter((name) => wanted.some((w) => samePath(w, name)) || (under && samePath(name.slice(0, under.length), under)))
+        .filter((name) => folders === null || wanted.some((w) => samePath(w, name)) || (under && samePath(name.slice(0, under.length), under)))
         .flatMap((name) => files(join(projects, name)).filter((f) => f.endsWith('.jsonl')).map((f) => ({ agent: 'claude-code', id: f.slice(0, -6), path: join(projects, name, f) })))
         .map(withTime)
         .filter(Boolean);
@@ -91,7 +122,7 @@ function codexSessions(folders, dir, now, removed) {
                     const id = name.match(ROLLOUT)?.[1];
                     const path = join(root, year, month, day, name);
                     const cwd = id ? rolloutCwd(path) : null;
-                    if (cwd && (folders.some((f) => samePath(f, normal(cwd))) || inRemoved(cwd))) found.push({ agent: 'codex', id, path });
+                    if (cwd && (folders === null || folders.some((f) => samePath(f, normal(cwd))) || inRemoved(cwd))) found.push({ agent: 'codex', id, path });
                 }
             }
         }
@@ -180,10 +211,13 @@ export function sentUrl(site, id) {
     return typeof url === 'string' ? url : null;
 }
 
-/** Remembered after the send step: the draft's link and when; sends older than SENT_DAYS are forgotten then. */
-export function markSent(site, id, url, now = Date.now()) {
+/**
+ * Remembered after the send step: the draft's link and when, and where it went ($about: {space, agent}); sends older
+ * than SENT_DAYS are forgotten then.
+ */
+export function markSent(site, id, url, now = Date.now(), about = {}) {
     const all = readSent();
-    (all[site] ??= {})[id] = { at: now, url };
+    (all[site] ??= {})[id] = { at: now, url, ...Object.fromEntries(Object.entries(about).filter(([, v]) => v != null)) };
     const since = now - SENT_DAYS * 86_400_000;
     for (const [where, sent] of Object.entries(all)) {
         const kept = Object.entries(sent ?? {}).filter(([, s]) => typeof s?.at === 'number' && s.at >= since);
@@ -191,6 +225,21 @@ export function markSent(site, id, url, now = Date.now()) {
         else delete all[where];
     }
     writePrivate(sentFile(), JSON.stringify(all, null, 2));
+}
+
+/**
+ * The session that left this computer last for $site, by the send step or auto mode: {session_id, agent, at, url, space,
+ * how}, or null. space is {type: 'personal'|'team', name} as the site answered; null when an older version sent it.
+ */
+export function lastSent(site) {
+    const manual = Object.entries(readSent()[site] ?? {})
+        .filter(([, s]) => typeof s?.at === 'number' && s.url)
+        .map(([id, s]) => ({ session_id: id, agent: s.agent ?? null, at: s.at, url: s.url, space: s.space ?? null, how: 'manual' }));
+    const auto = Object.entries(autoSessions(site))
+        .filter(([, s]) => typeof s?.sent?.at === 'number')
+        .map(([id, s]) => ({ session_id: id, agent: s.agent ?? 'claude-code', at: s.sent.at, url: s.sent.url ?? null, space: s.sent.space ?? null, how: 'auto' }));
+
+    return [...manual, ...auto].sort((a, b) => b.at - a.at)[0] ?? null;
 }
 
 function readSent() {

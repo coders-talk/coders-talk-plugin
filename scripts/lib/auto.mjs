@@ -151,6 +151,11 @@ export function setAutoMode(site, mode, agent = 'claude-code', dir = home()) {
     }
 }
 
+/** Every session auto mode remembers for this site, by id. */
+export function autoSessions(site, dir = home()) {
+    return read(sessionsFile(dir))[site] ?? {};
+}
+
 /** What auto mode remembers about one session of this site, or null. */
 export function autoSession(site, id, dir = home()) {
     return read(sessionsFile(dir))[site]?.[id] ?? null;

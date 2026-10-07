@@ -244,8 +244,9 @@ const LIBRARY = [
         snippet: 'get_session_excerpt: read additional source messages', guidelines: [], parameters: () => ({session_id: Type.String(), cursor: Type.Optional(Type.Integer()), limit: Type.Optional(Type.Integer()), text_offset: Type.Optional(Type.Integer())}),
     },
     {
-        name: 'attach_session_to_task', label: 'Coders Talk: continue task', description: 'Attach this actual Pi session to the task selected for continuation. Later sync links it to that task. Does not upload the session or enable auto sync.',
-        snippet: 'attach_session_to_task: keep continuing work in the same task', guidelines: ['Attach only after selecting the task the user wants to continue.'], parameters: () => ({task_id: Type.String()}),
+        name: 'attach_session_to_task', label: 'Coders Talk: continue task', description: 'Attach this actual Pi session to the task selected for continuation, and with continues to the session it picks the work up from: this session then goes on in that session\'s draft, so one Build shows the work of every agent in it. Later sync links it. Does not upload the session or enable auto sync.',
+        snippet: 'attach_session_to_task: keep continuing work in the same task', guidelines: ['Attach only after selecting the task the user wants to continue. Set continues to the session_id (from get_task_context sources) of the session you pick the work up from, usually the latest one you read.'],
+        parameters: () => ({task_id: Type.String(), continues: Type.Optional(Type.String({ description: 'The session_id, from get_task_context sources, of the session this one picks the work up from.' }))}),
     },
     {
         name: 'search_coding_agent_sessions',

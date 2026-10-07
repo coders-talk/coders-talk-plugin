@@ -464,4 +464,8 @@ test('private bridge detects the repository for each request and attaches the ac
     const attached = await cli(['mcp-call', 'attach_session_to_task', '--stdin', '--agent=pi'], {PI_SESSION_ID:PI_ID}, JSON.stringify({task_id:'chosen'}));
     assert.equal(attached.ok, true, attached.out);
     assert.deepEqual(mcp.at(-1).rpc.params.arguments, {task_id:'chosen', client:'pi_plugin', session_id:PI_ID});
+    // The session it picks the work up from goes as the agent names it: the site puts this one into that session's draft.
+    const continued = await cli(['mcp-call', 'attach_session_to_task', '--stdin', '--agent=pi'], {PI_SESSION_ID:PI_ID}, JSON.stringify({task_id:'chosen', continues:'01m49ezsekx3xr5tr23e296pr0'}));
+    assert.equal(continued.ok, true, continued.out);
+    assert.deepEqual(mcp.at(-1).rpc.params.arguments, {task_id:'chosen', continues:'01m49ezsekx3xr5tr23e296pr0', client:'pi_plugin', session_id:PI_ID});
 });

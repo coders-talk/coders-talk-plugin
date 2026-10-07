@@ -21,6 +21,20 @@
         "signals": ["git", "branch", "files", "recent"]
     },
     {
+        "name": "the git chain on master is only the next session in the checkout: half, for the model to decide",
+        "session": { "keys": [], "files": [], "branch": "master", "head_start": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "title": null, "prs": [], "started_at": "2026-09-20T11:00:00Z" },
+        "task": { "keys": [], "files": [], "branches": ["master"], "head_ends": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "titles": [], "prs": [], "last_at": "2026-09-20T10:00:00Z" },
+        "score": 0.4,
+        "signals": ["git", "recent"]
+    },
+    {
+        "name": "the git chain with no branch known counts half too",
+        "session": { "keys": [], "files": [], "branch": null, "head_start": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "title": null, "prs": [], "started_at": null },
+        "task": { "keys": [], "files": [], "branches": [], "head_ends": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "titles": [], "prs": [], "last_at": null },
+        "score": 0.3,
+        "signals": ["git"]
+    },
+    {
         "name": "three files in common count in full",
         "session": { "keys": [], "files": ["a", "b", "c"], "branch": null, "head_start": null, "title": null, "prs": [], "started_at": null },
         "task": { "keys": [], "files": ["a", "b", "c", "d"], "branches": [], "head_ends": [], "titles": [], "prs": [], "last_at": null },

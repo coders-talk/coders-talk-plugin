@@ -1,6 +1,6 @@
 // Generated from the site's resources/js/lib/taskGrouping.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:61d5de30b39df52aa8617461ac1b1c4666c88d738e1c9a2880b9eeb816a8ffc7
+// sha256:854cb604552d9cb92f9ebe0bc01eb69b64e3d1d1d6eeac23ce84904604d6436c
 
 /**
  * Grouping sessions into tasks (grouping plan, stage 25): the task numbers in what a person wrote (25.2) and how likely
@@ -91,8 +91,11 @@ export function scoreTask(session, task, config, mainBranches = []) {
     const w = config.weights;
     const reasons = [];
     const main = new Set([...config.main_branches, ...mainBranches].map((b) => b.toLowerCase()));
+    // On the main branch every next session starts where the last commit ended, whatever its work: half, for the model
+    // or another signal to decide. On a branch of its own the chain is the work going on.
+    const ownBranch = !!session.branch && !main.has(session.branch.toLowerCase());
     if (session.head_start && task.head_ends.includes(session.head_start))
-        reasons.push({ signal: 'git', weight: w.git, detail: session.head_start.slice(0, 7) });
+        reasons.push({ signal: 'git', weight: ownBranch ? w.git : Math.round((w.git / 2) * 1000) / 1000, detail: session.head_start.slice(0, 7) });
     if (session.branch && !main.has(session.branch.toLowerCase()) && task.branches.includes(session.branch))
         reasons.push({ signal: 'branch', weight: w.branch, detail: session.branch });
     const pr = session.prs.find((p) => task.prs.includes(p));

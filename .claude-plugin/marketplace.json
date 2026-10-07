@@ -1,12 +1,12 @@
 {
-    "name": "coders-talk",
-    "description": "Coders Talk plugins: send a coding agent session to coders.talk as a draft Build.",
-    "owner": { "name": "Coders Talk", "url": "https://coders.talk" },
+    "name": "keepplain",
+    "description": "KeepPlain plugins: send a coding agent session to KeepPlain as a draft Build.",
+    "owner": { "name": "KeepPlain", "url": "https://keepplain.com" },
     "plugins": [
         {
-            "name": "coders-talk",
+            "name": "keepplain",
             "source": "./",
-            "description": "Send a Claude Code session to Coders Talk as a draft Build you review and publish on the site."
+            "description": "Send a Claude Code session to KeepPlain as a draft Build you review and publish on the site."
         }
     ]
 }

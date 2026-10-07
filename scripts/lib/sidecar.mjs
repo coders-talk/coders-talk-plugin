@@ -1,6 +1,6 @@
 /**
  * What the SessionStart hook remembers about a session: where it runs and HEAD at its start.
- * ~/.coders-talk/sessions/<session id>.json, a path and a commit hash, nothing from the conversation.
+ * ~/.keepplain/sessions/<session id>.json, a path and a commit hash, nothing from the conversation.
  */
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -11,7 +11,7 @@ import { SESSION_ID } from './session.mjs';
 const KEEP_DAYS = 30;
 
 export function sidecarDir(env = process.env) {
-    return join(env.CODERS_TALK_HOME || join(homedir(), '.coders-talk'), 'sessions');
+    return join(env.KEEPPLAIN_HOME || join(homedir(), '.keepplain'), 'sessions');
 }
 
 export function readSidecar(sessionId, dir = sidecarDir()) {

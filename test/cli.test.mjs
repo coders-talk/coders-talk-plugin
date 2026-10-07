@@ -1,4 +1,4 @@
-// preview → send → whoami against a stand-in for the Coders Talk API, with a throwaway Claude Code config folder.
+// preview → send → whoami against a stand-in for the KeepPlain API, with a throwaway Claude Code config folder.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ import { gunzipSync } from 'node:zlib';
 import { BINARY, coders, hookCommand, makeRepo, waitFor } from './helpers.mjs';
 
 const run = promisify(execFile);
-const script = fileURLToPath(new URL('../scripts/coders-talk.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../scripts/keepplain.mjs', import.meta.url));
 const id = 'a1b2c3d4-0000-4000-8000-000000000001';
 const TOKEN = 'ct_' + 'k'.repeat(48);
 
@@ -24,7 +24,7 @@ mkdirSync(join(home, 'projects', 'C--code-shop'), { recursive: true });
 const transcript = join(home, 'projects', 'C--code-shop', `${id}.jsonl`);
 copyFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), transcript);
 // The plugin's own run, as Claude Code writes it: it must not be sent.
-appendFileSync(transcript, JSON.stringify({ type: 'user', message: { role: 'user', content: '<command-message>coders-talk:build</command-message>\n<command-name>/coders-talk:build</command-name>' } }) + '\n');
+appendFileSync(transcript, JSON.stringify({ type: 'user', message: { role: 'user', content: '<command-message>keepplain:build</command-message>\n<command-name>/keepplain:build</command-name>' } }) + '\n');
 appendFileSync(transcript, JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'SKILL BODY MARKER' } }) + '\n');
 
 // The session ran in a repository: the hook remembered HEAD before its two commits.
@@ -88,7 +88,7 @@ const server = createServer((req, res) => {
             return reply(200, { username: 'mara', token: { name: 'laptop' }, teams: [{ slug: 'acme', name: 'Acme', github_owners: ['acme-inc'], auto_capture: true }] });
         }
         if (req.method === 'POST' && req.url === '/api/v1/imports') {
-            if (importsDown) return reply(503, { error: { code: 'unavailable', message: 'Coders Talk is down for maintenance.' } });
+            if (importsDown) return reply(503, { error: { code: 'unavailable', message: 'KeepPlain is down for maintenance.' } });
             if (busyOnce) {
                 busyOnce = false;
                 return reply(409, { error: { code: 'import_running', message: 'This session is still being imported. Wait for it to finish.' } });
@@ -113,7 +113,7 @@ const server = createServer((req, res) => {
         if (req.method === 'GET' && req.url === '/api/v1/imports/imp1') {
             if (discardOnce) {
                 discardOnce = false;
-                const error = 'Only the coders.talk plugin was used in it: nothing was asked of the agent. No draft was kept.';
+                const error = 'Only the KeepPlain plugin was used in it: nothing was asked of the agent. No draft was kept.';
                 return reply(200, { status: 'failed', stage: null, error, result: { discarded: 'empty', title: null }, ...links, build_slug: null, edit_url: null });
             }
             polls++;
@@ -128,8 +128,8 @@ const server = createServer((req, res) => {
 let env;
 before(async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    env = { ...process.env, CLAUDE_CONFIG_DIR: home, TMPDIR: temp, TEMP: temp, TMP: temp, CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`, CODERS_TALK_POLL_MS: '10', CODERS_TALK_HOME: join(home, 'ct'), CODERS_TALK_NO_BROWSER: '1', CODERS_TALK_LOGIN_WAIT_MS: '5000' };
-    delete env.CODERS_TALK_TOKEN;
+    env = { ...process.env, CLAUDE_CONFIG_DIR: home, TMPDIR: temp, TEMP: temp, TMP: temp, KEEPPLAIN_URL: `http://127.0.0.1:${server.address().port}`, KEEPPLAIN_POLL_MS: '10', KEEPPLAIN_HOME: join(home, 'ct'), KEEPPLAIN_NO_BROWSER: '1', KEEPPLAIN_LOGIN_WAIT_MS: '5000' };
+    delete env.KEEPPLAIN_TOKEN;
     delete env.CLAUDE_PLUGIN_OPTION_TOKEN;
     // Run inside Claude Code or Codex, the tests would pass for the agent: each test that needs one sets it.
     for (const name of ['CLAUDECODE', 'CODEX_THREAD_ID', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID']) delete env[name];
@@ -149,13 +149,13 @@ const cli = (args, extra = {}) => run(...coders(args), { env: { ...env, ...extra
 test('login opens the approval link, --wait collects the token and saves it for this site only', async () => {
     const notYet = await cli(['whoami']);
     assert.equal(notYet.ok, false);
-    assert.match(notYet.out, /not connected .* yet\. Run \/coders-talk:login/);
+    assert.match(notYet.out, /not connected .* yet\. Run \/keepplain:login/);
 
     // Step one returns at once with the link, so Claude can show it before anything waits.
     // Without a terminal and without an agent's marks (SSH, a script) it is the CLI that asks.
     const bare = await cli(['login']);
     assert.equal(bare.ok, true, bare.out);
-    assert.equal(deviceRequests.at(-1).client_name, 'Coders Talk CLI');
+    assert.equal(deviceRequests.at(-1).client_name, 'KeepPlain CLI');
 
     const r = await cli(['login'], { CLAUDECODE: '1' });
     assert.equal(r.ok, true, r.out);
@@ -168,17 +168,17 @@ test('login opens the approval link, --wait collects the token and saves it for 
 
     // Claude Code started before the sign-in noted the server's 401: the sign-in takes that note out, and only that.
     const needsAuth = join(home, 'mcp-needs-auth-cache.json');
-    writeFileSync(needsAuth, JSON.stringify({ 'plugin:coders-talk:coders-talk': { timestamp: Date.now() }, 'plugin:other:server': { timestamp: 1 } }));
+    writeFileSync(needsAuth, JSON.stringify({ 'plugin:keepplain:keepplain': { timestamp: Date.now() }, 'plugin:other:server': { timestamp: 1 } }));
     const waited = await cli(['login', '--wait'], { CLAUDECODE: '1' });
     assert.equal(waited.ok, true, waited.out);
     assert.match(waited.out, /Connected to http:\/\/127\.0\.0\.1:\d+ as @mara/);
-    assert.match(waited.out, /If Claude Code is open, run \/mcp → Reconnect for coders-talk, or start a new session/);
+    assert.match(waited.out, /If Claude Code is open, run \/mcp → Reconnect for keepplain, or start a new session/);
     assert.deepEqual(JSON.parse(readFileSync(needsAuth, 'utf8')), { 'plugin:other:server': { timestamp: 1 } });
     assert.doesNotMatch(r.out + waited.out, new RegExp(TOKEN), 'the token is never printed');
 
     const saved = JSON.parse(readFileSync(join(home, 'ct', 'credentials.json'), 'utf8'));
-    assert.deepEqual(Object.keys(saved), [env.CODERS_TALK_URL]);
-    assert.equal(saved[env.CODERS_TALK_URL].token, TOKEN);
+    assert.deepEqual(Object.keys(saved), [env.KEEPPLAIN_URL]);
+    assert.equal(saved[env.KEEPPLAIN_URL].token, TOKEN);
     assert.equal(existsSync(join(home, 'ct', 'login-pending.json')), false);
 
     assert.match((await cli(['login'])).out, /Already connected .* as @mara/);
@@ -189,7 +189,7 @@ test('login opens the approval link, --wait collects the token and saves it for 
 });
 
 test('Codex login reaches the API despite a stale sandbox network flag', async () => {
-    const r = await cli(['login', '--agent=codex'], { CODERS_TALK_HOME: join(home, 'fresh-codex'), CODEX_SANDBOX_NETWORK_DISABLED: '1' });
+    const r = await cli(['login', '--agent=codex'], { KEEPPLAIN_HOME: join(home, 'fresh-codex'), CODEX_SANDBOX_NETWORK_DISABLED: '1' });
     assert.equal(r.ok, true, r.out);
     assert.match(r.out, /Opened http:.*WDJB-MJHT/);
 });
@@ -203,7 +203,7 @@ test('Codex reports actual permission errors without mislabeling DNS failures', 
             throw new TypeError('fetch failed', { cause: ${code === 'EACCES' ? 'new AggregateError([cause])' : 'cause'} });
         };`);
         const result = await run(process.execPath, ['--import', pathToFileURL(preload).href, script, 'login', '--agent=codex'], {
-            env: { ...env, CODERS_TALK_HOME: join(home, 'failed-codex'), CODEX_SANDBOX_NETWORK_DISABLED: '1' },
+            env: { ...env, KEEPPLAIN_HOME: join(home, 'failed-codex'), CODEX_SANDBOX_NETWORK_DISABLED: '1' },
         }).then(() => assert.fail('request should fail'), (e) => e.stdout + e.stderr);
         if (code === 'ENOTFOUND') {
             assert.match(result, /Could not reach .*lookup failed/);
@@ -215,7 +215,7 @@ test('Codex reports actual permission errors without mislabeling DNS failures', 
 });
 
 test('a preview nobody sends goes: at once when the person says no, after 30 minutes on any run', async () => {
-    const dir = join(temp, 'coders-talk');
+    const dir = join(temp, 'keepplain');
     const files = [join(dir, `${id}.jsonl.gz`), join(dir, `${id}.json`)];
     assert.equal((await cli(['preview', id])).ok, true);
     assert.ok(files.every((f) => existsSync(f)));
@@ -229,7 +229,7 @@ test('a preview nobody sends goes: at once when the person says no, after 30 min
     assert.match(no.out, /Nothing was sent, and the prepared file is deleted\./);
     assert.ok(files.every((f) => !existsSync(f)));
 
-    // Left over: any run of coders-talk sweeps it once it is 30 minutes old, and not before.
+    // Left over: any run of keepplain sweeps it once it is 30 minutes old, and not before.
     await cli(['preview', id]);
     const stranger = join(dir, 'notes.txt');
     writeFileSync(stranger, 'not ours');
@@ -270,15 +270,15 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     );
     assert.match(preview.out, /Privacy check, on this computer: no keys, tokens or addresses it recognises\./);
     assert.match(preview.out, /anything else, a secret in an unusual form or a name you would rather keep, goes as it is/);
-    const prepared = join(temp, 'coders-talk', `${id}.jsonl.gz`);
+    const prepared = join(temp, 'keepplain', `${id}.jsonl.gz`);
     const gz = readFileSync(prepared);
     const sentLater = gunzipSync(gz).toString('utf8');
-    assert.doesNotMatch(sentLater, /SKILL BODY MARKER|coders-talk:build/);
+    assert.doesNotMatch(sentLater, /SKILL BODY MARKER|keepplain:build/);
     assert.doesNotMatch(sentLater, /file-history-snapshot|iVBORw0KGgoAAAA/);
     // The transcript carries bridge-session (account ids), frame-link, artifact-* and made-up future lines.
     assert.doesNotMatch(sentLater, /leak|ownerAccountUuid|bridgeSessionId|frameUrl/);
 
-    const send = await cli(['send', id, '--continues=https://coders.talk/b/first-part']);
+    const send = await cli(['send', id, '--continues=https://keepplain.com/b/first-part']);
     assert.equal(send.ok, true, send.out);
     assert.match(send.out, /Draft created \(private: only you see it\): http:\/\/127\.0\.0\.1:\d+\/b\/draft-x\/edit/);
     assert.match(send.out, /Review and publish: /);
@@ -292,7 +292,7 @@ test('preview prints what will go, then send uploads exactly that and waits for 
     assert.ok(received.includes(gz));
     assert.match(received.toString('latin1'), /name="session_id"\r\n\r\na1b2c3d4-0000-4000-8000-000000000001/);
     assert.match(received.toString('latin1'), /name="agent"\r\n\r\nclaude-code/);
-    assert.match(received.toString('latin1'), /name="continues"\r\n\r\nhttps:\/\/coders\.talk\/b\/first-part/);
+    assert.match(received.toString('latin1'), /name="continues"\r\n\r\nhttps:\/\/keepplain\.com\/b\/first-part/);
     assert.match(received.toString('latin1'), /name="trigger"\r\n\r\nmanual/);
     const usage = JSON.parse(received.toString('utf8').match(/name="usage"\r\n\r\n(.*)\r\n/)[1]);
     assert.deepEqual(usage, { models: { 'claude-opus-5-5': { input: 10, output: 0, cache_read: 0, cache_write: 0 } } });
@@ -322,7 +322,7 @@ test('a session the site does not keep says so, without pointing at a draft that
     discardOnce = true;
     const send = await cli(['send', id]);
     assert.equal(send.ok, false, send.out);
-    assert.match(send.out, /Not saved: Only the coders\.talk plugin was used in it: nothing was asked of the agent\. No draft was kept\./);
+    assert.match(send.out, /Not saved: Only the KeepPlain plugin was used in it: nothing was asked of the agent\. No draft was kept\./);
     assert.doesNotMatch(send.out, /The draft is still there/);
     // That draft is gone: the next preview does not point at it.
     assert.doesNotMatch((await cli(['preview', id])).out, /Updates your draft/);
@@ -384,13 +384,13 @@ test('a continuation sends the sessions it continued with its own, as one Build,
     mkdirSync(join(app, 'account'), { recursive: true });
     writeFileSync(join(app, 'account', 'local_1.json'), JSON.stringify({ cliSessionId: next, priorCliSessionIds: [previous] }));
 
-    const preview = await cli(['preview', next], { CODERS_TALK_CLAUDE_APP_DIR: app });
+    const preview = await cli(['preview', next], { KEEPPLAIN_CLAUDE_APP_DIR: app });
     assert.equal(preview.ok, true, preview.out);
     assert.match(preview.out, new RegExp(`Includes: +1 earlier session it continued, oldest first, as one Build: ${previous.slice(0, 8)}`));
     assert.doesNotMatch(preview.out, /Continues:/, 'the session before is in this Build, not linked to another');
     assert.match(preview.out, /Title: +Rate limits\n/);
     assert.match(preview.out, /Tokens: +17 \(claude-opus-5-5\)/, 'the copied lines are counted once');
-    const send = await cli(['send', next], { CODERS_TALK_CLAUDE_APP_DIR: app });
+    const send = await cli(['send', next], { KEEPPLAIN_CLAUDE_APP_DIR: app });
     assert.equal(send.ok, true, send.out);
     const body = received.toString('utf8');
     assert.doesNotMatch(body, /name="continuation"/);
@@ -402,8 +402,8 @@ test('a continuation sends the sessions it continued with its own, as one Build,
     assert.deepEqual(JSON.parse(body.match(/name="task_keys"\r\n\r\n(.*)\r\n/)[1]), ['limits-plan 4']);
 
     // The session before continues nothing.
-    await cli(['preview', previous], { CODERS_TALK_CLAUDE_APP_DIR: app });
-    await cli(['send', previous], { CODERS_TALK_CLAUDE_APP_DIR: app });
+    await cli(['preview', previous], { KEEPPLAIN_CLAUDE_APP_DIR: app });
+    await cli(['send', previous], { KEEPPLAIN_CLAUDE_APP_DIR: app });
     assert.doesNotMatch(received.toString('latin1'), /name="continuation"/);
     assert.doesNotMatch(received.toString('latin1'), /name="chain"/);
 });
@@ -411,8 +411,8 @@ test('a continuation sends the sessions it continued with its own, as one Build,
 test('Builds the agent got from the library are shown in the preview and go with the session', async () => {
     const used = 'a1b2c3d4-0000-4000-8000-0000000000e1';
     const lines = readFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), 'utf8').trimEnd();
-    const call = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_lib1', name: 'mcp__plugin_coders-talk_coders-talk__search_coding_agent_sessions', input: { query: 'rate limit login', stack: 'laravel' } }] } };
-    const result = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_lib1', content: [{ type: 'text', text: 'Reference data…\n1. https://coders.talk/b/login-throttle-x1?ref=agent\n2. https://coders.talk/b/redis-limiter?ref=agent' }] }] } };
+    const call = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_lib1', name: 'mcp__plugin_keepplain_keepplain__search_coding_agent_sessions', input: { query: 'rate limit login', stack: 'laravel' } }] } };
+    const result = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_lib1', content: [{ type: 'text', text: 'Reference data…\n1. https://keepplain.com/b/login-throttle-x1?ref=agent\n2. https://keepplain.com/b/redis-limiter?ref=agent' }] }] } };
     writeFileSync(join(home, 'projects', 'C--code-shop', `${used}.jsonl`), [lines, JSON.stringify(call), JSON.stringify(result)].join('\n') + '\n');
 
     const preview = await cli(['preview', used]);
@@ -426,7 +426,7 @@ test('Builds the agent got from the library are shown in the preview and go with
 
     // No library call in the session: no field, no line.
     const none = 'a1b2c3d4-0000-4000-8000-0000000000e2';
-    const noLibrary = lines.split('\n').filter((l) => !/coders-talk|coders\.talk\/b\//.test(l));
+    const noLibrary = lines.split('\n').filter((l) => !/keepplain|coders-talk|coders\.talk\/b\//.test(l));
     writeFileSync(join(home, 'projects', 'C--code-shop', `${none}.jsonl`), noLibrary.join('\n') + '\n');
     const plain = await cli(['preview', none]);
     assert.equal(plain.ok, true, plain.out);
@@ -454,7 +454,7 @@ test('a folder added to the session is named, never shown by its path, and its r
     assert.match(preview.out, new RegExp(`Folders: +${folder} added to the session: files there go under the folder's name, never its path`));
     assert.match(preview.out, new RegExp(`Git \\(${folder}\\): https://github.com/mara/shop-api .*2 commits in this session`));
     assert.match(preview.out, /Code: +1 file \(\+1 −1\)/);
-    const slim = gunzipSync(readFileSync(join(temp, 'coders-talk', `${session}.jsonl.gz`))).toString('utf8');
+    const slim = gunzipSync(readFileSync(join(temp, 'keepplain', `${session}.jsonl.gz`))).toString('utf8');
 
     assert.equal((await cli(['send', session])).ok, true);
     const sent = JSON.parse(received.toString('utf8').match(/name="git_folders"\r\n\r\n(.*)\r\n/)[1]);
@@ -493,7 +493,7 @@ test('a session in a team repository goes to the team, unless the person keeps i
 test('auto mode is off until the person turns it on, and then sends a session that ended by itself', async () => {
     const autoFile = join(home, 'ct', 'auto.json');
     const logPath = join(home, 'ct', 'auto.log');
-    assert.match((await cli(['auto'])).out, /Auto mode is off for .*: sessions are sent only when you run \/coders-talk:build/);
+    assert.match((await cli(['auto'])).out, /Auto mode is off for .*: sessions are sent only when you run \/keepplain:build/);
     received = null;
     await cli(['auto-send', id]);
     assert.equal(received, null, 'off means nothing leaves the machine');
@@ -501,7 +501,7 @@ test('auto mode is off until the person turns it on, and then sends a session th
     const on = await cli(['auto', 'on']);
     assert.equal(on.ok, true, on.out);
     assert.match(on.out, /Auto mode is on\. Claude Code sessions on this computer are sent to .* as @mara by themselves, every five minutes while they run and once more when they end/);
-    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL].mode, 'all');
+    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.KEEPPLAIN_URL].mode, 'all');
 
     const sent = await cli(['auto-send', id]);
     assert.equal(sent.out, '', 'auto-send prints nothing: nobody is watching');
@@ -512,7 +512,7 @@ test('auto mode is off until the person turns it on, and then sends a session th
     // The session ended by itself: only the plugin's own runs go from it (lib/session.mjs, cutOwnCommand).
     const gz = received.subarray(received.indexOf(Buffer.from([0x1f, 0x8b])), received.lastIndexOf('\r\n--'));
     assert.match(gunzipSync(gz).toString('utf8'), /Keep the tests green/);
-    assert.doesNotMatch(gunzipSync(gz).toString('utf8'), /SKILL BODY MARKER|coders-talk:build/);
+    assert.doesNotMatch(gunzipSync(gz).toString('utf8'), /SKILL BODY MARKER|keepplain:build/);
     assert.match(readFileSync(logPath, 'utf8'), new RegExp(`${id} sent to your private Builds: http`));
     assert.match(sessionsState()[id].sent.url, /\/b\/draft-x\/edit$/);
 
@@ -521,7 +521,7 @@ test('auto mode is off until the person turns it on, and then sends a session th
     await cli(['auto-send', id]);
     assert.equal(discardOnce, false);
     const last = readFileSync(logPath, 'utf8').trim().split('\n').at(-1);
-    assert.match(last, new RegExp(`${id} not saved: Only the coders\\.talk plugin was used in it`));
+    assert.match(last, new RegExp(`${id} not saved: Only the KeepPlain plugin was used in it`));
     assert.doesNotMatch(last, /http/);
     assert.equal(sessionsState()[id].sent.url, undefined);
 
@@ -545,13 +545,13 @@ test('auto mode is off until the person turns it on, and then sends a session th
     await cli(['auto-send', 'a1b2c3d4-0000-4000-8000-000000000002']);
     assert.match(received.toString('latin1'), /name="space"\r\n\r\nacme/);
 
-    assert.match((await cli(['auto', 'sometimes'])).out, /Use \/coders-talk:auto on/);
+    assert.match((await cli(['auto', 'sometimes'])).out, /Use \/keepplain:auto on/);
     // Codex has its own switch: turning Claude Code's off leaves it on, and the other way round.
     assert.match((await cli(['auto', 'on', '--agent=codex'])).out, /Codex runs a plugin's hooks only once you trust them: type \/hooks/);
     assert.match((await cli(['auto', 'off'])).out, /Auto mode is off in Claude Code/);
-    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL].codex.mode, 'all');
+    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.KEEPPLAIN_URL].codex.mode, 'all');
     assert.match((await cli(['auto', 'off', '--agent=codex'])).out, /Auto mode is off in Codex/);
-    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.CODERS_TALK_URL], undefined);
+    assert.equal(JSON.parse(readFileSync(autoFile, 'utf8'))[env.KEEPPLAIN_URL], undefined);
 });
 
 test('the SessionEnd hook hands the session to auto-send only when auto mode is on', async () => {
@@ -577,11 +577,11 @@ test('the SessionEnd hook hands the session to auto-send only when auto mode is 
 });
 
 const hookRun = (name, event) => new Promise((resolve, reject) => {
-    const child = execFile(...hookCommand(name), { env: { ...env, CODERS_TALK_RETRY_MS: '10' } }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+    const child = execFile(...hookCommand(name), { env: { ...env, KEEPPLAIN_RETRY_MS: '10' } }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
     child.stdin.end(JSON.stringify(event));
 });
 const autoLog = () => (existsSync(join(home, 'ct', 'auto.log')) ? readFileSync(join(home, 'ct', 'auto.log'), 'utf8') : '');
-const sessionsState = () => JSON.parse(readFileSync(join(home, 'ct', 'auto-sessions.json'), 'utf8'))[env.CODERS_TALK_URL] ?? {};
+const sessionsState = () => JSON.parse(readFileSync(join(home, 'ct', 'auto-sessions.json'), 'utf8'))[env.KEEPPLAIN_URL] ?? {};
 /** Waits for the background upload the hook started, by its line in the log. */
 async function logged(pattern) {
     await waitFor(() => pattern.test(autoLog()));
@@ -591,7 +591,7 @@ async function logged(pattern) {
 function sawSession(sessionId, path, agoMs) {
     const file = join(home, 'ct', 'auto-sessions.json');
     const all = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
-    all[env.CODERS_TALK_URL] = { ...all[env.CODERS_TALK_URL], [sessionId]: { path, seen: Date.now() - agoMs } };
+    all[env.KEEPPLAIN_URL] = { ...all[env.KEEPPLAIN_URL], [sessionId]: { path, seen: Date.now() - agoMs } };
     writeFileSync(file, JSON.stringify(all));
 }
 
@@ -599,7 +599,7 @@ test('auto mode for one session: on sends it with the computer\'s mode off, off 
     await cli(['auto', 'off']);
     const end = { session_id: id, transcript_path: transcript, hook_event_name: 'SessionEnd' };
     assert.match((await cli(['auto', 'session', id])).out, /This session follows the auto mode for this computer \(off\)/);
-    assert.match((await cli(['auto', 'session', 'sometimes', id])).out, /Use \/coders-talk:auto session on/);
+    assert.match((await cli(['auto', 'session', 'sometimes', id])).out, /Use \/keepplain:auto session on/);
 
     const on = await cli(['auto', 'session', 'on', id]);
     assert.match(on.out, /Auto mode is on for this session\. It is sent to .* as @mara by itself/);
@@ -653,7 +653,7 @@ test('the Stop hook syncs a running session every five minutes of work, as still
 
     // The end of the session waits for the last sync to be imported.
     busyOnce = true;
-    await cli(['auto-send', id], { CODERS_TALK_RETRY_MS: '10' });
+    await cli(['auto-send', id], { KEEPPLAIN_RETRY_MS: '10' });
     assert.equal(busyOnce, false);
     assert.equal(bodies.length, 2);
     assert.match(bodies.at(-1), /name="final"\r\n\r\n1/);
@@ -740,7 +740,7 @@ test('the next start catches up on sessions that never said they ended', async (
 
 test('when the site is down, send points at the upload page and keeps the prepared file for it', async () => {
     assert.equal((await cli(['preview', id])).ok, true);
-    const prepared = join(temp, 'coders-talk', `${id}.jsonl.gz`);
+    const prepared = join(temp, 'keepplain', `${id}.jsonl.gz`);
 
     importsDown = true;
     const down = await cli(['send', id]).finally(() => (importsDown = false));
@@ -750,7 +750,7 @@ test('when the site is down, send points at the upload page and keeps the prepar
     assert.equal(existsSync(prepared), true);
 
     // A refusal about the upload itself is not a reason to try the upload page.
-    const bad = await cli(['send', id], { CODERS_TALK_TOKEN: 'ct_wrong' });
+    const bad = await cli(['send', id], { KEEPPLAIN_TOKEN: 'ct_wrong' });
     assert.match(bad.out, /not accepted/);
     assert.doesNotMatch(bad.out, /by hand/);
 
@@ -765,7 +765,7 @@ test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_
     const rollout = join(day, `rollout-2026-09-01T10-00-00-${thread}.jsonl`);
     const fixture = readFileSync(fileURLToPath(new URL('./fixtures/slim/codex.jsonl', import.meta.url)), 'utf8').trim().split('\n').slice(1);
     const meta = { timestamp: '2026-09-01T10:00:00.000Z', type: 'session_meta', payload: { id: thread, cwd: repo.dir, git: { commit_hash: repo.hashes[0], branch: 'main' } } };
-    const skill = { timestamp: '2026-09-01T10:05:00.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<skill>\n<name>coders-talk:build</name>\n<path>/p/codex/skills/build/SKILL.md</path>\nCODEX SKILL BODY\n</skill>' }] } };
+    const skill = { timestamp: '2026-09-01T10:05:00.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<skill>\n<name>keepplain:build</name>\n<path>/p/codex/skills/build/SKILL.md</path>\nCODEX SKILL BODY\n</skill>' }] } };
     writeFileSync(rollout, [JSON.stringify(meta), ...fixture, JSON.stringify(skill)].join('\n') + '\n');
     const codex = { CODEX_HOME: codexHome, CODEX_THREAD_ID: thread };
 
@@ -774,7 +774,7 @@ test('a Codex session: found by CODEX_THREAD_ID, HEAD at the start from session_
     assert.match(preview.out, /Prompts: +3, tool calls: 11/);
     assert.match(preview.out, /2 commits in this session/);
     assert.doesNotMatch(preview.out, /Claude Code/);
-    const gz = readFileSync(join(temp, 'coders-talk', `${thread}.jsonl.gz`));
+    const gz = readFileSync(join(temp, 'keepplain', `${thread}.jsonl.gz`));
     const sent = gunzipSync(gz).toString('utf8');
     assert.doesNotMatch(sent, /CODEX SKILL BODY|base64/);
     assert.match(sent, /turn_aborted/);
@@ -807,30 +807,30 @@ test('help lists the commands one a line, each with what it does', async () => {
     const r = await cli(['help']);
     assert.equal(r.ok, true, r.out);
     const lines = r.out.trim().split('\n');
-    assert.match(lines[0], /^Usage: coders-talk <command>/);
+    assert.match(lines[0], /^Usage: keepplain <command>/);
     assert.ok(lines.length > 10, r.out);
     assert.ok(lines.some((l) => /^  login +sign in through the browser$/.test(l)), r.out);
     assert.ok(lines.some((l) => /^  auto \[on\|team\|push\|off\] +\S/.test(l)), r.out);
     const unknown = await cli(['frobnicate']);
     assert.equal(unknown.ok, false);
-    assert.match(unknown.out, /Unknown command "frobnicate"\.\nUsage: coders-talk <command>/);
+    assert.match(unknown.out, /Unknown command "frobnicate"\.\nUsage: keepplain <command>/);
 });
 
 test('auto session run by the model, without the session id the skill passes, says who can run it', async () => {
     const r = await cli(['auto', 'session', 'off']);
     assert.equal(r.ok, false);
-    assert.match(r.out, /Could not tell which session this is\. Run \/coders-talk:auto session off yourself: only the skill knows this session's id\./);
+    assert.match(r.out, /Could not tell which session this is\. Run \/keepplain:auto session off yourself: only the skill knows this session's id\./);
     // Codex puts the session in the environment: without it, this is not a Codex session.
-    assert.match((await cli(['auto', 'session', 'on', '--agent=codex'])).out, /Run \$coders-talk:auto session on from inside a Codex session\./);
+    assert.match((await cli(['auto', 'session', 'on', '--agent=codex'])).out, /Run \$keepplain:auto session on from inside a Codex session\./);
 });
 
 test('whoami reports the account, or explains a bad token', async () => {
     assert.match((await cli(['whoami'])).out, /as @mara \(token "laptop"\)/);
 
     // A token in the environment wins over the saved one.
-    const bad = await cli(['whoami'], { CODERS_TALK_TOKEN: 'ct_wrong' });
+    const bad = await cli(['whoami'], { KEEPPLAIN_TOKEN: 'ct_wrong' });
     assert.equal(bad.ok, false);
-    assert.match(bad.out, /not accepted .* Run \/coders-talk:login/);
+    assert.match(bad.out, /not accepted .* Run \/keepplain:login/);
     assert.doesNotMatch(bad.out, /ct_wrong/);
 
     // Another site has its own sign-in.
@@ -839,14 +839,14 @@ test('whoami reports the account, or explains a bad token', async () => {
     // An unexpanded ${user_config.url} placeholder is ignored.
     assert.match((await cli(['whoami', '--site=${user_config.url}'])).out, /as @mara/);
 
-    // Without CODERS_TALK_URL the plugin's "url" option is read from Claude Code's settings.json.
-    writeFileSync(join(home, 'settings.json'), JSON.stringify({ pluginConfigs: { 'coders-talk@coders-talk': { options: { url: env.CODERS_TALK_URL } } } }));
-    assert.match((await cli(['whoami'], { CODERS_TALK_URL: '' })).out, /as @mara/);
-    // Codex does not use the Claude Code plugin's option: only CODERS_TALK_URL or the default.
-    assert.match((await cli(['whoami', '--agent=codex'], { CODERS_TALK_URL: '' })).out, /not connected to https:\/\/coders\.talk yet/);
+    // Without KEEPPLAIN_URL the plugin's "url" option is read from Claude Code's settings.json.
+    writeFileSync(join(home, 'settings.json'), JSON.stringify({ pluginConfigs: { 'keepplain@keepplain': { options: { url: env.KEEPPLAIN_URL } } } }));
+    assert.match((await cli(['whoami'], { KEEPPLAIN_URL: '' })).out, /as @mara/);
+    // Codex does not use the Claude Code plugin's option: only KEEPPLAIN_URL or the default.
+    assert.match((await cli(['whoami', '--agent=codex'], { KEEPPLAIN_URL: '' })).out, /not connected to https:\/\/keepplain\.com yet/);
     assert.match((await cli(['whoami', '--agent=codex'])).out, /as @mara/);
     writeFileSync(join(home, 'settings.json'), '{}');
-    assert.match((await cli(['whoami'], { CODERS_TALK_URL: '' })).out, /not connected to https:\/\/coders\.talk yet/);
+    assert.match((await cli(['whoami'], { KEEPPLAIN_URL: '' })).out, /not connected to https:\/\/keepplain\.com yet/);
 });
 
 test('the git snapshots of a session go with it, in place, instead of its own edits', async () => {
@@ -864,7 +864,7 @@ test('the git snapshots of a session go with it, in place, instead of its own ed
     const preview = await cli(['preview', other]);
     assert.equal(preview.ok, true, preview.out);
     assert.match(preview.out, /Code: +1 file \(\+1 −3\), as diffs from git snapshots/);
-    const sent = gunzipSync(readFileSync(join(temp, 'coders-talk', `${other}.jsonl.gz`))).toString('utf8').split('\n').map((l) => JSON.parse(l));
+    const sent = gunzipSync(readFileSync(join(temp, 'keepplain', `${other}.jsonl.gz`))).toString('utf8').split('\n').map((l) => JSON.parse(l));
     const git = sent.findIndex((d) => d.type === 'git-changes');
     assert.equal(sent[git].by, 'agent');
     assert.deepEqual(sent[git].changes.map((c) => c.path), ['app.txt']);
@@ -886,7 +886,7 @@ test('with HTTP_PROXY set the requests go through the proxy', async () => {
     try {
         const r = await cli(['whoami'], { HTTP_PROXY: `http://127.0.0.1:${proxy.address().port}` });
         assert.match(r.out, /as @mara/, r.out);
-        assert.deepEqual(seen, [`GET ${env.CODERS_TALK_URL}/api/v1/me`]);
+        assert.deepEqual(seen, [`GET ${env.KEEPPLAIN_URL}/api/v1/me`]);
     } finally {
         proxy.close();
     }
@@ -933,7 +933,7 @@ test('a cloud session goes through the connector: the preview says so, and send 
         const link = `http://127.0.0.1:${bucket.address().port}/cloud-uploads/abc.json?X-Amz-Signature=x`;
         const preview = await cli(['preview', '--connector'], { CLAUDE_CODE_REMOTE: 'true' });
         assert.equal(preview.ok, true, preview.out);
-        assert.match(preview.out, /Goes through the Coders Talk connector/);
+        assert.match(preview.out, /Goes through the KeepPlain connector/);
         assert.doesNotMatch(preview.out, /Not connected/);
 
         // No token on this machine, and none needed: the link is the permission.
@@ -957,9 +957,9 @@ test('a cloud session goes through the connector: the preview says so, and send 
         assert.match(expired.out, /answered 403\. The link works for 15 minutes: call start_session_upload again/);
         assert.match((await cli(['send', sid, '--upload=not a link'])).out, /not a link/);
 
-        // The plugin synced from claude.ai, in a cloud session with no token: /coders-talk:build goes the same way by itself.
-        const cloud = { CLAUDE_CODE_REMOTE: 'true', CODERS_TALK_HOME: join(home, 'ct-cloud') };
-        assert.match((await cli(['preview', sid], cloud)).out, /Goes through the Coders Talk connector/);
+        // The plugin synced from claude.ai, in a cloud session with no token: /keepplain:build goes the same way by itself.
+        const cloud = { CLAUDE_CODE_REMOTE: 'true', KEEPPLAIN_HOME: join(home, 'ct-cloud') };
+        assert.match((await cli(['preview', sid], cloud)).out, /Goes through the KeepPlain connector/);
         const plain = await cli(['send', sid], cloud);
         assert.equal(plain.ok, false);
         assert.match(plain.out, /call its start_session_upload tool, then run this send step again with --upload=/);
@@ -980,7 +980,7 @@ test('secrets are redacted before anything leaves, and --keep sends a chosen val
     ].join('\n') + '\n');
     // The person's own words to hide, in every session.
     writeFileSync(join(home, 'ct', 'privacy.json'), JSON.stringify({ redact: ['Globex'] }));
-    const sent = () => gunzipSync(readFileSync(join(temp, 'coders-talk', `${sid}.jsonl.gz`))).toString('utf8');
+    const sent = () => gunzipSync(readFileSync(join(temp, 'keepplain', `${sid}.jsonl.gz`))).toString('utf8');
 
     const preview = await cli(['preview', sid]);
     assert.equal(preview.ok, true, preview.out);
@@ -1041,7 +1041,7 @@ test('--json: the desktop app signs in, waiting for Connect, and a failure is {"
     await cli(['logout']);
     const failed = await jsonCli(['send', id]);
     assert.equal(failed.ok, false);
-    assert.deepEqual(failed.events, [{ error: `This computer is not connected to ${env.CODERS_TALK_URL} yet. Run coders-talk login first: it signs you in through the browser.` }]);
+    assert.deepEqual(failed.events, [{ error: `This computer is not connected to ${env.KEEPPLAIN_URL} yet. Run keepplain login first: it signs you in through the browser.` }]);
 
     const r = await jsonCli(['login', '--client=desktop']);
     assert.equal(r.ok, true);
@@ -1049,10 +1049,10 @@ test('--json: the desktop app signs in, waiting for Connect, and a failure is {"
     assert.equal(r.events[0].user_code, 'WDJB-MJHT');
     assert.match(r.events[0].url, /\/connect\/01request$/);
     assert.deepEqual(r.events[1], { event: 'connected', username: 'mara' });
-    assert.equal(deviceRequests.at(-1).client_name, 'Coders Talk app');
+    assert.equal(deviceRequests.at(-1).client_name, 'KeepPlain app');
 
     assert.deepEqual((await jsonCli(['login'])).events, [{ event: 'connected', username: 'mara', already: true }]);
-    assert.deepEqual((await jsonCli(['whoami'])).events, [{ site: env.CODERS_TALK_URL, username: 'mara', token_name: 'laptop', teams: [{ slug: 'acme', name: 'Acme' }] }]);
+    assert.deepEqual((await jsonCli(['whoami'])).events, [{ site: env.KEEPPLAIN_URL, username: 'mara', token_name: 'laptop', teams: [{ slug: 'acme', name: 'Acme' }] }]);
 });
 
 test('--json: preview gives what the confirmation shows, findings without values, and send says each step', async () => {

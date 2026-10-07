@@ -29,9 +29,9 @@ test('the auto log keeps 500 lines, none older than 30 days', () => {
 
 test('sent.json forgets sends older than 90 days', (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'ct-sent-'));
-    const before = process.env.CODERS_TALK_HOME;
-    process.env.CODERS_TALK_HOME = dir;
-    t.after(() => (before === undefined ? delete process.env.CODERS_TALK_HOME : (process.env.CODERS_TALK_HOME = before)));
+    const before = process.env.KEEPPLAIN_HOME;
+    process.env.KEEPPLAIN_HOME = dir;
+    t.after(() => (before === undefined ? delete process.env.KEEPPLAIN_HOME : (process.env.KEEPPLAIN_HOME = before)));
     const now = Date.parse('2026-09-27T12:00:00Z');
     writeFileSync(join(dir, 'sent.json'), JSON.stringify({ [SITE]: { old: { at: now - 91 * DAY, url: 'u1' }, kept: { at: now - 89 * DAY, url: 'u2' } }, 'https://other.test': { gone: { at: now - 100 * DAY } } }));
 
@@ -39,8 +39,8 @@ test('sent.json forgets sends older than 90 days', (t) => {
     assert.deepEqual(JSON.parse(readFileSync(join(dir, 'sent.json'), 'utf8')), { [SITE]: { kept: { at: now - 89 * DAY, url: 'u2' }, new: { at: now, url: 'u3' } } });
 });
 
-test('~/.coders-talk is this user\'s only: the folder 0700, every file in it 0600', { skip: !POSIX && 'Windows has no file modes' }, () => {
-    const dir = join(mkdtempSync(join(tmpdir(), 'ct-home-')), '.coders-talk');
+test('~/.keepplain is this user\'s only: the folder 0700, every file in it 0600', { skip: !POSIX && 'Windows has no file modes' }, () => {
+    const dir = join(mkdtempSync(join(tmpdir(), 'ct-home-')), '.keepplain');
     saveToken(SITE, 'ct_token', 'mara', dir);
     setAutoMode(SITE, 'all', 'claude-code', dir);
     trackSession(SITE, 'a1b2c3d4-0000-4000-8000-0000000000a9', { agent: 'claude-code' }, dir);
@@ -106,7 +106,7 @@ test('a session\'s own choice wins over the computer\'s mode, and outlives turni
     assert.equal(sessionAutoMode(SITE, plain, 'claude-code', dir, env), null);
     assert.equal(sessionAutoMode(SITE, mine, 'claude-code', dir, env), 'all');
     assert.equal(sessionAutoMode(SITE, kept, 'claude-code', dir, env), null);
-    assert.equal(sessionAutoMode(SITE, mine, 'claude-code', dir, { CODERS_TALK_AUTO: '0' }), null, 'the shell switch still stops everything');
+    assert.equal(sessionAutoMode(SITE, mine, 'claude-code', dir, { KEEPPLAIN_AUTO: '0' }), null, 'the shell switch still stops everything');
     assert.deepEqual(catchUp(SITE, null, 'claude-code', dir, Date.now(), false).map((s) => s.id), [mine]);
 
     setAutoMode(SITE, 'team', 'claude-code', dir);

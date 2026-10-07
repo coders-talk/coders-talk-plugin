@@ -1,4 +1,4 @@
-// Auto mode in Codex: codex/hooks.json runs the same hooks with --agent=codex. Against a stand-in for the Coders Talk
+// Auto mode in Codex: codex/hooks.json runs the same hooks with --agent=codex. Against a stand-in for the KeepPlain
 // API, with throwaway Codex and Claude Code folders.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -54,12 +54,12 @@ before(async () => {
         ...process.env,
         CODEX_HOME: codexHome,
         CLAUDE_CONFIG_DIR: join(home, 'claude'),
-        CODERS_TALK_HOME: join(home, 'ct'),
-        CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`,
-        CODERS_TALK_TOKEN: 'ct_test',
-        CODERS_TALK_RETRY_MS: '10',
+        KEEPPLAIN_HOME: join(home, 'ct'),
+        KEEPPLAIN_URL: `http://127.0.0.1:${server.address().port}`,
+        KEEPPLAIN_TOKEN: 'ct_test',
+        KEEPPLAIN_RETRY_MS: '10',
     };
-    delete env.CODERS_TALK_AUTO;
+    delete env.KEEPPLAIN_AUTO;
 });
 after(() => server.close());
 
@@ -71,7 +71,7 @@ const hook = (name, event, args = ['--agent=codex']) =>
         child.stdin.end(JSON.stringify(event));
     });
 const autoLog = () => (existsSync(join(home, 'ct', 'auto.log')) ? readFileSync(join(home, 'ct', 'auto.log'), 'utf8') : '');
-const state = () => JSON.parse(readFileSync(join(home, 'ct', 'auto-sessions.json'), 'utf8'))[env.CODERS_TALK_URL] ?? {};
+const state = () => JSON.parse(readFileSync(join(home, 'ct', 'auto-sessions.json'), 'utf8'))[env.KEEPPLAIN_URL] ?? {};
 async function logged(pattern) {
     await waitFor(() => pattern.test(autoLog()));
     assert.match(autoLog(), pattern);
@@ -81,7 +81,7 @@ function saw(id, path, agent, agoMs) {
     const file = join(home, 'ct', 'auto-sessions.json');
     mkdirSync(join(home, 'ct'), { recursive: true });
     const all = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
-    all[env.CODERS_TALK_URL] = { ...all[env.CODERS_TALK_URL], [id]: { path, agent, seen: Date.now() - agoMs } };
+    all[env.KEEPPLAIN_URL] = { ...all[env.KEEPPLAIN_URL], [id]: { path, agent, seen: Date.now() - agoMs } };
     writeFileSync(file, JSON.stringify(all));
 }
 const field = (body, name) => body.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`))?.[1];
@@ -100,7 +100,7 @@ test('Codex has a switch of its own, and its hooks send nothing while it is off'
 
     const on = await cli(['auto', 'on', '--agent=codex']);
     assert.match(on, /Auto mode is on\. Codex sessions on this computer are sent to .* every five minutes while they run and once more when they end or sit idle for 30 minutes/);
-    assert.match(on, /type \/hooks in Codex and trust the three Coders Talk hooks/);
+    assert.match(on, /type \/hooks in Codex and trust the three KeepPlain hooks/);
     assert.match(await cli(['auto', '--agent=codex']), /every Codex session on this computer is sent while it runs and when it ends or sits idle for 30 minutes/);
     await cli(['auto', 'off']);
     assert.match(await cli(['auto', '--agent=codex']), /Auto mode is on for/, 'turning Claude Code off leaves Codex on');

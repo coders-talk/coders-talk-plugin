@@ -1,5 +1,5 @@
 // Pi and Cursor: their sessions found, listed and described; the hooks' notes; and the same preview and send as the
-// other agents', against a stand-in for the Coders Talk API. The sessions are the shared fixtures (slim/pi.jsonl,
+// other agents', against a stand-in for the KeepPlain API. The sessions are the shared fixtures (slim/pi.jsonl,
 // slim/cursor.jsonl), put where each agent keeps its own.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -85,12 +85,12 @@ before(async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     env = {
         ...process.env,
-        CODERS_TALK_HOME: ct,
-        CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`,
-        CODERS_TALK_TOKEN: TOKEN,
-        CODERS_TALK_POLL_MS: '10',
-        CODERS_TALK_NO_BROWSER: '1',
-        CODERS_TALK_NO_UPDATE_CHECK: '1',
+        KEEPPLAIN_HOME: ct,
+        KEEPPLAIN_URL: `http://127.0.0.1:${server.address().port}`,
+        KEEPPLAIN_TOKEN: TOKEN,
+        KEEPPLAIN_POLL_MS: '10',
+        KEEPPLAIN_NO_BROWSER: '1',
+        KEEPPLAIN_NO_UPDATE_CHECK: '1',
         CLAUDE_CONFIG_DIR: join(home, 'claude'),
         CODEX_HOME: join(home, 'codex'),
         PI_CODING_AGENT_DIR: piDir,
@@ -119,10 +119,10 @@ test('the four agents: ids and aliases, how a command is typed, what a backgroun
     assert.equal(agentId('claude'), 'claude-code');
     assert.equal(agentId('Pi'), 'pi');
     assert.equal(agentId('windsurf'), null);
-    assert.equal(commandIn('claude-code', 'build'), '/coders-talk:build');
-    assert.equal(commandIn('codex', 'build'), '$coders-talk:build');
-    assert.equal(commandIn('cursor', 'build'), '/coders-talk-build');
-    assert.equal(commandIn('pi', 'auto session on'), '/coders-talk:auto session on');
+    assert.equal(commandIn('claude-code', 'build'), '/keepplain:build');
+    assert.equal(commandIn('codex', 'build'), '$keepplain:build');
+    assert.equal(commandIn('cursor', 'build'), '/keepplain-build');
+    assert.equal(commandIn('pi', 'auto session on'), '/keepplain:auto session on');
     assert.deepEqual(agentArgs('claude-code'), []);
     assert.deepEqual(agentArgs('cursor'), ['--agent=cursor']);
 });
@@ -192,11 +192,11 @@ test('the library watch counts Pi\'s tool calls and the Builds they got, the pla
     const watch = new LibraryWatch();
     for (const d of [
         ask('c1', 'search_coding_agent_sessions'),
-        answer('c1', 'Reference data.\n1. https://coders.talk/b/laravel-horizon-x1?ref=agent Migrate queues\n2. https://coders.talk/b/other-x2?ref=agent Other'),
+        answer('c1', 'Reference data.\n1. https://keepplain.com/b/laravel-horizon-x1?ref=agent Migrate queues\n2. https://keepplain.com/b/other-x2?ref=agent Other'),
         ask('c2', 'bash'),
-        answer('c2', 'see https://coders.talk/b/not-the-library?ref=agent in a file'),
+        answer('c2', 'see https://keepplain.com/b/not-the-library?ref=agent in a file'),
         { type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'c3', name: 'read', arguments: { path: '/repo/.agents/skills/ct-queue-tips/SKILL.md' } }] } },
-        answer('c3', 'skill text\nFrom https://coders.talk/b/queue-tips-x3?ref=playbook'),
+        answer('c3', 'skill text\nFrom https://keepplain.com/b/queue-tips-x3?ref=playbook'),
         { type: 'message', message: { role: 'user', content: [{ type: 'text', text: '<skill name="ct-other-tip" location="/r/SKILL.md">\nwords\n</skill>' }] } },
     ]) watch.add(d);
 
@@ -204,7 +204,7 @@ test('the library watch counts Pi\'s tool calls and the Builds they got, the pla
 
     // Cursor: an MCP tool goes through CallMcpTool without an id, and its transcript keeps no answer; a typed /ct-<slug> is a use.
     const cursor = new LibraryWatch();
-    cursor.add({ role: 'assistant', message: { content: [{ type: 'tool_use', name: 'CallMcpTool', input: { server: 'coders-talk', toolName: 'search_coding_agent_sessions', arguments: {} } }] } });
+    cursor.add({ role: 'assistant', message: { content: [{ type: 'tool_use', name: 'CallMcpTool', input: { server: 'keepplain', toolName: 'search_coding_agent_sessions', arguments: {} } }] } });
     cursor.add({ role: 'assistant', message: { content: [{ type: 'tool_use', name: 'CallMcpTool', input: { server: 'other', toolName: 'search', arguments: {} } }] } });
     cursor.add({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>\n/ct-queue-tips fix it\n</user_query>' }] } });
     assert.deepEqual(cursor.result(), { calls: 1, slugs: [], used: ['queue-tips'] });
@@ -240,8 +240,8 @@ test('Cursor: transcripts nested or flat, found by id, described by what the per
 });
 
 test('Cursor: the hooks note prompts, turns and tokens once per generation, and which conversation a workspace is in', () => {
-    const notes = { ...env, CODERS_TALK_HOME: join(home, 'ct-notes') };
-    process.env.CODERS_TALK_HOME = notes.CODERS_TALK_HOME;
+    const notes = { ...env, KEEPPLAIN_HOME: join(home, 'ct-notes') };
+    process.env.KEEPPLAIN_HOME = notes.KEEPPLAIN_HOME;
     try {
         const id = CURSOR_ID;
         const event = cursorEvent({ conversation_id: id, generation_id: 'g1', model: 'composer-2', workspace_roots: [process.platform === 'win32' ? `/${work.replace(/\\/g, '/')}` : work], transcript_path: cursorFile }, notes);
@@ -264,20 +264,20 @@ test('Cursor: the hooks note prompts, turns and tokens once per generation, and 
         assert.equal(currentCursorSession(join(work, 'src', 'deep'), notes).id, id, 'a folder inside it');
         assert.equal(currentCursorSession(join(home, 'elsewhere'), notes), null);
     } finally {
-        delete process.env.CODERS_TALK_HOME;
+        delete process.env.KEEPPLAIN_HOME;
     }
 });
 
 test('Cursor: without a hook, the newest transcript of the workspace is the conversation', () => {
-    const fresh = { ...env, CODERS_TALK_HOME: join(home, 'ct-none') };
-    process.env.CODERS_TALK_HOME = fresh.CODERS_TALK_HOME;
+    const fresh = { ...env, KEEPPLAIN_HOME: join(home, 'ct-none') };
+    process.env.KEEPPLAIN_HOME = fresh.KEEPPLAIN_HOME;
     try {
         const older = new Date(Date.now() - 3_600_000);
         utimesSync(cursorFile, older, older);
         assert.equal(currentCursorSession(work, fresh).id, '4bd0e9c1-0000-4000-8000-00000000f1a7', 'the flat one is newer');
         assert.equal(currentCursorSession(join(work, 'src'), fresh).id, '4bd0e9c1-0000-4000-8000-00000000f1a7', 'found from a folder inside the workspace');
     } finally {
-        delete process.env.CODERS_TALK_HOME;
+        delete process.env.KEEPPLAIN_HOME;
         utimesSync(cursorFile, new Date(), new Date());
     }
 });
@@ -336,10 +336,10 @@ test('Pi: sessions lists it, and preview and send take the session through the e
 });
 
 test('Pi: hook pi session-start remembers where the session ran, the extension\'s way: a JSON event on stdin', async () => {
-    const notes = { CODERS_TALK_HOME: join(home, 'ct-hook') };
+    const notes = { KEEPPLAIN_HOME: join(home, 'ct-hook') };
     const started = await cli(['hook', 'pi', 'session-start'], notes, JSON.stringify({ hook_event_name: 'session-start', session_id: PI_ID, transcript_path: piFile, cwd: work }));
     assert.equal(started.ok, true, started.out);
-    const sidecar = JSON.parse(readFileSync(join(notes.CODERS_TALK_HOME, 'sessions', `${PI_ID}.json`), 'utf8'));
+    const sidecar = JSON.parse(readFileSync(join(notes.KEEPPLAIN_HOME, 'sessions', `${PI_ID}.json`), 'utf8'));
     assert.equal(sidecar.cwd, work);
     assert.equal(sidecar.transcript_path, piFile);
     // With auto mode off a turn's end says nothing, unless the session used the library: then the one nudge, in Pi's words.
@@ -347,12 +347,12 @@ test('Pi: hook pi session-start remembers where the session ran, the extension\'
     writeFileSync(quiet, jsonl([{ type: 'session', version: 3, id: 'q1', timestamp: '2026-09-01T10:00:00.000Z', cwd: work }, { type: 'message', message: { role: 'user', content: 'hello' } }, { type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] } }]));
     assert.equal((await cli(['hook', 'pi', 'stop'], notes, JSON.stringify({ session_id: 'q1', transcript_path: quiet, cwd: work }))).out, '');
     const nudge = await cli(['hook', 'pi', 'stop'], notes, JSON.stringify({ session_id: PI_ID, transcript_path: piFile, cwd: work }));
-    assert.equal(JSON.parse(nudge.out).systemMessage, 'Your agent used 1 Build from coders.talk in this session. Share yours: /coders-talk:build');
+    assert.equal(JSON.parse(nudge.out).systemMessage, 'Your agent used 1 Build from KeepPlain in this session. Share yours: /keepplain:build');
     assert.equal((await cli(['hook', 'pi', 'stop'], notes, 'not json')).ok, true, 'odd input never fails a hook');
 });
 
 test('Cursor: the hooks note a conversation, and preview and send find it without being told which', async () => {
-    const notes = { CODERS_TALK_HOME: join(home, 'ct-cursor') };
+    const notes = { KEEPPLAIN_HOME: join(home, 'ct-cursor') };
     const roots = [process.platform === 'win32' ? `/${work.replace(/\\/g, '/')}` : work];
     const hook = (name, extra = {}) => cli(['hook', 'cursor', name], notes, JSON.stringify({ conversation_id: CURSOR_ID, generation_id: 'gen-1', model: 'composer-2', workspace_roots: roots, transcript_path: cursorFile, cursor_version: '3.22.0', ...extra }));
 
@@ -365,7 +365,7 @@ test('Cursor: the hooks note a conversation, and preview and send find it withou
     assert.equal(stop.ok, true, stop.out);
     assert.equal(stop.out.trim(), '', 'nothing to say to Cursor: it has no channel for it');
 
-    const sidecar = JSON.parse(readFileSync(join(notes.CODERS_TALK_HOME, 'sessions', `${CURSOR_ID}.json`), 'utf8'));
+    const sidecar = JSON.parse(readFileSync(join(notes.KEEPPLAIN_HOME, 'sessions', `${CURSOR_ID}.json`), 'utf8'));
     assert.equal(sidecar.cwd, work, 'the first prompt does what the start would');
 
     const preview = await cli(['preview', '--agent=cursor', '--whole'], notes);
@@ -392,21 +392,21 @@ test('Cursor: the hooks note a conversation, and preview and send find it withou
 });
 
 test('Cursor: with nothing noted, preview says how to make it find the conversation', async () => {
-    const alone = await cli(['preview', '--agent=cursor', '--whole'], { CODERS_TALK_HOME: join(home, 'ct-never'), CURSOR_CONFIG_DIR: join(home, 'no-cursor') });
+    const alone = await cli(['preview', '--agent=cursor', '--whole'], { KEEPPLAIN_HOME: join(home, 'ct-never'), CURSOR_CONFIG_DIR: join(home, 'no-cursor') });
     assert.equal(alone.ok, false);
     assert.match(alone.out, /Could not tell which session this is\. Run the command from inside a Cursor session\./);
 });
 
-test('a typed /coders-talk-build is the plugin\'s own run in Cursor\'s transcript, whatever colon or hyphen', async () => {
+test('a typed /keepplain-build is the plugin\'s own run in Cursor\'s transcript, whatever colon or hyphen', async () => {
     const path = join(cursorDir, 'projects', cursorSlug(work), 'agent-transcripts', 'aa11bb22-0000-4000-8000-000000000001', 'aa11bb22-0000-4000-8000-000000000001.jsonl');
     mkdirSync(join(path, '..'), { recursive: true });
     writeFileSync(path, jsonl([
         { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nrename the limiter\n</user_query>' }] } },
         { role: 'assistant', message: { content: [{ type: 'text', text: 'Renamed.' }] } },
-        { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\n/coders-talk-build\n</user_query>' }] } },
-        { role: 'assistant', message: { content: [{ type: 'tool_use', name: 'Shell', input: { command: '& \'C:\\Users\\me\\.coders-talk\\bin\\coders-talk.exe\' preview --agent=cursor' } }] } },
+        { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\n/keepplain-build\n</user_query>' }] } },
+        { role: 'assistant', message: { content: [{ type: 'tool_use', name: 'Shell', input: { command: '& \'C:\\Users\\me\\.keepplain\\bin\\keepplain.exe\' preview --agent=cursor' } }] } },
     ]));
-    const preview = await cli(['preview', 'aa11bb22-0000-4000-8000-000000000001', '--agent=cursor'], { CODERS_TALK_HOME: join(home, 'ct-own') });
+    const preview = await cli(['preview', 'aa11bb22-0000-4000-8000-000000000001', '--agent=cursor'], { KEEPPLAIN_HOME: join(home, 'ct-own') });
     assert.equal(preview.ok, true, preview.out);
     assert.match(preview.out, /Prompts: +1, tool calls: 0/, 'its run is cut off the end');
     appendFileSync(path, '');
@@ -443,9 +443,9 @@ test('mcp-call fails with the reason: a tool that reports an error, one that doe
     assert.match(odd.out, /The arguments of a tool are a JSON object\./);
     assert.equal((await cli(['mcp-call', 'search_coding_agent_sessions', '--stdin', '--agent=pi'], {}, 'not json')).ok, false);
 
-    const signedOut = await cli(['mcp-call', 'search_coding_agent_sessions', '--json={"query":"x"}', '--agent=pi'], { CODERS_TALK_TOKEN: '', CODERS_TALK_HOME: join(home, 'ct-signed-out') });
+    const signedOut = await cli(['mcp-call', 'search_coding_agent_sessions', '--json={"query":"x"}', '--agent=pi'], { KEEPPLAIN_TOKEN: '', KEEPPLAIN_HOME: join(home, 'ct-signed-out') });
     assert.equal(signedOut.ok, false);
-    assert.match(signedOut.out, /Run \/coders-talk:login to connect this computer\./);
+    assert.match(signedOut.out, /Run \/keepplain:login to connect this computer\./);
 });
 
 

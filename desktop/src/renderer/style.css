@@ -1,4 +1,4 @@
-/* The app in the site's own look (coders.talk resources/css/app.css): its warm palette, dark by default and light when
+/* The app in the site's own look (KeepPlain resources/css/app.css): its warm palette, dark by default and light when
    the system is, Geist Sans and Geist Mono, small radii, mono caps for labels, the accent for what to press. */
 
 @font-face {
@@ -161,18 +161,12 @@ svg.i.sm {
 
 .brand {
     display: inline-flex;
-    align-items: center;
-    gap: 9px;
+    align-items: flex-start;
+    gap: 5px;
     color: var(--fg);
-    font-weight: 700;
-    font-size: 16px;
-    letter-spacing: -0.02em;
 }
 .brand svg {
     flex: none;
-}
-.brand .dot {
-    color: var(--accent);
 }
 
 /* The labels of the site: small mono caps. */
@@ -815,7 +809,6 @@ details pre {
     margin-bottom: 26px;
 }
 .welcome-card .hero .brand {
-    font-size: 20px;
     margin-bottom: 28px;
 }
 .welcome-card .hero h1 {

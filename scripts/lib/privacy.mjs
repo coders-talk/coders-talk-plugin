@@ -1,12 +1,12 @@
-// Generated from coders.talk resources/js/lib/privacyScan.ts by `npm run plugin:sync`. Do not edit here: change the site's
+// Generated from the site's resources/js/lib/privacyScan.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:7c6f350363570b8ab2e80dc2beebb0c0f635fffea2f7686858b7ea3544f81a17
+// sha256:6c21ebe3c68bb9dc2fcd2e139ed0e48e454ec56c9d0c201888204aa3c200d60f
 
 /**
  * The privacy check that runs where the session lives (plan: local-first privacy, stage 2): in the browser before an
- * upload, and in the Claude Code / Codex plugin before a send (coders-talk-plugin, scripts/lib/privacy.mjs via
+ * upload, and in the Claude Code / Codex plugin before a send (keepplain-plugin, scripts/lib/privacy.mjs via
  * `npm run plugin:sync`). A secret is replaced with [REDACTED:TYPE] on the person's machine, so its value never
- * reaches coders.talk, not even for a check.
+ * reaches KeepPlain, not even for a check.
  *
  * The rules are App\Services\Import\SecretScanner's, in the same order, run over the same strings the server's
  * TurnParser reads (the string values of each slimmed line). The server runs its own copy again and redacts anything
@@ -30,7 +30,7 @@ const RULES = [
     { type: 'SLACK_TOKEN', pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}\b|https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9/]{20,}/g },
     { type: 'SENDGRID_KEY', pattern: /\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g },
     { type: 'NPM_TOKEN', pattern: /\bnpm_[A-Za-z0-9]{36}\b/g },
-    { type: 'CODERS_TALK_TOKEN', pattern: /\bct_[A-Za-z0-9]{48}\b/g },
+    { type: 'KEEPPLAIN_TOKEN', pattern: /\b(?:kp|ct)_[A-Za-z0-9]{48}\b/g },
     { type: 'SIGNED_URL', pattern: /\bX-(?:Amz|Goog)-(?:Credential|Signature|Security-Token)=([^\s&"'<>]+)/g, group: 1 },
     { type: 'JWT', pattern: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
     { type: 'DATABASE_URL', pattern: /\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|rediss?|amqps?|mssql|sqlserver):\/\/[^\s:@/"'[\]]*:[^\s@/"'[\]]+@[^\s"'<>]*[^\s"'<>.,;:)\]]/gi },
@@ -190,7 +190,7 @@ export const PRIVACY_LABELS = {
     SLACK_TOKEN: 'Slack token',
     SENDGRID_KEY: 'SendGrid key',
     NPM_TOKEN: 'npm token',
-    CODERS_TALK_TOKEN: 'coders.talk token',
+    KEEPPLAIN_TOKEN: 'KeepPlain token',
     SIGNED_URL: 'signature of a signed storage link',
     JWT: 'JWT',
     DATABASE_URL: 'connection string with a password',

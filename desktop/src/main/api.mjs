@@ -1,17 +1,17 @@
 /**
- * What the window may ask for, one method a screen needs, each one coders-talk command (or a few in a row). The window
+ * What the window may ask for, one method a screen needs, each one keepplain command (or a few in a row). The window
  * never passes arguments of its own: each method checks what it is given and builds the command itself. No Electron
  * here: the tests drive this with a stand-in for runCli.
  *
  * The rule of the plugin holds here too: nothing is sent unless the person saw what goes and said yes. send runs only
- * for a session this app previewed (the confirmation screen shows that preview), within the half hour coders-talk keeps
+ * for a session this app previewed (the confirmation screen shows that preview), within the half hour keepplain keeps
  * a preview, and only once.
  */
 export const AGENTS = ['claude-code', 'codex', 'cursor', 'pi'];
 const SESSION_ID = /^[A-Za-z0-9-]{8,100}$/;
 const TEAM = /^[a-z0-9-]{1,40}$/;
 const AUTO = ['off', 'on', 'team'];
-/** As long as coders-talk keeps a preview (lib/prepared.mjs, PREPARED_TTL_MS). */
+/** As long as keepplain keeps a preview (lib/prepared.mjs, PREPARED_TTL_MS). */
 export const PREVIEW_TTL_MS = 30 * 60_000;
 
 const refuse = (error) => ({ ok: false, result: null, events: [], error, details: null });

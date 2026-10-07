@@ -10,8 +10,8 @@
  * characters that are not letters or digits as one "-". The transcript has no tool results, no usage, no model and no
  * times but the minute of each message; and no command or skill of the agent's shell can tell which conversation it runs
  * in. The hooks can: beforeSubmitPrompt and stop get the conversation id, the transcript's path, the model and (at stop)
- * the tokens of the turn. They write what they learn to ~/.coders-talk/cursor/<id>.json (sidecar), and which
- * conversation each workspace is in to ~/.coders-talk/cursor/current/ (marker), so `preview` finds its session and the
+ * the tokens of the turn. They write what they learn to ~/.keepplain/cursor/<id>.json (sidecar), and which
+ * conversation each workspace is in to ~/.keepplain/cursor/current/ (marker), so `preview` finds its session and the
  * turns get their times and the session its tokens.
  */
 import { createHash } from 'node:crypto';

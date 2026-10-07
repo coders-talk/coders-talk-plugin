@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * The single coders-talk file (plan, stage 13.1): the same scripts, compiled with Bun into one executable per platform,
+ * The single keepplain file (plan, stage 13.1): the same scripts, compiled with Bun into one executable per platform,
  * so installing needs no Node.js. Needs bun in PATH (or BUN=<path>).
  *
  *   node scripts/build.mjs                       this platform
  *   node scripts/build.mjs linux-x64 darwin-arm64 …   those, or "all"
  *
- * Writes dist/coders-talk-<platform>-<arch>[.exe] (the release file names, lib/update.mjs assetName) and, with more
+ * Writes dist/keepplain-<platform>-<arch>[.exe] (the release file names, lib/update.mjs assetName) and, with more
  * than one, dist/SHA256SUMS. The version comes from .claude-plugin/plugin.json. The plugin's skills, manifests and hooks go
- * in as a module that sets globalThis.CODERS_TALK_PLUGIN_SOURCES before the program starts: `coders-talk enable` lays
+ * in as a module that sets globalThis.KEEPPLAIN_PLUGIN_SOURCES before the program starts: `keepplain enable` lays
  * the plugin out from them (lib/plugin.mjs). Not a --define: at over 32 767 characters it no longer fits on a Windows
  * command line, and Bun then builds nothing.
  *
@@ -49,8 +49,8 @@ mkdirSync(out, { recursive: true });
 // The entry of the file: the sources first (modules run in the order they are imported), then the program.
 const entryDir = join(out, '.entry');
 mkdirSync(entryDir, { recursive: true });
-writeFileSync(join(entryDir, 'sources.mjs'), `globalThis.CODERS_TALK_PLUGIN_SOURCES = ${sources};\n`);
-writeFileSync(join(entryDir, 'entry.mjs'), "import './sources.mjs';\nimport '../../scripts/coders-talk.mjs';\n");
+writeFileSync(join(entryDir, 'sources.mjs'), `globalThis.KEEPPLAIN_PLUGIN_SOURCES = ${sources};\n`);
+writeFileSync(join(entryDir, 'entry.mjs'), "import './sources.mjs';\nimport '../../scripts/keepplain.mjs';\n");
 const sums = [];
 for (const target of targets) {
     const [platform, arch] = target.split('-');
@@ -58,12 +58,12 @@ for (const target of targets) {
     const args = [
         'build', join(entryDir, 'entry.mjs'),
         '--compile', `--target=${TARGETS[target]}`, `--outfile=${join(out, name)}`,
-        `--define=CODERS_TALK_VERSION=${JSON.stringify(version)}`,
+        `--define=KEEPPLAIN_VERSION=${JSON.stringify(version)}`,
         '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig',
     ];
     // Bun sets these only when it builds on Windows; they name the file in Task Manager and the file's properties.
     if (platform === 'windows' && process.platform === 'win32') {
-        args.push('--windows-title=Coders Talk', '--windows-publisher=Coders Talk', `--windows-version=${version}.0`, '--windows-description=Coders Talk CLI');
+        args.push('--windows-title=KeepPlain', '--windows-publisher=KeepPlain', `--windows-version=${version}.0`, '--windows-description=KeepPlain CLI');
     }
     console.log(`${name} (${TARGETS[target]}, ${version})`);
     const result = spawnSync(process.env.BUN || 'bun', args, { stdio: 'inherit' });

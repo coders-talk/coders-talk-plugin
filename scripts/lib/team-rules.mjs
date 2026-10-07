@@ -1,11 +1,11 @@
 /**
  * A team's rules in this repository, kept up with (plan: team rules review, stage 33). `use --team` notes each block
- * it writes in .coders-talk/uses.json with its version, the hash in its marker. The site's version changes only when
+ * it writes in .keepplain/uses.json with its version, the hash in its marker. The site's version changes only when
  * the team merges a proposal, and answers 304 to the version a repository has.
  *
- * So the SessionStart hook reads what the last check found (~/.coders-talk/team-rules.json) and says in one line when
+ * So the SessionStart hook reads what the last check found (~/.keepplain/team-rules.json) and says in one line when
  * a block here is older, with the proposals merged since; it never goes to the network itself. When the last check is
- * over CHECK_EVERY_MS old it starts one in the background (`coders-talk team-rules-check`), which asks the site with
+ * over CHECK_EVERY_MS old it starts one in the background (`keepplain team-rules-check`), which asks the site with
  * the member's token, only this site's. Nothing rewrites the block: that stays `use --team`, run by the person.
  */
 import { readFileSync } from 'node:fs';
@@ -87,7 +87,7 @@ export async function checkRules(site, root, get, dir = home(), now = Date.now()
             } else if (response.status === 404) {
                 saveRulesState(site, use.team, use.stack, { gone: true }, dir);
             } else if (response.ok) {
-                const hash = /<!-- coders-talk:team-[a-z0-9-]+@([A-Za-z0-9]+) -->/.exec(await response.text())?.[1];
+                const hash = /<!-- keepplain:team-[a-z0-9-]+@([A-Za-z0-9]+) -->/.exec(await response.text())?.[1];
                 if (!hash) continue;
                 let changes = [];
                 const listed = await get(`${base}.json?since=${encodeURIComponent(use.hash)}`, { Accept: 'application/json' });

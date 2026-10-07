@@ -1,6 +1,6 @@
 ---
-name: coders-talk-logout
-description: Disconnect this computer from Coders Talk. Use only when the user types /coders-talk-logout.
+name: keepplain-logout
+description: Disconnect this computer from KeepPlain. Use only when the user types /keepplain-logout.
 disable-model-invocation: true
 ---
 
@@ -9,7 +9,7 @@ disable-model-invocation: true
 1. Run:
 
    ```
-   node "<plugin>/scripts/coders-talk.mjs" logout --agent=cursor
+   node "<plugin>/scripts/keepplain.mjs" logout --agent=cursor
    ```
 
 2. Show the user what it printed. The token is only forgotten on this computer; it can be revoked on the site under Settings → Agent plugins.

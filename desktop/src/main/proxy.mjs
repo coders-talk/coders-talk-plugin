@@ -1,7 +1,7 @@
 /**
- * The system's proxy, for the coders-talk program the app runs. A VPN client in system-proxy mode (v2rayN, Clash,
+ * The system's proxy, for the keepplain program the app runs. A VPN client in system-proxy mode (v2rayN, Clash,
  * Hiddify and the like) sets a proxy in the system settings instead of taking all traffic: the window follows it, as
- * Chromium does, but coders-talk reads only the environment (HTTPS_PROXY, lib/http.mjs). So before each command the
+ * Chromium does, but keepplain reads only the environment (HTTPS_PROXY, lib/http.mjs). So before each command the
  * main process asks Chromium which proxy the site goes through (session.resolveProxy: "PROXY 127.0.0.1:10809",
  * "SOCKS5 127.0.0.1:1080; DIRECT", "DIRECT") and hands it on in those variables. A VPN that takes all traffic needs
  * nothing: the connection goes through it anyway. No Electron here: the tests load this file under Node.
@@ -22,7 +22,7 @@ export function proxyVariables(rule, env = process.env) {
     const scheme = { PROXY: 'http', HTTPS: 'https', SOCKS5: 'socks5', SOCKS: 'socks5' }[match[1].toUpperCase()];
     const url = `${scheme}://${match[2]}`;
 
-    // The agents' own commands that coders-talk runs (claude, codex) read them too: this computer stays direct for them.
+    // The agents' own commands that keepplain runs (claude, codex) read them too: this computer stays direct for them.
     return { HTTPS_PROXY: url, HTTP_PROXY: url, ...(env.NO_PROXY || env.no_proxy ? {} : { NO_PROXY: 'localhost,127.0.0.1,::1' }) };
 }
 

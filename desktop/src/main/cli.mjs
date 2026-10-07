@@ -1,12 +1,12 @@
 /**
- * The coders-talk program the app runs, and how it runs it. No Electron here: the tests load this file under Node.
+ * The keepplain program the app runs, and how it runs it. No Electron here: the tests load this file under Node.
  *
- * The app carries the single coders-talk file of its own version (resources/bin, staged by scripts/stage-cli.mjs) and
- * puts it where install.sh and install.ps1 do, ~/.coders-talk/bin, unless the one there is newer or the same file. The
+ * The app carries the single keepplain file of its own version (resources/bin, staged by scripts/stage-cli.mjs) and
+ * puts it where install.sh and install.ps1 do, ~/.keepplain/bin, unless the one there is newer or the same file. The
  * agents' hooks call the file by its path once `enable` laid the plugin out, so it must outlive the app: moved to the
- * Trash, the app leaves the agents working. A newer file there (coders-talk update) is kept.
+ * Trash, the app leaves the agents working. A newer file there (keepplain update) is kept.
  *
- * Every command runs with --json (scripts/coders-talk.mjs): one JSON object a line on stdout, {"error": "…"} on failure.
+ * Every command runs with --json (scripts/keepplain.mjs): one JSON object a line on stdout, {"error": "…"} on failure.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -14,12 +14,12 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSyn
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 
-export const CLI_NAME = process.platform === 'win32' ? 'coders-talk.exe' : 'coders-talk';
+export const CLI_NAME = process.platform === 'win32' ? 'keepplain.exe' : 'keepplain';
 
 /** What the agents put in the environment of the commands they run: inherited by the app, they would make it pass for one. */
 const AGENT_VARIABLES = ['CLAUDECODE', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID', 'CLAUDE_CODE_ENTRYPOINT', 'CODEX_THREAD_ID', 'PI_SESSION_ID', 'PI_SESSION_FILE', 'CURSOR_AGENT', 'CURSOR_TRACE_ID', 'CURSOR_TRANSCRIPT_PATH', 'ELECTRON_RUN_AS_NODE'];
 
-export const ctHome = (env = process.env) => env.CODERS_TALK_HOME || join(homedir(), '.coders-talk');
+export const ctHome = (env = process.env) => env.KEEPPLAIN_HOME || join(homedir(), '.keepplain');
 export const installedCli = (env = process.env) => join(ctHome(env), 'bin', CLI_NAME);
 
 /** Whether version $a is newer than $b (x.y.z), as lib/update.mjs compares them. */
@@ -30,16 +30,16 @@ export function newer(a, b) {
     return false;
 }
 
-/** The version a coders-talk file says it is ("coders-talk 0.14.7"), or null when it does not run. */
+/** The version a keepplain file says it is ("keepplain 0.14.7"), or null when it does not run. */
 export function versionOf(file, env = process.env) {
     if (!file || !existsSync(file)) return null;
     const r = spawnSync(file, ['version'], { encoding: 'utf8', timeout: 15_000, windowsHide: true, env });
 
-    return r.status === 0 ? (r.stdout.match(/coders-talk (\d+\.\d+\.\d+)/)?.[1] ?? null) : null;
+    return r.status === 0 ? (r.stdout.match(/keepplain (\d+\.\d+\.\d+)/)?.[1] ?? null) : null;
 }
 
 /**
- * Whether a coders-talk file answers the way the app reads it (--json, from 0.15): a quick command that only reads a
+ * Whether a keepplain file answers the way the app reads it (--json, from 0.15): a quick command that only reads a
  * setting. An older file prints a sentence instead, and every screen of the app would fail on it.
  */
 export function speaksJson(file, env = process.env) {
@@ -57,23 +57,23 @@ function fileHash(file) {
 }
 
 /**
- * The file to run: {path, version, action}. action: 'dev' (CODERS_TALK_APP_CLI), 'kept' (the one in ~/.coders-talk/bin is
+ * The file to run: {path, version, action}. action: 'dev' (KEEPPLAIN_APP_CLI), 'kept' (the one in ~/.keepplain/bin is
  * newer, or the very same file), 'installed' (there was none), 'updated' (the app's is newer, or another build under the
  * same number: the release before --json, or an earlier build of the app, which the app's own fixes would never reach
- * otherwise). Only a newer number wins over the app's copy: what `coders-talk update` installed. A running file cannot be
- * overwritten on Windows, but it can be renamed: the old one goes aside as <file>.old, which coders-talk removes at its
+ * otherwise). Only a newer number wins over the app's copy: what `keepplain update` installed. A running file cannot be
+ * overwritten on Windows, but it can be renamed: the old one goes aside as <file>.old, which keepplain removes at its
  * next start.
  */
 export function ensureCli({ bundled, env = process.env }) {
-    if (env.CODERS_TALK_APP_CLI) return { path: env.CODERS_TALK_APP_CLI, version: versionOf(env.CODERS_TALK_APP_CLI, env), action: 'dev' };
+    if (env.KEEPPLAIN_APP_CLI) return { path: env.KEEPPLAIN_APP_CLI, version: versionOf(env.KEEPPLAIN_APP_CLI, env), action: 'dev' };
 
     const target = installedCli(env);
     const current = versionOf(target, env);
     const own = bundled && existsSync(bundled) ? versionOf(bundled, env) : null;
-    if (!current && !own) throw new Error(`Could not find the coders-talk program: neither ${target} nor the copy inside the app runs.`);
+    if (!current && !own) throw new Error(`Could not find the keepplain program: neither ${target} nor the copy inside the app runs.`);
     const same = current && own && current === own && fileHash(target) === fileHash(bundled);
     if (current && (!own || newer(current, own) || same)) {
-        if (!speaksJson(target, env)) throw new Error(`coders-talk ${current} at ${target} is older than this app. Run "coders-talk update" in a terminal, or install the app again.`);
+        if (!speaksJson(target, env)) throw new Error(`keepplain ${current} at ${target} is older than this app. Run "keepplain update" in a terminal, or install the app again.`);
         return { path: target, version: current, action: 'kept' };
     }
 
@@ -91,7 +91,7 @@ export function ensureCli({ bundled, env = process.env }) {
     try {
         rmSync(`${target}.old`, { force: true });
     } catch {
-        // Still running (a hook): coders-talk removes it at its next start.
+        // Still running (a hook): keepplain removes it at its next start.
     }
 
     return { path: target, version: own, action: current ? 'updated' : 'installed' };
@@ -99,12 +99,12 @@ export function ensureCli({ bundled, env = process.env }) {
 
 /**
  * PATH as the person's shell has it. An app opened from the Dock or Finder gets launchd's short PATH, without the folders
- * claude, codex and pi are installed in, so coders-talk would find none of them. Windows apps get the user's PATH.
+ * claude, codex and pi are installed in, so keepplain would find none of them. Windows apps get the user's PATH.
  */
 export function shellPath(env = process.env, platform = process.platform) {
     if (platform === 'win32') return env.Path ?? env.PATH ?? '';
     const home = homedir();
-    const extra = [join(home, '.local', 'bin'), join(home, '.coders-talk', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', join(home, '.bun', 'bin'), join(home, '.npm-global', 'bin')];
+    const extra = [join(home, '.local', 'bin'), join(home, '.keepplain', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', join(home, '.bun', 'bin'), join(home, '.npm-global', 'bin')];
     let fromShell = '';
     const shell = env.SHELL || (platform === 'darwin' ? '/bin/zsh' : '/bin/sh');
     try {
@@ -118,9 +118,9 @@ export function shellPath(env = process.env, platform = process.platform) {
     return [...new Set([...fromShell.split(delimiter), ...(env.PATH ?? '').split(delimiter), ...extra].filter(Boolean))].join(delimiter);
 }
 
-/** The environment coders-talk runs in: the app's, with the shell's PATH and nothing that says an agent runs it. */
+/** The environment keepplain runs in: the app's, with the shell's PATH and nothing that says an agent runs it. */
 export function cliEnv(env = process.env, path = shellPath(env)) {
-    const clean = { ...env, PATH: path, CODERS_TALK_NO_UPDATE_CHECK: '1' };
+    const clean = { ...env, PATH: path, KEEPPLAIN_NO_UPDATE_CHECK: '1' };
     if (process.platform === 'win32') {
         delete clean.Path;
         clean.Path = path;
@@ -169,7 +169,7 @@ export class LineReader {
 }
 
 /**
- * `coders-talk <args> --json`: {ok, result, events, error, details}. result is the last object that is not an event
+ * `keepplain <args> --json`: {ok, result, events, error, details}. result is the last object that is not an event
  * (status, sessions, preview…); events the {"event"} lines, also handed to onEvent as they come. A run that printed
  * {"error"} or ended with another code is not ok; error says why in the program's words.
  */
@@ -193,7 +193,7 @@ export function runCli(program, args, { env, cwd, input = null, onEvent = null, 
         try {
             child = spawn(program, [...args, '--json'], { env, cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
         } catch (e) {
-            return resolve({ ok: false, result: null, events, error: `Could not start coders-talk: ${e.message}`, details: null });
+            return resolve({ ok: false, result: null, events, error: `Could not start keepplain: ${e.message}`, details: null });
         }
         const timer = timeoutMs ? setTimeout(() => child.kill(), timeoutMs) : null;
         const abort = () => child.kill();
@@ -201,7 +201,7 @@ export function runCli(program, args, { env, cwd, input = null, onEvent = null, 
         child.stdout.setEncoding('utf8').on('data', (c) => reader.push(c));
         child.stderr.setEncoding('utf8').on('data', (c) => (stderr += c));
         child.on('error', (e) => {
-            error ??= `Could not start coders-talk: ${e.message}`;
+            error ??= `Could not start keepplain: ${e.message}`;
         });
         child.stdin.on('error', () => {});
         child.stdin.end(input ?? '');
@@ -211,7 +211,7 @@ export function runCli(program, args, { env, cwd, input = null, onEvent = null, 
             reader.end();
             if (signal?.aborted) return resolve({ ok: false, cancelled: true, result, events, error: 'Cancelled.', details: null });
             const ok = code === 0 && error === null;
-            if (!ok && error === null) error = stderr.trim().split('\n').at(-1) || `coders-talk stopped with code ${code}.`;
+            if (!ok && error === null) error = stderr.trim().split('\n').at(-1) || `keepplain stopped with code ${code}.`;
             const extra = [details, ...reader.other, stderr.trim()].filter(Boolean).join('\n') || null;
 
             resolve({ ok, result, events, error: ok ? null : error, details: ok ? null : extra });

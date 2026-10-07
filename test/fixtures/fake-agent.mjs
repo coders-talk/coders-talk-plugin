@@ -59,7 +59,7 @@ if (process.env.FAKE_AGENT_BROKEN === agent && a === 'plugin' && ['install', 'up
 } else if (a === 'plugin' && b === 'marketplace' && c === 'list') {
     console.log(JSON.stringify(Object.entries(state.marketplaces).map(([name, path]) => ({ name, path }))));
 } else if (a === 'plugin' && b === 'marketplace' && c === 'add') {
-    state.marketplaces['coders-talk-local'] = args[3];
+    state.marketplaces['keepplain-local'] = args[3];
     save();
 } else if (a === 'plugin' && b === 'marketplace' && c === 'remove') {
     if (!state.marketplaces[args[3]]) process.exit(1);

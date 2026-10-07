@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { parseRegistry, windowsProxyFromSettings, windowsProxyFor } from '../scripts/lib/windows-proxy.mjs';
 import { request } from '../scripts/lib/http.mjs';
 
-const target = 'https://coders.talk/api/v1/me';
+const target = 'https://keepplain.com/api/v1/me';
 const settings = (server, overrides = '') => ({ proxyenable: 1, proxyserver: server, proxyoverride: overrides });
 
 test('Windows settings: enabled, disabled, shared and per-protocol HTTP/SOCKS proxies', () => {

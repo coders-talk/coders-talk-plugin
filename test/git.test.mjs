@@ -130,7 +130,7 @@ test('the SessionStart hook remembers HEAD once, silently', async () => {
     const { dir, hashes } = makeRepo();
     const home = mkdtempSync(join(tmpdir(), 'ct-home-'));
     const fire = (event) => new Promise((resolve) => {
-        const child = execFile(...hookCommand('session-start'), { env: { ...process.env, CODERS_TALK_HOME: home } }, (error, stdout) => resolve({ error, stdout }));
+        const child = execFile(...hookCommand('session-start'), { env: { ...process.env, KEEPPLAIN_HOME: home } }, (error, stdout) => resolve({ error, stdout }));
         child.stdin.end(JSON.stringify(event));
     });
 

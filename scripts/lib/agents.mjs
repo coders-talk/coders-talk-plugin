@@ -1,6 +1,6 @@
 /**
- * The agents on this computer, for `coders-talk enable`, `disable` and `status` (plan, stage 13.3), and their own
- * plugin commands, which do the installing: Coders Talk never edits an agent's settings itself.
+ * The agents on this computer, for `keepplain enable`, `disable` and `status` (plan, stage 13.3), and their own
+ * plugin commands, which do the installing: KeepPlain never edits an agent's settings itself.
  *
  *   Claude Code  `claude` in PATH; its config folder (~/.claude, CLAUDE_CONFIG_DIR) says it is here without one
  *   Codex        `codex` in PATH, or the CLI the desktop app keeps in ~/.codex/plugins/.plugin-appserver;
@@ -10,7 +10,7 @@
  *                in ~/.cursor (lib/cursor-install.mjs), so a Cursor without the CLI is served the same
  *   Pi           `pi` in PATH; ~/.pi/agent (PI_CODING_AGENT_DIR) says it is here without one
  *
- * Also the Coders Talk MCP servers someone added by hand (`claude mcp add`, Codex's config.toml, Cursor's mcp.json): with
+ * Also the KeepPlain MCP servers someone added by hand (`claude mcp add`, Codex's config.toml, Cursor's mcp.json): with
  * the plugin's own, the agent would see the same tools twice, and the desktop app mixes up their sign-ins. Pi has no MCP.
  */
 import { spawnSync } from 'node:child_process';
@@ -68,12 +68,12 @@ export function detectAgents(env = process.env) {
 
 const samePath = (a, b) => (process.platform === 'win32' ? resolve(a).toLowerCase() === resolve(b).toLowerCase() : resolve(a) === resolve(b));
 
-/** The Pi package `coders-talk enable` lays out. */
+/** The Pi package `keepplain enable` lays out. */
 export const piPackageDir = (env = process.env) => join(home(env), 'plugin', 'pi');
 
 /**
- * The Coders Talk packages Pi has in its settings: [{id, version, marketplace, source, removeAs}]. Ours is the local folder
- * enable lays out (a relative source is read from the agent folder, as Pi does); any other source that names coders-talk
+ * The KeepPlain packages Pi has in its settings: [{id, version, marketplace, source, removeAs}]. Ours is the local folder
+ * enable lays out (a relative source is read from the agent folder, as Pi does); any other source that names keepplain
  * (the git package the README shows) is another install of it. removeAs: what `pi remove` takes for it. Pi saves a local
  * package relative to its agent folder but reads the path given to `pi remove` from the folder the command runs in, so a
  * local one goes by its absolute path.
@@ -104,7 +104,7 @@ export function piPackages(env = process.env) {
                 return [{ id: PLUGIN_ID, version, marketplace: MARKETPLACE, source, removeAs }];
             }
 
-            return /coders-talk/i.test(source) ? [{ id: 'coders-talk@coders-talk', version: null, marketplace: 'coders-talk', source, removeAs }] : [];
+            return /keepplain/i.test(source) ? [{ id: 'keepplain@keepplain', version: null, marketplace: 'keepplain', source, removeAs }] : [];
         });
 }
 
@@ -134,9 +134,9 @@ function jsonOf({ ok, stdout }) {
     }
 }
 
-/** Where the Claude desktop app keeps its data: %APPDATA%\Claude, ~/Library/Application Support/Claude, ~/.config/Claude (CODERS_TALK_CLAUDE_APP_DATA, for the tests). */
+/** Where the Claude desktop app keeps its data: %APPDATA%\Claude, ~/Library/Application Support/Claude, ~/.config/Claude (KEEPPLAIN_CLAUDE_APP_DATA, for the tests). */
 function claudeAppData(env) {
-    if (env.CODERS_TALK_CLAUDE_APP_DATA) return env.CODERS_TALK_CLAUDE_APP_DATA;
+    if (env.KEEPPLAIN_CLAUDE_APP_DATA) return env.KEEPPLAIN_CLAUDE_APP_DATA;
     if (process.platform === 'win32') return join(env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude');
     if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Claude');
 
@@ -144,7 +144,7 @@ function claudeAppData(env) {
 }
 
 /**
- * The version of Coders Talk the Claude desktop app brought from Claude's plugin directory (added on claude.ai), or null.
+ * The version of KeepPlain the Claude desktop app brought from Claude's plugin directory (added on claude.ai), or null.
  * `claude plugin list` does not show it: the app keeps the plugins of the account in its own folder,
  * local-agent-mode-sessions/<account>/<organization>/rpm/plugin_*, and hands them to the sessions it starts. That layout
  * is the app's, not ours: whatever does not look as expected is "not there".
@@ -163,7 +163,7 @@ export function appDirectoryPlugin(env = process.env) {
             for (const plugin of dirs(join(organization, 'rpm'))) {
                 try {
                     const manifest = JSON.parse(readFileSync(join(plugin, '.claude-plugin', 'plugin.json'), 'utf8'));
-                    if (manifest?.name === 'coders-talk') return { version: typeof manifest.version === 'string' ? manifest.version : null };
+                    if (manifest?.name === 'keepplain') return { version: typeof manifest.version === 'string' ? manifest.version : null };
                 } catch {
                     // not a plugin folder, or not readable
                 }
@@ -174,7 +174,7 @@ export function appDirectoryPlugin(env = process.env) {
     return null;
 }
 
-/** The Coders Talk plugins installed in the agent: [{id, version, marketplace}] (empty when it cannot tell). */
+/** The KeepPlain plugins installed in the agent: [{id, version, marketplace}] (empty when it cannot tell). */
 export function installedPlugins(agent, env = process.env) {
     if (agent.id === 'pi') return piPackages(env);
     if (agent.id === 'cursor') {
@@ -193,23 +193,23 @@ export function installedPlugins(agent, env = process.env) {
         const list = jsonOf(runCli(agent.cli, ['plugin', 'list', '--json'], { env }));
 
         const found = (Array.isArray(list) ? list : [])
-            .filter((p) => typeof p.id === 'string' && p.id.startsWith('coders-talk@'))
-            .map((p) => ({ id: p.id, version: p.version ?? null, marketplace: p.id.slice('coders-talk@'.length) }));
+            .filter((p) => typeof p.id === 'string' && p.id.startsWith('keepplain@'))
+            .map((p) => ({ id: p.id, version: p.version ?? null, marketplace: p.id.slice('keepplain@'.length) }));
         const app = found.some((p) => p.marketplace === 'synced') ? null : appDirectoryPlugin(env);
 
-        return app ? [...found, { id: 'coders-talk@synced', version: app.version, marketplace: 'synced' }] : found;
+        return app ? [...found, { id: 'keepplain@synced', version: app.version, marketplace: 'synced' }] : found;
     }
     const list = jsonOf(runCli(agent.cli, ['plugin', 'list', '--json'], { env }));
 
     return (Array.isArray(list?.installed) ? list.installed : [])
-        .filter((p) => p.name === 'coders-talk' && p.installed !== false)
-        .map((p) => ({ id: p.pluginId ?? `coders-talk@${p.marketplaceName}`, version: p.version ?? null, marketplace: p.marketplaceName }));
+        .filter((p) => p.name === 'keepplain' && p.installed !== false)
+        .map((p) => ({ id: p.pluginId ?? `keepplain@${p.marketplaceName}`, version: p.version ?? null, marketplace: p.marketplaceName }));
 }
 
-const isOurServer = (url, site) => typeof url === 'string' && (url.replace(/\/+$/, '') === `${site}/mcp` || /^https:\/\/coders\.talk\/mcp\/?$/.test(url));
+const isOurServer = (url, site) => typeof url === 'string' && (url.replace(/\/+$/, '') === `${site}/mcp` || /^https:\/\/keepplain\.com\/mcp\/?$/.test(url));
 
 /**
- * MCP servers of Coders Talk added by hand: [{name, scope, project?}]. Claude Code keeps them in ~/.claude.json (in
+ * MCP servers of KeepPlain added by hand: [{name, scope, project?}]. Claude Code keeps them in ~/.claude.json (in
  * CLAUDE_CONFIG_DIR when that is set): user scope at the top, local scope under each project. Codex in config.toml.
  */
 export function manualMcpServers(agent, site, env = process.env) {
@@ -259,7 +259,7 @@ export function removeMcpServer(agent, server, env = process.env) {
 }
 
 /** The plugin's MCP server as Claude Code names it: plugin:<plugin>:<server>. */
-export const PLUGIN_MCP_SERVER = 'plugin:coders-talk:coders-talk';
+export const PLUGIN_MCP_SERVER = 'plugin:keepplain:keepplain';
 
 /**
  * Claude Code remembers for about 15 minutes that a server answered 401, in <config>/mcp-needs-auth-cache.json

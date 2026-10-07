@@ -1,12 +1,12 @@
 /**
- * The person's own privacy settings, on this computer only (~/.coders-talk):
+ * The person's own privacy settings, on this computer only (~/.keepplain):
  *
  *   privacy.json  {"redact": ["Globex", "billing-core"]}  words to hide as [REDACTED:TERM] in every session: client
  *                 names, internal services. Written by hand; the plugin only reads it.
  *   kept.json     {"sha256": ["…"]}  values the person chose to send as they are (preview --keep). Hashes only, so
  *                 the file holds no secret; the same hashes go to the site, whose own check then leaves those alone.
  *
- * The check itself is privacy.mjs, generated from coders.talk's resources/js/lib/privacyScan.ts.
+ * The check itself is privacy.mjs, generated from KeepPlain's resources/js/lib/privacyScan.ts.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';

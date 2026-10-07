@@ -5,7 +5,7 @@
  * comes from, nothing else.
  *
  * The window learns the state as {state, version?, percent?, error?, checkedAt?}:
- *   off          a copy that is not installed (developing), or CODERS_TALK_APP_NO_UPDATE=1
+ *   off          a copy that is not installed (developing), or KEEPPLAIN_APP_NO_UPDATE=1
  *   store        installed from the Microsoft Store (MSIX): the Store updates it, and an app it installed may not update itself
  *   idle         not checked yet
  *   checking     asking GitHub
@@ -22,7 +22,7 @@ const EVERY_MS = 6 * 60 * 60_000;
  * @param {{app: Electron.App, net: Electron.Net, autoUpdater: import('electron-updater').AppUpdater, broadcast: (state: object) => void, env?: object}} deps
  */
 export function createUpdater({ app, net, autoUpdater, broadcast, env = process.env, store = Boolean(process.windowsStore) }) {
-    const enabled = app.isPackaged && !store && env.CODERS_TALK_APP_NO_UPDATE !== '1';
+    const enabled = app.isPackaged && !store && env.KEEPPLAIN_APP_NO_UPDATE !== '1';
     let current = { state: store ? 'store' : enabled ? 'idle' : 'off' };
     const set = (next) => {
         current = next;
@@ -42,7 +42,7 @@ export function createUpdater({ app, net, autoUpdater, broadcast, env = process.
         if (!enabled || ['checking', 'downloading', 'ready'].includes(current.state)) return current;
         set({ state: 'checking' });
         try {
-            const response = await net.fetch(releasesUrl(env), { headers: { Accept: 'application/vnd.github+json', 'User-Agent': `coders-talk-app/${app.getVersion()}` } });
+            const response = await net.fetch(releasesUrl(env), { headers: { Accept: 'application/vnd.github+json', 'User-Agent': `keepplain-app/${app.getVersion()}` } });
             if (!response.ok) throw new Error(`GitHub answered ${response.status}.`);
             const release = latestAppRelease(await response.json());
             if (!isUpdate(release, app.getVersion())) {
@@ -66,13 +66,13 @@ export function createUpdater({ app, net, autoUpdater, broadcast, env = process.
         /** Every six hours, the first a little after the start: the window comes up first. */
         schedule() {
             if (!enabled) return;
-            setTimeout(check, Number(env.CODERS_TALK_APP_UPDATE_DELAY_MS) || 15_000);
+            setTimeout(check, Number(env.KEEPPLAIN_APP_UPDATE_DELAY_MS) || 15_000);
             setInterval(check, EVERY_MS).unref?.();
         },
         /** Restart into the downloaded version: the installer runs quietly and opens the app again. */
         install() {
             if (current.state !== 'ready') return false;
-            setImmediate(() => autoUpdater.quitAndInstall(true, env.CODERS_TALK_APP_NO_RELAUNCH !== '1'));
+            setImmediate(() => autoUpdater.quitAndInstall(true, env.KEEPPLAIN_APP_NO_RELAUNCH !== '1'));
 
             return true;
         },

@@ -1,8 +1,8 @@
 /**
- * Tokens the browser sign-in saved, per site: ~/.coders-talk/credentials.json, readable by this user only.
+ * Tokens the browser sign-in saved, per site: ~/.keepplain/credentials.json, readable by this user only.
  * Kept out of Claude Code's own settings on purpose: nothing here ever passes through the model.
  *
- * The whole folder is this user's only: ~/.coders-talk and every folder in it 0700, every file 0600. Every file the
+ * The whole folder is this user's only: ~/.keepplain and every folder in it 0700, every file 0600. Every file the
  * plugin keeps there is written through privateDir, writePrivate and appendPrivate. Windows ignores the modes: the
  * user profile is private there already.
  */
@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 
 export function home(env = process.env) {
-    return env.CODERS_TALK_HOME || join(homedir(), '.coders-talk');
+    return env.KEEPPLAIN_HOME || join(homedir(), '.keepplain');
 }
 
 function chmod(path, mode) {
@@ -22,7 +22,7 @@ function chmod(path, mode) {
     }
 }
 
-/** The folder, made if missing, opened by this user only; ~/.coders-talk as well when the folder is inside it. */
+/** The folder, made if missing, opened by this user only; ~/.keepplain as well when the folder is inside it. */
 export function privateDir(dir, env = process.env) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     chmod(dir, 0o700);

@@ -1,14 +1,14 @@
 {
-    "name": "coders-talk-plugin",
+    "name": "keepplain-plugin",
     "private": true,
     "type": "module",
-    "description": "Coders Talk plugin for Claude Code, Codex, Cursor and Pi: send a session to Coders Talk as a draft Build.",
+    "description": "KeepPlain plugin for Claude Code, Codex, Cursor and Pi: send a session to KeepPlain as a draft Build.",
     "keywords": [
         "pi-package"
     ],
     "pi": {
         "extensions": [
-            "./pi/extensions/coders-talk.js"
+            "./pi/extensions/keepplain.js"
         ]
     },
     "license": "MIT",

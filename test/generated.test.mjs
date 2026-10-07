@@ -1,4 +1,4 @@
-// The files `npm run plugin:sync` in coders.talk writes here are the site's: slimming, the privacy check and token
+// The files `npm run plugin:sync` in KeepPlain writes here are the site's: slimming, the privacy check and token
 // counting must work exactly like the browser and the server. An edit made here would be lost at the next sync, or
 // worse, a sync would quietly undo it. So each file carries the hash of its code, the fixtures a list of theirs, and
 // this test fails when they no longer match: change the site's file and sync again instead.

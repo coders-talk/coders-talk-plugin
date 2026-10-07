@@ -1,12 +1,12 @@
 /**
- * The single coders-talk file keeps itself up to date (plan, stage 13.1). `coders-talk update` fetches the file for
+ * The single keepplain file keeps itself up to date (plan, stage 13.1). `keepplain update` fetches the file for
  * this platform from the plugin's GitHub Releases, checks it against the release's SHA256SUMS and puts it in place of
- * itself. Windows cannot overwrite a running .exe but can rename it: it becomes coders-talk.exe.old, removed at the
+ * itself. Windows cannot overwrite a running .exe but can rename it: it becomes keepplain.exe.old, removed at the
  * next start.
  *
  * Commands a person types in a terminal mention a newer release in one stderr line, at most once a day, from what a
  * background `update --check` found: they never wait for the network, and hooks never look.
- * CODERS_TALK_NO_UPDATE_CHECK=1 turns that off. The plugin installed from an agent's marketplace is updated there.
+ * KEEPPLAIN_NO_UPDATE_CHECK=1 turns that off. The plugin installed from an agent's marketplace is updated there.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -18,16 +18,16 @@ import { Failure } from './failure.mjs';
 import { request } from './http.mjs';
 import { BINARY_VERSION } from './runtime.mjs';
 
-export const REPOSITORY = 'coders-talk/coders-talk-plugin';
+export const REPOSITORY = 'keepplain/keepplain-plugin';
 const DAY_MS = 86_400_000;
-const TAG_PREFIX = 'coders-talk--v';
+const TAG_PREFIX = 'keepplain--v';
 
-const releases = (env = process.env) => (env.CODERS_TALK_RELEASES_URL || `https://api.github.com/repos/${REPOSITORY}/releases`).replace(/\/+$/, '');
+const releases = (env = process.env) => (env.KEEPPLAIN_RELEASES_URL || `https://api.github.com/repos/${REPOSITORY}/releases`).replace(/\/+$/, '');
 const stateFile = (dir = home()) => join(dir, 'update.json');
 
-/** The release file for a platform: coders-talk-linux-x64, coders-talk-darwin-arm64, coders-talk-windows-x64.exe. */
+/** The release file for a platform: keepplain-linux-x64, keepplain-darwin-arm64, keepplain-windows-x64.exe. */
 export function assetName(platform = process.platform, arch = process.arch) {
-    return platform === 'win32' ? `coders-talk-windows-${arch}.exe` : `coders-talk-${platform}-${arch}`;
+    return platform === 'win32' ? `keepplain-windows-${arch}.exe` : `keepplain-${platform}-${arch}`;
 }
 
 /** Whether version $a is newer than $b (x.y.z). */
@@ -38,7 +38,7 @@ export function newer(a, b) {
     return false;
 }
 
-/** `coders-talk update [version]`, or with $check only notes the latest version for updateNotice. */
+/** `keepplain update [version]`, or with $check only notes the latest version for updateNotice. */
 export async function update(requested = null, { check = false, current = BINARY_VERSION, executable = process.execPath } = {}) {
     if (check) {
         const release = await fetchRelease(null, current);
@@ -51,7 +51,7 @@ export async function update(requested = null, { check = false, current = BINARY
 
     const release = await fetchRelease(requested?.replace(/^v/, '') ?? null, current);
     writeState({ ...readState(), checked_at: Date.now(), latest: requested ? readState().latest : release.version });
-    if (release.version === current) return console.log(`coders-talk ${current} is ${requested ? 'the version asked for' : 'the latest'} already.`);
+    if (release.version === current) return console.log(`keepplain ${current} is ${requested ? 'the version asked for' : 'the latest'} already.`);
 
     const name = assetName();
     const file = release.assets.find((a) => a.name === name);
@@ -66,14 +66,14 @@ export async function update(requested = null, { check = false, current = BINARY
     }
 
     replaceExecutable(executable, body);
-    console.log(`Updated coders-talk ${current} → ${release.version}.`);
+    console.log(`Updated keepplain ${current} → ${release.version}.`);
     // The new file lays its own plugin out, so the agents run the version they call (lib/enable.mjs, refresh).
     spawnSync(executable, ['refresh-plugin'], { stdio: 'inherit', windowsHide: true });
 }
 
 /**
  * The new file next to the running one, then moved over it; on Windows the running one steps aside first. In
- * ~/.coders-talk/bin, as the installer puts it, it is this user's only (0700), like everything in that folder.
+ * ~/.keepplain/bin, as the installer puts it, it is this user's only (0700), like everything in that folder.
  */
 export function replaceExecutable(executable, body) {
     const fresh = `${executable}.new`;
@@ -106,11 +106,11 @@ export function removeLeftover(executable = process.execPath) {
  * background for next time. The single file only.
  */
 export function updateNotice(current, { env = process.env, now = Date.now() } = {}) {
-    if (!BINARY_VERSION || env.CODERS_TALK_NO_UPDATE_CHECK === '1') return;
+    if (!BINARY_VERSION || env.KEEPPLAIN_NO_UPDATE_CHECK === '1') return;
     try {
         const state = readState();
         if (state.latest && newer(state.latest, current) && now - (state.notified_at ?? 0) > DAY_MS) {
-            console.error(`coders-talk ${state.latest} is out (this is ${current}): run coders-talk update`);
+            console.error(`keepplain ${state.latest} is out (this is ${current}): run keepplain update`);
             state.notified_at = now;
         }
         const stale = now - (state.checked_at ?? 0) > DAY_MS;
@@ -131,7 +131,7 @@ async function fetchRelease(version, current) {
     });
     const data = await response.json();
     const tag = String(data.tag_name ?? '');
-    if (!tag.startsWith(TAG_PREFIX)) throw new Failure(`The latest release (${tag || 'no tag'}) is not a coders-talk one.`);
+    if (!tag.startsWith(TAG_PREFIX)) throw new Failure(`The latest release (${tag || 'no tag'}) is not a keepplain one.`);
 
     return { version: tag.slice(TAG_PREFIX.length), assets: Array.isArray(data.assets) ? data.assets : [] };
 }
@@ -142,7 +142,7 @@ async function download(url, current, accept = 'application/octet-stream', timeo
     for (let hops = 0; hops < 5; hops++) {
         let response;
         try {
-            response = await request(url, { headers: { Accept: accept, 'User-Agent': `coders-talk/${current ?? 'dev'}` }, signal });
+            response = await request(url, { headers: { Accept: accept, 'User-Agent': `keepplain/${current ?? 'dev'}` }, signal });
         } catch (e) {
             throw new Failure(`Could not reach ${new URL(url).host}: ${e.cause?.message ?? e.message}`);
         }

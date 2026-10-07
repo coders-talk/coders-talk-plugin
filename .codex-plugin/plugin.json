@@ -1,22 +1,22 @@
 {
-    "name": "coders-talk",
-    "version": "0.15.2",
-    "description": "Send a Codex session to Coders Talk as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site. Codex can also look up how other developers did a similar task in the Coders Talk library, and $coders-talk:use puts a published Build's playbook into your repository as a skill or a rule. $coders-talk:share puts a published Build into its pull request: how the change was built, for the reviewer.",
-    "author": { "name": "Coders Talk", "url": "https://coders.talk" },
-    "homepage": "https://coders.talk/plugins",
-    "keywords": ["coders-talk", "sessions", "sharing", "builds"],
+    "name": "keepplain",
+    "version": "0.16.0",
+    "description": "Send a Codex session to KeepPlain as a draft Build: the prompts, interventions and fails that mattered. You review and publish it on the site. Codex can also look up how other developers did a similar task in the KeepPlain library, and $keepplain:use puts a published Build's playbook into your repository as a skill or a rule. $keepplain:share puts a published Build into its pull request: how the change was built, for the reviewer.",
+    "author": { "name": "KeepPlain", "url": "https://keepplain.com" },
+    "homepage": "https://keepplain.com/plugins",
+    "keywords": ["keepplain", "sessions", "sharing", "builds"],
     "skills": "./codex/skills/",
     "hooks": "./codex/hooks.json",
     "mcpServers": "./codex/mcp.json",
     "interface": {
-        "displayName": "Coders Talk",
-        "shortDescription": "Send this session to Coders Talk as a draft",
-        "longDescription": "Turns the current Codex session into a draft Build on coders.talk: the prompts, the moments you stepped in and the fails that mattered. Secrets are redacted on the server. The draft is private to you, or to your team for sessions in its repositories, and nothing is published until you do it on the site. The plugin also connects Codex to the Coders Talk library (sign in with codex mcp login coders-talk): before a non-trivial task, or after repeated failures, Codex can look up published sessions where others did something similar, and what went wrong for them. $coders-talk:use shows a Build's playbook and, once you say yes, writes it into the repository as a skill in .agents/skills or a block in AGENTS.md.",
-        "developerName": "Coders Talk",
+        "displayName": "KeepPlain",
+        "shortDescription": "Send this session to KeepPlain as a draft",
+        "longDescription": "Turns the current Codex session into a draft Build on KeepPlain: the prompts, the moments you stepped in and the fails that mattered. Secrets are redacted on the server. The draft is private to you, or to your team for sessions in its repositories, and nothing is published until you do it on the site. The plugin also connects Codex to the KeepPlain library (sign in with codex mcp login keepplain): before a non-trivial task, or after repeated failures, Codex can look up published sessions where others did something similar, and what went wrong for them. $keepplain:use shows a Build's playbook and, once you say yes, writes it into the repository as a skill in .agents/skills or a block in AGENTS.md.",
+        "developerName": "KeepPlain",
         "category": "Developer Tools",
         "capabilities": ["Read", "Write"],
-        "websiteURL": "https://coders.talk/plugins",
-        "privacyPolicyURL": "https://coders.talk/privacy",
-        "defaultPrompt": ["$coders-talk:build"]
+        "websiteURL": "https://keepplain.com/plugins",
+        "privacyPolicyURL": "https://keepplain.com/privacy",
+        "defaultPrompt": ["$keepplain:build"]
     }
 }

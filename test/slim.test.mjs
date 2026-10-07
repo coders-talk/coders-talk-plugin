@@ -1,4 +1,4 @@
-// scripts/lib/slim.mjs against the fixtures shared with the site (copied by `npm run plugin:sync` in coders.talk).
+// scripts/lib/slim.mjs against the fixtures shared with the site (copied by `npm run plugin:sync` in KeepPlain).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -50,18 +50,18 @@ const ccUse = (id, name, input) => ({ type: 'assistant', message: { role: 'assis
 const ccResult = (id, content) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] } });
 const cx = (payload) => ({ type: 'response_item', timestamp: '2026-09-01T10:00:00Z', payload });
 
-test('a call to the Coders Talk library keeps only the tool name: the query and the answer stay here', () => {
+test('a call to the KeepPlain library keeps only the tool name: the query and the answer stay here', () => {
     const out = slimAll([
-        ccUse('t1', 'mcp__plugin_coders-talk_coders-talk__search_coding_agent_sessions', { query: 'acme billing retry', stack: 'laravel' }),
-        ccResult('t1', [{ type: 'text', text: 'Reference data…\n1. https://coders.talk/b/login-x1?ref=agent' }]),
-        ccUse('t2', 'mcp__coders-talk__get_coding_agent_session', { slug: 'login-x1' }),
+        ccUse('t1', 'mcp__plugin_keepplain_keepplain__search_coding_agent_sessions', { query: 'acme billing retry', stack: 'laravel' }),
+        ccResult('t1', [{ type: 'text', text: 'Reference data…\n1. https://keepplain.com/b/login-x1?ref=agent' }]),
+        ccUse('t2', 'mcp__keepplain__get_coding_agent_session', { slug: 'login-x1' }),
         ccResult('t2', 'The whole session text'),
         ccUse('t3', 'Bash', { command: 'grep -r search_coding_agent_sessions tests' }),
         ccResult('t3', 'tests/a.php: search_coding_agent_sessions'),
     ]);
     const text = JSON.stringify(out);
     assert.doesNotMatch(text, /acme billing|login-x1|whole session/);
-    assert.equal(out[0].message.content[0].name, 'mcp__plugin_coders-talk_coders-talk__search_coding_agent_sessions');
+    assert.equal(out[0].message.content[0].name, 'mcp__plugin_keepplain_keepplain__search_coding_agent_sessions');
     assert.equal(out[0].message.content[0].input, '[library call — not kept]');
     assert.equal(out[1].message.content[0].content, '[library call — not kept]');
     assert.equal(out[3].message.content[0].content, '[library call — not kept]');
@@ -69,9 +69,9 @@ test('a call to the Coders Talk library keeps only the tool name: the query and 
     assert.equal(out[5].message.content[0].content, 'tests/a.php: search_coding_agent_sessions');
 
     const codex = slimAll([
-        cx({ type: 'function_call', name: 'search_coding_agent_sessions', namespace: 'mcp__coders_talk__', arguments: '{"query":"acme billing retry"}', call_id: 'c1' }),
-        cx({ type: 'function_call_output', call_id: 'c1', output: 'https://coders.talk/b/login-x1?ref=agent' }),
-        cx({ type: 'custom_tool_call', name: 'exec', input: 'await tools.mcp__coders_talk__get_coding_agent_session({ slug: "login-x1" })', call_id: 'c2' }),
+        cx({ type: 'function_call', name: 'search_coding_agent_sessions', namespace: 'mcp__keepplain__', arguments: '{"query":"acme billing retry"}', call_id: 'c1' }),
+        cx({ type: 'function_call_output', call_id: 'c1', output: 'https://keepplain.com/b/login-x1?ref=agent' }),
+        cx({ type: 'custom_tool_call', name: 'exec', input: 'await tools.mcp__keepplain__get_coding_agent_session({ slug: "login-x1" })', call_id: 'c2' }),
         cx({ type: 'custom_tool_call_output', call_id: 'c2', output: 'The whole session text' }),
     ]);
     assert.doesNotMatch(JSON.stringify(codex), /acme billing|login-x1|whole session/);

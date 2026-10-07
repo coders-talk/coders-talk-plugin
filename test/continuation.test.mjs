@@ -24,7 +24,7 @@ function setup() {
         writeFileSync(path, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
         return path;
     };
-    const env = { ...process.env, CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), CODERS_TALK_HOME: join(home, 'ct'), CODERS_TALK_CLAUDE_APP_DIR: join(home, 'app') };
+    const env = { ...process.env, CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), KEEPPLAIN_HOME: join(home, 'ct'), KEEPPLAIN_CLAUDE_APP_DIR: join(home, 'app') };
 
     return { home, cwd, put, env };
 }
@@ -38,8 +38,8 @@ test('a continuation is found by the uuids it copied, with the new session ids, 
     // P: lines 1..20 of its own. X, continued from it later: P's 1..15 copied under X's id, then its own 100..110.
     put(P, lines(P, 1, 20, cwd));
     const x = put(X, [...lines(X, 1, 15, cwd), ...lines(X, 100, 110, cwd)]);
-    const previous = process.env.CODERS_TALK_HOME;
-    process.env.CODERS_TALK_HOME = env.CODERS_TALK_HOME;
+    const previous = process.env.KEEPPLAIN_HOME;
+    process.env.KEEPPLAIN_HOME = env.KEEPPLAIN_HOME;
     try {
         const found = await findContinuation(X, x, cwd, { env });
         assert.equal(found.session_id, P);
@@ -51,9 +51,9 @@ test('a continuation is found by the uuids it copied, with the new session ids, 
 
         // Remembered, and what a hook reads of it.
         assert.equal((await continuationOf(X, x, cwd, { env })).session_id, P);
-        assert.equal(copiedUuids(X, env.CODERS_TALK_HOME).size, 15);
+        assert.equal(copiedUuids(X, env.KEEPPLAIN_HOME).size, 15);
     } finally {
-        process.env.CODERS_TALK_HOME = previous;
+        process.env.KEEPPLAIN_HOME = previous;
     }
 });
 
@@ -78,7 +78,7 @@ test('the Claude app\'s own record is taken when it is there, and any other shap
     writeFileSync(join(home, 'app', 'acct', 'org', 'local_2.json'), 'not json');
     assert.equal(appPredecessor(X, env), P);
     assert.equal(appPredecessor(Y, env), null);
-    assert.equal(appPredecessor(X, { ...env, CODERS_TALK_CLAUDE_APP_DIR: join(home, 'none') }), null);
+    assert.equal(appPredecessor(X, { ...env, KEEPPLAIN_CLAUDE_APP_DIR: join(home, 'none') }), null);
 });
 
 test('the session title is the last one the app wrote, without "(fork)"', () => {

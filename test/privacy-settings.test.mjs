@@ -8,16 +8,16 @@ import { Failure } from '../scripts/lib/failure.mjs';
 import { privacyScan, terms } from '../scripts/lib/privacy-settings.mjs';
 
 let dir;
-const saved = process.env.CODERS_TALK_HOME;
+const saved = process.env.KEEPPLAIN_HOME;
 
 beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'ct-privacy-'));
-    process.env.CODERS_TALK_HOME = dir;
+    process.env.KEEPPLAIN_HOME = dir;
 });
 
 afterEach(() => {
-    if (saved === undefined) delete process.env.CODERS_TALK_HOME;
-    else process.env.CODERS_TALK_HOME = saved;
+    if (saved === undefined) delete process.env.KEEPPLAIN_HOME;
+    else process.env.KEEPPLAIN_HOME = saved;
     rmSync(dir, { recursive: true, force: true });
 });
 

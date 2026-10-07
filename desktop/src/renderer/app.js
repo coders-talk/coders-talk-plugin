@@ -1,5 +1,5 @@
 // The window: a welcome wizard, then Home, Sessions (with the confirmation before each send) and Settings, over the
-// coders-talk CLI. Everything it shows comes from a command's JSON (window.ct.call, preload.cjs); everything it changes
+// keepplain CLI. Everything it shows comes from a command's JSON (window.ct.call, preload.cjs); everything it changes
 // is one command. Text from sessions is the person's own, so all of it is escaped.
 
 const call = (method, params = {}, onEvent = null) => window.ct.call(method, params, onEvent);
@@ -39,11 +39,21 @@ const ICONS = {
     inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
 };
 /**
- * The brand kit's mark (icon.svg), as the site's BrandMark.vue draws it: the C in the text colour, the cursor in the
- * accent, so it follows the theme. With the wordmark "coders.talk" beside it.
+ * The logo, as the site's BrandMark.vue draws it (its paths are the site's resources/js/lib/brand.ts): the cursor in
+ * the text colour over its peach-to-orange trail, so it follows the theme. With the wordmark "KeepPlain" beside it.
  */
-const brand = (size = 22, word = true) =>
-    `<span class="brand"><svg width="${size}" height="${Math.round((size * 272) / 256)}" viewBox="0 0 256 272" aria-hidden="true"><path fill="currentColor" d="M76 24H214Q220 24 220 30V70Q220 76 214 76H87Q76 76 76 87V165Q76 176 87 176H214Q220 176 220 182V224Q220 230 214 230H70L21 251Q10 256 14 243L25 208V78Q25 24 76 24Z"/><rect x="184" y="102" width="58" height="58" rx="6" fill="var(--accent)"/></svg>${word ? '<span class="wordmark">coders<span class="dot">.</span>talk</span>' : ''}</span>`;
+const MARK_CURSOR = 'M306 429A53.5 53.5 0 0 1 394.2 388.2L768.5 705.6A28 28 0 0 1 750.4 755L519.4 755A16 16 0 0 0 507 760.9L346.8 956.1A23 23 0 0 1 306 941.5Z';
+const MARK_TRAIL = 'M506 346A35 35 0 0 1 551.9 312.8L930.1 438A48 48 0 0 1 963 483.6L963 702.6A30 30 0 0 1 922.4 730.6L506 573Z';
+const WORDMARK = 'M1594.2 205.0L1597.0 204.9L1598.6 206.0L1599.3 208.0L1599.5 462.0L1600.7 467.0L1602.6 471.0L1604.0 472.7L1609.0 476.2L1619.0 478.3L1620.0 479.0L1620.4 485.0L1620.0 486.0L1619.0 486.6L1616.0 486.7L1528.0 486.6L1526.8 485.0L1526.8 480.0L1527.2 479.0L1537.9 476.0L1543.0 472.8L1546.2 468.0L1548.3 459.0L1548.6 246.0L1548.3 241.0L1546.1 237.0L1541.0 233.8L1529.0 229.7L1527.8 228.0L1527.8 223.0L1529.0 221.8L1532.0 220.8ZM1834.1 223.0L1839.0 222.3L1844.0 222.4L1847.0 222.9L1853.0 225.0L1858.0 227.9L1861.4 231.0L1866.2 238.0L1867.5 241.0L1868.6 246.0L1868.8 252.0L1868.3 256.0L1866.3 262.0L1864.1 266.0L1860.7 270.0L1855.0 274.5L1851.0 276.5L1843.0 278.1L1837.0 278.1L1832.0 277.0L1825.0 274.2L1821.0 271.3L1817.9 268.0L1814.7 263.0L1812.8 258.0L1811.9 252.0L1812.0 247.6L1812.7 243.0L1815.6 236.0L1819.0 231.5L1823.0 227.8L1828.0 224.9ZM526.6 230.0L630.0 229.8L631.0 229.8L632.3 231.0L632.3 237.0L631.5 238.0L622.0 239.8L618.0 240.9L613.4 243.0L609.0 247.1L606.8 251.0L605.8 254.0L604.8 259.0L604.5 267.0L604.4 355.0L604.5 361.0L605.0 362.3L625.3 343.0L689.0 278.3L698.1 268.0L703.5 261.0L706.4 255.0L707.0 252.0L707.1 250.0L706.1 246.0L703.5 243.0L700.0 241.0L688.0 238.0L687.3 236.0L687.3 232.0L688.0 230.4L703.0 229.9L779.2 230.0L779.8 231.0L779.9 237.0L779.0 238.4L768.0 241.0L755.3 246.0L743.0 253.0L730.0 262.8L705.0 285.9L659.2 330.0L656.3 333.0L656.0 334.0L727.6 429.0L753.6 462.0L760.0 468.1L768.0 473.1L776.0 476.1L788.0 478.4L788.8 480.0L788.5 486.0L787.0 486.7L754.0 486.8L708.0 486.7L707.0 486.2L695.4 470.0L640.3 396.0L620.0 369.2L619.0 368.6L604.4 383.0L604.7 458.0L606.8 466.0L609.9 471.0L612.1 473.0L616.0 475.1L624.0 477.2L631.0 478.1L632.0 478.8L632.2 486.0L631.0 486.8L623.0 486.9L526.0 486.4L525.4 485.0L525.4 480.0L526.0 478.6L535.0 477.1L541.0 475.2L546.0 472.2L549.4 468.0L551.4 464.0L552.5 459.0L553.1 440.0L553.1 289.0L552.3 257.0L550.3 250.0L548.3 247.0L545.0 243.9L539.0 240.9L535.0 239.7L527.0 238.4L526.0 237.8L525.4 236.0L525.4 231.0ZM1317.8 230.0L1451.0 229.6L1458.0 229.9L1471.0 231.9L1482.0 234.9L1490.0 238.0L1499.0 242.8L1505.0 246.9L1511.7 253.0L1516.3 258.0L1519.3 262.0L1523.3 269.0L1527.2 280.0L1529.6 293.0L1529.9 304.0L1528.3 318.0L1525.3 329.0L1520.5 339.0L1514.5 348.0L1505.9 357.0L1497.0 364.2L1485.0 371.4L1473.0 376.4L1463.0 379.4L1450.0 382.2L1437.0 383.7L1426.0 384.4L1399.0 384.4L1398.3 385.0L1398.2 450.0L1398.6 457.0L1399.6 462.0L1403.0 468.5L1406.5 472.0L1410.0 474.1L1416.0 476.1L1432.0 478.2L1433.0 478.8L1433.3 485.0L1433.0 486.0L1432.0 486.6L1331.0 486.9L1319.0 486.6L1318.0 486.5L1317.0 485.2L1316.9 480.0L1318.0 478.5L1330.0 476.2L1335.0 474.4L1340.0 470.8L1343.5 466.0L1345.2 461.0L1346.1 455.0L1346.4 430.0L1346.1 260.0L1344.4 252.0L1342.5 248.0L1340.2 245.0L1337.0 242.7L1332.8 241.0L1318.0 237.8L1316.9 236.0L1317.1 231.0ZM1399.0 241.2L1398.1 243.0L1398.2 371.0L1399.0 372.1L1421.0 371.6L1435.0 369.3L1445.0 365.3L1450.0 362.3L1455.5 358.0L1462.4 350.0L1469.4 337.0L1473.3 323.0L1474.7 310.0L1474.5 293.0L1471.3 278.0L1467.3 268.0L1461.3 259.0L1455.0 252.8L1446.0 246.8L1438.0 243.8L1428.0 241.8ZM2014.4 302.0L2026.0 302.4L2033.0 303.5L2040.0 305.6L2047.0 308.8L2053.0 312.7L2059.0 318.2L2063.5 324.0L2067.3 331.0L2070.3 341.0L2071.6 352.0L2071.9 462.0L2073.8 469.0L2075.7 472.0L2078.0 474.1L2082.0 476.2L2092.0 478.3L2092.9 479.0L2093.0 485.0L2092.0 486.5L2001.0 486.7L1999.3 486.0L1999.1 480.0L1999.6 479.0L2010.0 476.3L2015.0 473.2L2018.1 469.0L2020.2 462.0L2020.7 454.0L2020.7 364.0L2020.3 358.0L2018.4 350.0L2016.3 345.0L2013.4 341.0L2010.0 337.7L2004.0 334.6L1993.0 332.5L1989.0 332.6L1983.0 333.6L1974.0 336.8L1969.0 339.7L1963.2 344.0L1955.6 351.0L1955.2 352.0L1955.6 463.0L1957.6 470.0L1961.0 474.3L1967.0 477.1L1974.0 478.5L1974.7 479.0L1975.3 480.0L1975.3 485.0L1975.0 486.0L1974.0 486.7L1794.0 486.8L1792.6 486.0L1792.0 480.1L1791.0 480.2L1780.0 486.3L1772.0 489.3L1761.0 491.3L1751.0 491.2L1746.0 490.2L1741.0 488.2L1735.2 484.0L1730.7 479.0L1727.9 474.0L1726.0 468.7L1725.0 467.6L1717.0 475.0L1710.0 480.4L1702.0 485.1L1695.0 488.1L1688.0 490.0L1681.0 491.2L1667.0 491.4L1655.0 489.2L1649.2 487.0L1644.0 484.3L1638.1 480.0L1632.8 475.0L1629.9 471.0L1626.6 465.0L1624.9 460.0L1623.5 453.0L1623.5 442.0L1624.6 435.0L1626.7 429.0L1628.8 425.0L1633.9 418.0L1638.0 413.8L1643.0 409.8L1651.0 404.7L1665.0 397.8L1682.0 391.9L1723.0 379.5L1724.0 378.0L1724.1 362.0L1723.6 352.0L1722.2 342.0L1720.2 335.0L1717.3 329.0L1713.0 323.8L1707.0 319.9L1701.0 317.6L1692.0 317.1L1685.0 317.8L1677.0 321.5L1674.5 324.0L1673.7 328.0L1675.7 341.0L1675.4 349.0L1672.5 357.0L1669.5 361.0L1666.0 364.1L1662.0 366.3L1658.0 367.6L1654.0 368.4L1648.0 368.4L1641.0 366.1L1635.0 361.8L1632.6 359.0L1631.0 356.0L1629.7 353.0L1628.7 348.0L1628.8 343.0L1629.5 340.0L1632.6 333.0L1636.8 327.0L1644.0 320.6L1652.0 315.5L1660.0 311.6L1675.0 306.5L1689.0 303.6L1703.0 302.2L1721.0 302.4L1736.0 304.7L1747.0 308.4L1756.0 313.5L1764.2 321.0L1768.2 327.0L1771.3 334.0L1773.2 341.0L1774.1 349.0L1774.3 456.0L1774.7 462.0L1775.7 465.0L1777.0 466.8L1779.5 469.0L1782.0 470.0L1787.0 469.8L1794.0 467.0L1796.0 467.5L1798.8 473.0L1798.4 474.0L1795.3 477.0L1796.0 477.9L1803.0 476.2L1808.0 473.3L1811.3 469.0L1813.1 462.0L1813.5 456.0L1813.5 342.0L1812.3 338.0L1810.0 335.7L1806.0 333.5L1794.0 328.8L1793.5 328.0L1793.5 322.0L1794.0 321.4L1803.0 318.6L1859.0 302.8L1861.0 302.5L1863.0 303.6L1863.6 305.0L1863.8 317.0L1863.8 460.0L1865.6 468.0L1869.0 473.2L1872.0 475.3L1876.4 477.0L1882.0 478.1L1885.0 478.2L1892.0 477.0L1896.0 475.4L1899.3 473.0L1902.1 469.0L1903.6 465.0L1904.3 461.0L1904.7 438.0L1904.7 341.0L1903.5 338.0L1901.0 335.6L1895.0 332.5L1886.0 328.9L1885.3 328.0L1885.4 322.0L1902.0 316.5L1951.0 302.5L1953.0 302.7L1955.3 305.0L1955.4 333.0L1956.0 334.9L1971.0 320.7L1984.0 311.5L1991.0 307.8L2000.0 304.5L2008.0 302.7ZM862.6 305.0L870.0 304.6L879.0 304.9L886.0 305.7L898.0 308.6L912.0 314.7L926.0 324.6L935.3 335.0L939.2 341.0L942.2 347.0L946.3 359.0L948.4 372.0L948.6 379.0L948.6 384.0L948.0 385.1L947.0 385.4L835.0 385.4L829.0 385.5L827.8 386.0L827.9 398.0L829.4 410.0L832.6 423.0L835.4 430.0L840.9 440.0L846.9 447.0L855.0 453.3L863.0 457.3L872.0 460.2L881.0 461.4L893.0 461.1L904.0 459.0L914.0 455.1L924.0 448.6L931.0 441.8L941.0 428.3L943.0 428.8L948.3 432.0L948.3 434.0L945.2 441.0L935.1 457.0L930.2 463.0L924.0 469.2L914.0 477.0L903.8 483.0L894.0 487.2L882.0 490.2L874.0 491.3L864.0 491.7L854.0 491.3L846.0 490.2L832.0 486.2L823.0 482.1L815.0 477.2L811.0 474.3L802.9 467.0L793.6 456.0L788.6 448.0L784.8 440.0L781.8 431.0L779.8 423.0L778.3 413.0L777.9 404.0L778.0 396.8L779.9 381.0L783.7 367.0L790.0 353.0L794.9 345.0L800.9 337.0L807.0 330.7L816.0 322.9L824.0 317.6L831.0 313.8L839.0 310.4L848.0 307.6ZM1042.9 305.0L1059.0 304.9L1066.0 305.6L1075.0 307.7L1081.0 309.6L1088.0 312.7L1095.0 316.7L1102.0 321.7L1107.0 326.2L1112.3 332.0L1117.3 339.0L1120.1 344.0L1124.2 354.0L1126.3 361.0L1128.3 375.0L1128.3 384.0L1127.0 385.3L1017.0 385.4L1008.0 385.5L1007.0 386.0L1007.2 398.0L1009.4 414.0L1012.6 425.0L1015.7 432.0L1019.8 439.0L1027.5 448.0L1034.0 453.3L1044.0 458.0L1052.0 460.2L1064.0 461.4L1075.0 460.8L1084.0 458.9L1095.0 454.1L1103.8 448.0L1112.0 439.8L1120.0 428.6L1121.0 428.5L1126.0 430.9L1128.0 432.4L1128.2 433.0L1123.3 443.0L1115.2 456.0L1107.0 465.5L1096.0 475.1L1085.0 482.1L1076.0 486.2L1066.0 489.2L1051.0 491.5L1032.0 491.2L1017.0 488.0L1009.0 485.1L999.0 480.3L988.0 472.2L979.5 464.0L974.5 458.0L966.0 444.0L962.8 436.0L960.0 426.9L957.9 415.0L957.5 409.0L957.9 390.0L959.8 379.0L961.9 371.0L965.0 362.0L968.8 354.0L972.9 347.0L978.8 339.0L991.0 326.6L1000.0 319.7L1007.0 315.5L1018.0 310.6L1024.0 308.6L1032.0 306.6ZM1252.0 305.0L1260.0 305.0L1271.0 306.7L1280.0 309.5L1292.0 315.5L1298.0 319.6L1308.0 329.2L1315.3 339.0L1319.2 346.0L1323.3 356.0L1326.3 367.0L1328.6 383.0L1328.7 396.0L1327.2 410.0L1325.6 418.0L1322.4 429.0L1318.2 439.0L1314.3 446.0L1308.2 455.0L1303.2 461.0L1296.0 468.1L1288.0 474.3L1282.0 478.2L1276.9 481.0L1265.0 486.2L1259.0 488.2L1248.0 490.2L1232.0 491.0L1224.0 490.3L1218.0 489.2L1208.0 486.1L1200.0 482.0L1199.0 482.7L1198.8 539.0L1199.4 546.0L1200.6 551.0L1203.8 557.0L1206.0 559.4L1209.0 561.3L1215.0 563.3L1228.0 565.2L1230.0 566.0L1230.4 567.0L1230.0 573.3L1229.0 573.8L1209.0 573.9L1124.0 573.6L1123.0 573.0L1122.7 572.0L1123.2 566.0L1125.0 565.1L1130.0 564.3L1136.0 562.5L1140.0 560.3L1144.0 556.0L1146.5 551.0L1147.5 546.0L1148.2 538.0L1148.1 345.0L1147.3 342.0L1145.0 339.7L1129.0 332.8L1128.4 331.0L1128.7 326.0L1145.0 320.7L1196.0 306.0L1198.0 307.0L1198.6 308.0L1199.0 333.0L1200.0 333.9L1211.0 322.5L1217.0 317.7L1225.0 312.7L1231.0 309.8L1240.0 306.7ZM861.0 318.8L855.0 320.5L849.0 323.8L844.0 328.0L839.7 333.0L835.7 340.0L832.5 348.0L829.6 360.0L828.5 369.0L830.0 369.7L900.0 369.4L900.2 359.0L898.2 346.0L896.3 340.0L891.4 331.0L885.0 324.5L878.0 320.4L870.0 318.5ZM1040.0 319.0L1032.0 321.6L1027.0 324.6L1022.4 329.0L1017.9 335.0L1013.6 343.0L1010.6 352.0L1008.8 360.0L1007.9 369.0L1009.0 369.7L1013.0 369.7L1079.0 369.5L1079.5 369.0L1079.6 360.0L1079.3 354.0L1078.1 347.0L1075.0 338.0L1070.3 330.0L1064.0 323.7L1056.0 319.7L1048.0 318.4ZM1225.0 334.8L1218.0 336.8L1209.0 341.6L1202.8 347.0L1199.1 351.0L1198.9 352.0L1198.9 442.0L1199.7 448.0L1202.4 456.0L1205.7 462.0L1211.0 468.1L1217.0 472.1L1224.4 475.0L1229.0 475.6L1236.0 475.5L1246.0 473.1L1253.0 469.3L1261.0 461.7L1265.3 456.0L1267.5 452.0L1272.4 440.0L1276.3 424.0L1277.5 411.0L1277.4 394.0L1275.3 379.0L1273.4 371.0L1267.3 357.0L1260.6 348.0L1255.0 342.7L1249.0 338.7L1245.0 336.9L1236.0 334.5ZM1723.0 392.8L1706.0 397.9L1692.0 404.0L1685.0 408.7L1681.2 412.0L1677.6 416.0L1675.0 420.2L1672.8 425.0L1671.7 430.0L1671.2 438.0L1671.8 445.0L1674.0 452.0L1676.0 455.7L1679.0 459.2L1684.0 463.0L1689.0 465.1L1694.0 466.0L1699.0 465.9L1704.0 465.1L1709.0 463.2L1714.0 460.5L1720.0 456.1L1723.8 452.0L1723.8 394.0Z';
+let brands = 0;
+const brand = (size = 22, word = true) => {
+    const id = `kp-trail-${++brands}`;
+    const wordH = Math.round(size / 0.88);
+    const mark = `<svg width="${size}" height="${size}" viewBox="296 302 678 674" aria-hidden="true"><defs><linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="520" y1="600" x2="975" y2="430"><stop offset="0" stop-color="#FDDCCB"/><stop offset=".55" stop-color="#FCA47E"/><stop offset="1" stop-color="#FC6631"/></linearGradient></defs><path fill="url(#${id})" d="${MARK_TRAIL}"/><path fill="currentColor" d="${MARK_CURSOR}"/></svg>`;
+    const wordmark = word ? `<svg class="wordmark" width="${Math.round((wordH * 1572) / 373)}" height="${wordH}" viewBox="524 203 1572 373" aria-label="KeepPlain" role="img"><path fill="currentColor" d="${WORDMARK}"/></svg>` : '';
+
+    return `<span class="brand">${mark}${wordmark}</span>`;
+};
 const icon = (name, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 
 const state = {
@@ -71,7 +81,7 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&
 const agentName = (id) => AGENTS[id]?.name ?? id;
 const mark = (id, cls = '') => `<span class="mark ${esc(id)} ${cls}">${esc(AGENTS[id]?.mark ?? '?')}</span>`;
 const connectedAgents = () => (state.status?.agents ?? []).filter((a) => a.connected);
-const siteHost = () => (state.status?.site ? new URL(state.status.site).host : 'coders.talk');
+const siteHost = () => (state.status?.site ? new URL(state.status.site).host : 'keepplain.com');
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
@@ -110,7 +120,7 @@ function friendly(error) {
     if (/token was not accepted/i.test(text)) return 'Your sign-in has expired. Sign in again from Home.';
     if (/Could not reach|ENOTFOUND|ECONNREFUSED|ETIMEDOUT/i.test(text)) return `Can't reach ${siteHost()}. Check your internet connection and try again.`;
     if (/nothing to send yet/i.test(text)) return 'This session has no prompts yet, so there is nothing to send.';
-    if (/Too many requests/i.test(text)) return text.replace('Too many requests.', 'Coders Talk is busy.');
+    if (/Too many requests/i.test(text)) return text.replace('Too many requests.', 'KeepPlain is busy.');
 
     return text;
 }
@@ -267,7 +277,7 @@ function onAgentEvent(e, list) {
     let step = list.find((s) => s.agent === e.agent);
     if (!step) list.push((step = { agent: e.agent }));
     step.status = e.status;
-    step.off = /take Coders Talk off|uninstall/.test(e.text);
+    step.off = /take KeepPlain off|uninstall/.test(e.text);
     step.message = e.status === 'failed' ? e.message : null;
     step.details = e.status === 'failed' ? e.details : null;
     render();
@@ -279,7 +289,7 @@ function agentSteps(list) {
     return `<ul class="mini">${list
         .map((s) => {
             const name = agentName(s.agent);
-            const verb = s.off ? ['Disconnecting', 'disconnected', 'disconnect'] : ['Adding Coders Talk to', 'ready', 'add Coders Talk to'];
+            const verb = s.off ? ['Disconnecting', 'disconnected', 'disconnect'] : ['Adding KeepPlain to', 'ready', 'add KeepPlain to'];
             const text = s.status === 'running' ? `${verb[0]} ${name}…` : s.status === 'done' ? `${name} ${verb[1]}` : `Could not ${verb[2]} ${name}`;
             const ico = s.status === 'running' ? '<span class="spinner"></span>' : icon(s.status === 'done' ? 'check' : 'x', 'sm');
 
@@ -313,15 +323,15 @@ function viewWelcome() {
     const steps = todo(w.done);
 
     if (state.init?.cliError) {
-        return `<div class="welcome"><div class="welcome-card"><div class="hero">${brand(26)}<h1>Coders Talk could not start</h1></div>
+        return `<div class="welcome"><div class="welcome-card"><div class="hero">${brand(26)}<h1>KeepPlain could not start</h1></div>
             ${alertHtml('bad', state.init.cliError)}<p class="muted small">Reinstalling the app usually fixes this.</p></div></div>`;
     }
 
     return `<div class="welcome"><div class="welcome-card">
         <div class="hero">
             ${brand(26)}
-            <h1>${w.phase === 'done' && !w.error ? 'You’re all set' : 'Welcome to Coders Talk'}</h1>
-            <p>${w.phase === 'done' && !w.error ? 'Coders Talk now works inside your agents, so you can close this app: nothing needs it running. Open it again to send a session by hand or to change a setting.' : 'Share the AI coding sessions worth learning from. They stay on this computer until you pick one and say yes.'}</p>
+            <h1>${w.phase === 'done' && !w.error ? 'You’re all set' : 'Welcome to KeepPlain'}</h1>
+            <p>${w.phase === 'done' && !w.error ? 'KeepPlain now works inside your agents, so you can close this app: nothing needs it running. Open it again to send a session by hand or to change a setting.' : 'Share the AI coding sessions worth learning from. They stay on this computer until you pick one and say yes.'}</p>
         </div>
         <div class="card">
             <ol class="steps">
@@ -349,22 +359,22 @@ function viewWelcome() {
                     ${alertHtml('bad', w.loginError)}
                 </div></li>
                 <li class="${stepClass(3)}"><span class="num">${num(3)}</span><div class="grow">
-                    <div class="title">Add Coders Talk to your agents</div>
+                    <div class="title">Add KeepPlain to your agents</div>
                     ${w.agents.length ? agentSteps(w.agents) : `<div class="muted small">${found.length ? `Adds a small plugin to ${found.map((a) => esc(a.name)).join(', ')}.` : 'No agent found yet.'}</div>`}
                     ${alertHtml('bad', w.error)}
                 </div></li>
             </ol>
         </div>
         ${steps.length ? `<div class="alert warn">${icon('alert', 'sm')}<div class="grow"><strong>One more thing</strong><ul>${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div></div>` : ''}
-        ${state.update.state === 'ready' ? `<div class="alert ok">${icon('download', 'sm')}<div class="grow">Coders Talk ${esc(state.update.version)} is ready. <button class="link" data-action="install-update">Restart to update</button></div></div>` : ''}
+        ${state.update.state === 'ready' ? `<div class="alert ok">${icon('download', 'sm')}<div class="grow">KeepPlain ${esc(state.update.version)} is ready. <button class="link" data-action="install-update">Restart to update</button></div></div>` : ''}
         <div class="welcome-actions">
             ${
                 w.phase === 'done' && (w.done?.installed?.length || connectedAgents().length)
-                    ? '<button class="btn primary big" data-action="go" data-view="home">Open Coders Talk</button>'
+                    ? '<button class="btn primary big" data-action="go" data-view="home">Open KeepPlain</button>'
                     : `<button class="btn primary big" data-action="get-started" ${busy || state.loading || !found.length ? 'disabled' : ''}>${busy ? '<span class="spinner"></span> Setting up…' : w.phase === 'done' || w.loginError || w.error ? 'Try again' : 'Get started'}</button>`
             }
         </div>
-        <p class="foot">${icon('shield', 'sm')}<span>Nothing is sent while setting up. <button class="link" data-action="open" data-url="${esc(state.status?.what_leaves ?? 'https://coders.talk/plugins#what-leaves-your-machine')}">What leaves your computer</button></span></p>
+        <p class="foot">${icon('shield', 'sm')}<span>Nothing is sent while setting up. <button class="link" data-action="open" data-url="${esc(state.status?.what_leaves ?? 'https://keepplain.com/plugins#what-leaves-your-machine')}">What leaves your computer</button></span></p>
     </div></div>`;
 }
 
@@ -383,7 +393,7 @@ function viewHome() {
             <button class="btn primary" data-action="relogin" ${state.wizard.phase === 'login' ? 'disabled' : ''}>${state.wizard.phase === 'login' ? '<span class="spinner"></span> Waiting…' : 'Sign in'}</button></div>
             ${state.wizard.phase === 'login' && state.wizard.login ? `<div class="code-box under-banner">Check that your browser shows <strong>${esc(state.wizard.login.user_code)}</strong>, then press Connect. <button class="link" data-action="cancel-login">Cancel</button></div>` : ''}`;
     } else if (!agents.length) {
-        banner = `<div class="banner warn"><span class="dot">${icon('alert', 'sm')}</span><div class="grow"><strong>No agent is connected</strong><div class="small muted">Switch one on below so Coders Talk can see its sessions.</div></div></div>`;
+        banner = `<div class="banner warn"><span class="dot">${icon('alert', 'sm')}</span><div class="grow"><strong>No agent is connected</strong><div class="small muted">Switch one on below so KeepPlain can see its sessions.</div></div></div>`;
     } else {
         banner = `<div class="banner ok"><span class="dot">${icon('check', 'sm')}</span><div class="grow"><strong>All set: you can close this window</strong><div class="small muted">Connected to ${agents.map((a) => esc(a.name)).join(', ')}. ${closedNote(agents)}</div></div>
             <button class="btn primary" data-action="go" data-view="sessions">${icon('send', 'sm')} Send a session</button></div>`;
@@ -392,7 +402,7 @@ function viewHome() {
     return `<div class="page">
         <div class="page-head"><h1>${user ? `Hi, @${esc(user)}` : 'Hi there'}</h1></div>
         ${banner}
-        <div class="card-head"><p class="eyebrow">Your agents</p><span class="sub">Switch one on to let Coders Talk see its sessions.</span></div>
+        <div class="card-head"><p class="eyebrow">Your agents</p><span class="sub">Switch one on to let KeepPlain see its sessions.</span></div>
         <div class="agents">${st.agents.map(agentCard).join('')}</div>
         <p class="eyebrow">Last sent</p>
         ${lastSentCard(st.last_sent)}
@@ -403,8 +413,8 @@ function viewHome() {
 /** What keeps working with the window closed: the agents' own plugin, which the app only sets up. */
 function closedNote(agents) {
     return agents.some((a) => a.auto !== 'off')
-        ? 'Coders Talk works inside them: your agents send sessions on their own.'
-        : 'Coders Talk works inside them: send a session from your agent with its build command, or come back here to pick one.';
+        ? 'KeepPlain works inside them: your agents send sessions on their own.'
+        : 'KeepPlain works inside them: send a session from your agent with its build command, or come back here to pick one.';
 }
 
 function whatLeaves() {
@@ -413,7 +423,7 @@ function whatLeaves() {
         ? `Sessions from ${auto.map((a) => esc(a.name)).join(', ')} are sent automatically, with secrets hidden first.`
         : 'Only sessions you choose leave this computer, with secrets hidden first.';
 
-    return `${text} <button class="link" data-action="open" data-url="${esc(state.status?.what_leaves ?? 'https://coders.talk/plugins#what-leaves-your-machine')}">What leaves your computer</button>`;
+    return `${text} <button class="link" data-action="open" data-url="${esc(state.status?.what_leaves ?? 'https://keepplain.com/plugins#what-leaves-your-machine')}">What leaves your computer</button>`;
 }
 
 function agentCard(a) {
@@ -464,7 +474,7 @@ async function toggleAgent(id, on) {
         // The switch lands at once: reading the status again takes the agents' own commands a second or more, and
         // until then the old status would put it back where it was.
         const agent = state.status?.agents.find((a) => a.id === id);
-        if (agent) Object.assign(agent, { connected: on, managed: on, outdated: false, notes: [], plugins: on ? [{ id: 'coders-talk@coders-talk-local', version: state.status.version, source: 'local' }] : [] });
+        if (agent) Object.assign(agent, { connected: on, managed: on, outdated: false, notes: [], plugins: on ? [{ id: 'keepplain@keepplain-local', version: state.status.version, source: 'local' }] : [] });
         toast(on ? `${agentName(id)} connected` : `${agentName(id)} disconnected`);
         if (!op.todo.length) state.agentOp = null;
     }
@@ -595,7 +605,7 @@ async function sendConfirmed() {
     Object.assign(c, { sending: true, sendError: null, stage: 'Sending the checked session…', progress: 15 });
     render();
     const r = await call('send', { id: c.session.id }, (e) => {
-        if (e.event === 'created') Object.assign(c, { stage: 'Sent. Coders Talk is preparing your draft…', progress: 45, editUrl: e.edit_url, space: e.space });
+        if (e.event === 'created') Object.assign(c, { stage: 'Sent. KeepPlain is preparing your draft…', progress: 45, editUrl: e.edit_url, space: e.space });
         else if (e.event === 'stage') Object.assign(c, { stage: e.minutes ? `${e.label}… a long session takes about ${e.minutes} minutes` : `${e.label}…`, progress: Math.min(90, c.progress + 15) });
         else if (e.event === 'pending' || e.event === 'done') Object.assign(c, { progress: 100, result: e });
         render();
@@ -732,7 +742,7 @@ function viewSettings() {
         <div class="card">
             <h2>In your sessions</h2>
             <div class="setting mt-s"><div class="grow"><strong>Add my rules to new sessions</strong>
-                <div class="small muted">Your agent starts with the coding rules you keep on Coders Talk for this kind of project. No code is sent to pick them.</div></div>
+                <div class="small muted">Your agent starts with the coding rules you keep on KeepPlain for this kind of project. No code is sent to pick them.</div></div>
                 <label class="switch"><input type="checkbox" aria-label="Add my rules" data-action="rules" ${st.rules ? 'checked' : ''} ${set.busy ? 'disabled' : ''}><span></span></label></div>
             <div class="setting"><div class="grow"><strong>Suggest sharing helpful sessions</strong>
                 <div class="small muted">When a session used ideas from the library, your agent offers once to share it. It never sends anything itself.</div></div>
@@ -750,7 +760,7 @@ function viewSettings() {
         </div>
 
         <div class="card">
-            <div class="setting"><div class="grow"><h2>Coders Talk ${esc(state.init?.app ?? '')}</h2>
+            <div class="setting"><div class="grow"><h2>KeepPlain ${esc(state.init?.app ?? '')}</h2>
                 <div class="small muted">${esc(updateLine(state.update)) || 'Updates are checked when the app starts and every few hours, and install when you restart it.'}</div></div>
                 ${
                     state.update.state === 'ready'
@@ -762,7 +772,7 @@ function viewSettings() {
 
         <div class="card">
             <div class="setting"><div class="grow"><h2>Disconnect this computer</h2>
-                <div class="small muted">Removes Coders Talk from your agents and signs out here. Your drafts stay on the site.</div></div>
+                <div class="small muted">Removes KeepPlain from your agents and signs out here. Your drafts stay on the site.</div></div>
                 <button class="btn danger" data-action="disconnect" ${set.busy ? 'disabled' : ''}>${set.busy === 'disconnect' ? '<span class="spinner"></span> Disconnecting…' : 'Disconnect'}</button></div>
         </div>
     </div>`;
@@ -786,8 +796,8 @@ function saveWords(words) {
 
 async function disconnect() {
     const yes = await call('confirm', {
-        message: 'Disconnect this computer from Coders Talk?',
-        detail: 'Coders Talk is removed from your agents and you are signed out here. Your drafts and Builds stay on the site.',
+        message: 'Disconnect this computer from KeepPlain?',
+        detail: 'KeepPlain is removed from your agents and you are signed out here. Your drafts and Builds stay on the site.',
         yes: 'Disconnect',
     });
     if (!yes) return;

@@ -1,4 +1,4 @@
-// Generated from coders.talk resources/js/lib/taskGrouping.ts by `npm run plugin:sync`. Do not edit here: change the site's
+// Generated from the site's resources/js/lib/taskGrouping.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
 // sha256:61d5de30b39df52aa8617461ac1b1c4666c88d738e1c9a2880b9eeb816a8ffc7
 

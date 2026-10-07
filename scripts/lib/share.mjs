@@ -1,11 +1,11 @@
 /**
- * A published Build on GitHub (coders.talk github-distribution-plan, stages 37 and 39): the block "How this change was
+ * A published Build on GitHub (KeepPlain github-distribution-plan, stages 37 and 39): the block "How this change was
  * built" in the description of the session's pull request, and the "Built with AI" section of the README. The site
  * writes the blocks (GET /api/v1/share); this puts them in place with the person's own GitHub CLI (`gh`), so the site
  * never needs to write to GitHub. The README is changed in the working tree only: the commit is the person's.
  *
- * Each block sits between markers, and a new one replaces the old: <!-- coders-talk:build <slug> --> … <!-- /coders-talk:build -->
- * in a pull request (one per Build: a pull request may carry several), <!-- coders-talk:repo --> … <!-- /coders-talk:repo -->
+ * Each block sits between markers, and a new one replaces the old: <!-- keepplain:build <slug> --> … <!-- /keepplain:build -->
+ * in a pull request (one per Build: a pull request may carry several), <!-- keepplain:repo --> … <!-- /keepplain:repo -->
  * in a README. The rest of the text stays as it was, line endings included.
  *
  * Auto mode (`share auto on`, or Settings → GitHub on the site) is the SessionStart hook's: in a repository on
@@ -13,7 +13,7 @@
  * repository and not yet in a pull request, and puts each into its open pull request. Only once this computer knows
  * the mode is on (`share auto on`, or the site said so in /api/v1/me): until then no repository's address leaves the
  * machine for it. What it did is shown at the next start, once (takeNotices): nothing goes to GitHub without the
- * person hearing of it. ~/.coders-talk/share.json keeps whether it is on, when each repository was last checked and
+ * person hearing of it. ~/.keepplain/share.json keeps whether it is on, when each repository was last checked and
  * the notices.
  */
 import { spawnSync } from 'node:child_process';
@@ -60,12 +60,12 @@ function replaceBlock(text, open, close, block) {
 
 /** A pull request's description with this Build's block in it. */
 export function withPrBlock(body, slug, block) {
-    return replaceBlock(body ?? '', `<!-- coders-talk:build ${slug} -->`, '<!-- /coders-talk:build -->', block);
+    return replaceBlock(body ?? '', `<!-- keepplain:build ${slug} -->`, '<!-- /keepplain:build -->', block);
 }
 
 /** A README with the "Built with AI" section in it. */
 export function withReadmeBlock(text, block) {
-    return replaceBlock(text ?? '', '<!-- coders-talk:repo -->', '<!-- /coders-talk:repo -->', block);
+    return replaceBlock(text ?? '', '<!-- keepplain:repo -->', '<!-- /keepplain:repo -->', block);
 }
 
 /** The README at the repository's root, whatever its case; README.md when there is none. */
@@ -82,10 +82,10 @@ export function readText(path) {
 /**
  * The GitHub CLI: {ok, out, err, missing}. Found in PATH the way the agents' CLIs are (lib/agents.mjs, findProgram):
  * gh.exe, or on Windows a gh.cmd, which runs only through a shell (plugin.mjs, cmdCommand: every argument here is ours
- * or a GitHub address, and the description goes on stdin). CODERS_TALK_GH names another program: the tests' stand-in.
+ * or a GitHub address, and the description goes on stdin). KEEPPLAIN_GH names another program: the tests' stand-in.
  */
 export function gh(args, { cwd = process.cwd(), input = undefined, env = process.env, timeout = 30_000 } = {}) {
-    const given = env.CODERS_TALK_GH;
+    const given = env.KEEPPLAIN_GH;
     const program = given ? (isAbsolute(given) ? (existsSync(given) ? given : null) : findProgram(given, env)) : findProgram('gh', env);
     if (!program) return { ok: false, out: '', err: 'gh is not in PATH.', missing: true };
     const options = { cwd, input, env, encoding: 'utf8', timeout, windowsHide: true, maxBuffer: 16 * 1024 * 1024 };

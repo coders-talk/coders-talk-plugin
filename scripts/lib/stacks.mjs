@@ -1,5 +1,5 @@
 /**
- * The stacks a repository is on (coders.talk plan: personal rules, stage 37), from its manifests: composer.json,
+ * The stacks a repository is on (KeepPlain plan: personal rules, stage 37), from its manifests: composer.json,
  * package.json, pyproject.toml and the like, at its root and one folder down (a monorepo's apps). Read here, on the
  * person's computer; only the stacks' names go to the site, to ask for the rules of those stacks.
  *

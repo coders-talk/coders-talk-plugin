@@ -49,8 +49,8 @@ before(async () => {
     mkdirSync(join(home, 'claude', 'projects', 'C--code-shop'), { recursive: true });
     for (const id of Object.values(ids)) copyFileSync(fileURLToPath(new URL('./fixtures/slim/claude-code.jsonl', import.meta.url)), join(home, 'claude', 'projects', 'C--code-shop', `${id}.jsonl`));
     mkdirSync(join(home, 'codex'));
-    env = { ...process.env, CODERS_TALK_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), CODERS_TALK_URL: site, CODERS_TALK_NO_UPDATE_CHECK: '1', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' };
-    for (const name of ['CODERS_TALK_TOKEN', 'CODERS_TALK_AUTO', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
+    env = { ...process.env, KEEPPLAIN_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), KEEPPLAIN_URL: site, KEEPPLAIN_NO_UPDATE_CHECK: '1', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' };
+    for (const name of ['KEEPPLAIN_TOKEN', 'KEEPPLAIN_AUTO', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
 });
 after(() => server.close());
 
@@ -84,7 +84,7 @@ test('the block goes in after the shebang, keeps the hook that was there, and co
     assert.deepEqual(installedHooks(hooks), ['prepare-commit-msg', 'pre-push']);
     // Again: one block, not two.
     installHooks(hooks, program, { trailers: false });
-    assert.equal(readFileSync(join(hooks.dir, 'pre-push'), 'utf8').split('# >>> coders-talk').length, 2);
+    assert.equal(readFileSync(join(hooks.dir, 'pre-push'), 'utf8').split('# >>> keepplain').length, 2);
     assert.deepEqual(installedHooks(hooks), ['pre-push']);
 
     assert.deepEqual(removeHooks(hooks), ['pre-push']);
@@ -130,9 +130,9 @@ test('a push finds the sessions behind it: a line without auto mode, a send in p
     git(repo.dir, 'commit', '-q', '-m', 'Limiter by email');
 
     const said = await gitErr(repo.dir, 'push', 'origin', 'main');
-    assert.match(said, /Coders Talk: 1 session behind this push not sent\. coders-talk sessions lists them, coders-talk build <#> sends one\./);
+    assert.match(said, /KeepPlain: 1 session behind this push not sent\. keepplain sessions lists them, keepplain build <#> sends one\./);
     assert.equal(git(remote, 'rev-parse', 'main'), git(repo.dir, 'rev-parse', 'main'), 'the push went through');
-    assert.equal(git(remote, 'for-each-ref', 'refs/coders-talk/'), '', 'the snapshots stay here');
+    assert.equal(git(remote, 'for-each-ref', 'refs/keepplain/'), '', 'the snapshots stay here');
     assert.equal(imports.length, 0);
 
     writeFileSync(join(home, 'ct', 'auto.json'), JSON.stringify({ [site]: { mode: 'push' } }));
@@ -141,7 +141,7 @@ test('a push finds the sessions behind it: a line without auto mode, a send in p
     takeSnapshot({ session_id: id, cwd: repo.dir }, 'stop', { dir: join(home, 'ct', 'snapshots'), budgetMs: SLOW_OK });
     git(repo.dir, 'commit', '-q', '-am', 'Tests for the limiter');
     const quiet = await gitErr(repo.dir, 'push', 'origin', 'main');
-    assert.doesNotMatch(quiet, /Coders Talk/);
+    assert.doesNotMatch(quiet, /KeepPlain/);
     await waitFor(() => imports.length > 0);
     assert.equal(imports.length, 1);
     assert.match(imports[0], new RegExp(`name="session_id"\\r\\n\\r\\n${id}`));
@@ -184,7 +184,7 @@ test('enable puts the hooks in the repository it runs in, status shows them, dis
     git(repo.dir, 'config', 'core.hooksPath', '.husky/_');
     const husky = await cli(['enable', '--yes', '--agent=codex', '--git-hooks']);
     assert.match(husky, /keeps its hooks in .+husky.+ \(core\.hooksPath\), which is not ours to change/);
-    assert.match(husky, /Add these lines to the hooks in .+:\n\nprepare-commit-msg:\n# >>> coders-talk/);
+    assert.match(husky, /Add these lines to the hooks in .+:\n\nprepare-commit-msg:\n# >>> keepplain/);
     assert.equal(existsSync(join(repo.dir, '.husky')), false);
 });
 
@@ -196,21 +196,21 @@ test('status and the pre-push hook (and build, in a terminal) drop this reposito
     mkdirSync(store, { recursive: true });
     // A session whose snapshot file is still here keeps its ref; one whose file went (14 days) loses it.
     writeFileSync(join(store, `${kept}.json`), JSON.stringify({ session_id: kept, root: repo.dir, snapshots: [] }));
-    const refs = () => git(repo.dir, 'for-each-ref', '--format=%(refname)', 'refs/coders-talk/').split('\n').filter(Boolean).sort();
+    const refs = () => git(repo.dir, 'for-each-ref', '--format=%(refname)', 'refs/keepplain/').split('\n').filter(Boolean).sort();
     const reset = () => {
-        for (const id of [stale, kept]) git(repo.dir, 'update-ref', `refs/coders-talk/${id}`, repo.hashes[2]);
+        for (const id of [stale, kept]) git(repo.dir, 'update-ref', `refs/keepplain/${id}`, repo.hashes[2]);
     };
 
     reset();
     await run(...coders(['status']), { cwd: repo.dir, env });
-    assert.deepEqual(refs(), [`refs/coders-talk/${kept}`]);
+    assert.deepEqual(refs(), [`refs/keepplain/${kept}`]);
 
     reset();
     // What git gives the hook on stdin: nothing to push here.
     const push = run(...coders(['git-hook', 'pre-push', 'origin', 'git@github.com:mara/shop.git']), { cwd: repo.dir, env });
     push.child.stdin.end();
     await push;
-    assert.deepEqual(refs(), [`refs/coders-talk/${kept}`]);
+    assert.deepEqual(refs(), [`refs/keepplain/${kept}`]);
     // Only refs: the objects stay until the person's own git gc.
     assert.equal(git(repo.dir, 'cat-file', '-t', repo.hashes[2]), 'commit');
 });

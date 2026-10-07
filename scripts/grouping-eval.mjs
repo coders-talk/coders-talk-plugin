@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The grouping's check on real sessions (coders.talk grouping plan, stage 25.4). Reads this computer's Claude Code and
+ * The grouping's check on real sessions (KeepPlain grouping plan, stage 25.4). Reads this computer's Claude Code and
  * Codex sessions of some folders, finds in each what the site's TaskMatcher scores by (task numbers, changed files,
  * branch, the git chain, the app's title, continuations and forks), groups them the way the site would with the
  * weights of config/grouping.json (scripts/lib/grouping.mjs, synced from the site), and compares that with tasks
@@ -201,5 +201,5 @@ function score(list) {
         const mark = attach === GROUPING_CONFIG.thresholds.attach ? '  ← configured' : '';
         console.log(`${attach.toFixed(2).padEnd(7)} ${p.toFixed(3).padEnd(10)} ${r.toFixed(3).padEnd(7)} ${together}${mark}`);
     }
-    console.log('Goal (plan 25.4): precision ≥ 0.9 at recall ≥ 0.6. Change the weights in coders.talk config/grouping.json, sync, and score again.');
+    console.log('Goal (plan 25.4): precision ≥ 0.9 at recall ≥ 0.6. Change the weights in KeepPlain config/grouping.json, sync, and score again.');
 }

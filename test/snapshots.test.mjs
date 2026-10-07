@@ -39,7 +39,7 @@ test('each turn: what the person changed by hand, what the agent changed, the co
     git(dir, 'commit', '-q', '-m', 'Unrelated commit by the agent', '--allow-empty');
     snap('stop', 30);
 
-    assert.ok(git(dir, 'rev-parse', `refs/coders-talk/${ID}`));
+    assert.ok(git(dir, 'rev-parse', `refs/keepplain/${ID}`));
     assert.notEqual(git(dir, 'rev-parse', 'HEAD'), readSnapshots(ID, store).commit);
 
     const lines = gitChangeLines(ID, [at(20)], store);
@@ -125,15 +125,15 @@ test('old snapshots go, and with them their refs', () => {
     const old = 'c1b2c3d4-0000-4000-8000-000000000003';
     snap('start', 0, old);
     snap('start', 0);
-    assert.ok(git(dir, 'for-each-ref', 'refs/coders-talk/').includes(old));
+    assert.ok(git(dir, 'for-each-ref', 'refs/keepplain/').includes(old));
 
     rmSync(join(store, `${old}.json`));
     pruneSnapshots(dir, { dir: store });
-    const refs = git(dir, 'for-each-ref', '--format=%(refname)', 'refs/coders-talk/');
-    assert.equal(refs, `refs/coders-talk/${ID}`);
+    const refs = git(dir, 'for-each-ref', '--format=%(refname)', 'refs/keepplain/');
+    assert.equal(refs, `refs/keepplain/${ID}`);
 
     pruneSnapshots(dir, { dir: store, now: Date.now() + 15 * 86_400_000 });
     assert.equal(existsSync(join(store, `${ID}.json`)), false);
-    assert.equal(git(dir, 'for-each-ref', 'refs/coders-talk/'), '');
+    assert.equal(git(dir, 'for-each-ref', 'refs/keepplain/'), '');
     assert.ok(readFileSync(join(dir, 'app.txt'), 'utf8'));
 });

@@ -1,6 +1,6 @@
-// Generated from coders.talk resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here: change the site's
+// Generated from the site's resources/js/lib/slimSession.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
-// sha256:49f6629115cb84c00b26919e5a00cbe32373301e7c6d2a30e85d71ab114d3009
+// sha256:e0dd0d64ce8a7cd9578e091d5220f9c785851a3e2abd2b31f235f50f22751dae
 
 /**
  * Claude Code and Codex sessions are mostly weight nobody reads: screenshots as base64, whole files
@@ -40,7 +40,7 @@ const TOOL_CHARS = 8000;
 /** One file change is shown whole up to here; the counts always cover all of it. */
 const CHANGE_LINES = 300;
 const CHANGE_CHARS = 20000;
-/** What is left of a call to the Coders Talk library and of its answer: the searches and other people's sessions stay here. */
+/** What is left of a call to the KeepPlain library and of its answer: the searches and other people's sessions stay here. */
 export const LIBRARY_MARKER = '[library call — not kept]';
 /**
  * What the answer of a call that names a file that may hold secrets becomes (a read, a search, a shell print, an edit, a
@@ -124,12 +124,13 @@ const SHELL_TOOLS = ['bash', 'shell', 'sh', 'zsh', 'powershell', 'pwsh', 'cmd', 
 const PATH_KEYS = ['file_path', 'filePath', 'path', 'notebook_path', 'file', 'filename'];
 const isSecretFile = (path) => typeof path === 'string' && path !== '' && withheldReason(path.replace(/\\/g, '/')) === 'sensitive';
 /**
- * The Coders Talk library's tools: mcp__…coders-talk…__*, plugin_coders-talk*, or one of its tool names however
- * prefixed; older Hermes versions join server and tool with one underscore (mcp_coders_talk_search_…).
+ * The KeepPlain library's tools: mcp__…keepplain…__*, plugin_keepplain*, or one of its tool names however
+ * prefixed; older Hermes versions join server and tool with one underscore (mcp_keepplain_search_…). Sessions from
+ * before the rename call it coders-talk / coders_talk.
  */
 export function isLibraryTool(name) {
     const lower = name.toLowerCase();
-    if (/^mcp__.*coders[-_]?talk.*__/.test(lower) || lower.startsWith('plugin_coders-talk') || lower.startsWith('plugin_coders_talk'))
+    if (/^mcp__.*(?:keepplain|coders[-_]?talk).*__/.test(lower) || /^plugin_(?:keepplain|coders[-_]talk)/.test(lower))
         return true;
     if (lower.startsWith('mcp_') && LIBRARY_TOOLS.some((tool) => lower.endsWith(`_${tool}`)))
         return true;
@@ -157,7 +158,7 @@ function namesSecretPath(a) {
     return [...PATH_KEYS.map((k) => a[k]), ...paths].some(isSecretFile);
 }
 /**
- * What becomes of a call's answer: 'library' for the Coders Talk library's tools (and a Codex script that calls one),
+ * What becomes of a call's answer: 'library' for the KeepPlain library's tools (and a Codex script that calls one),
  * 'sensitive' when the call names a file that may hold secrets, whatever it does with it (Read, Grep, Edit, `cat .env`,
  * a script's `exec_command({ cmd: "cat .env" })`); null otherwise. The same rules as the server's SessionSlimmer::callMark.
  */
@@ -1037,7 +1038,7 @@ function only(d, keys) {
 }
 /**
  * The slim JSON lines of a session, or null when the text is not JSON lines: then it goes as it is.
- * Also used by the Claude Code plugin (coders-talk-plugin, scripts/lib/slim.mjs via `npm run plugin:sync`).
+ * Also used by the Claude Code plugin (keepplain-plugin, scripts/lib/slim.mjs via `npm run plugin:sync`).
  */
 export function slimJsonl(text) {
     const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');

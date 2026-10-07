@@ -1,4 +1,4 @@
-// Generated from coders.talk resources/js/lib/sessionUsage.ts by `npm run plugin:sync`. Do not edit here: change the site's
+// Generated from the site's resources/js/lib/sessionUsage.ts by `npm run plugin:sync`. Do not edit here: change the site's
 // file and sync again. test/generated.test.mjs checks this hash of everything below, so an edit here fails the tests.
 // sha256:17c133360874f1ad8414fe52ba2da80be50d83551e3631ad06ec500be2946bac
 

@@ -1,4 +1,4 @@
-// scripts/lib/privacy.mjs against the cases shared with the site (copied by `npm run plugin:sync` in coders.talk):
+// scripts/lib/privacy.mjs against the cases shared with the site (copied by `npm run plugin:sync` in KeepPlain):
 // the check here must redact what App\Services\Import\SecretScanner would, or the site's second look finds it first.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

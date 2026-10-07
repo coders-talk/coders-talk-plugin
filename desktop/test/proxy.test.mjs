@@ -1,12 +1,12 @@
-// The system's proxy for coders-talk (src/main/proxy.mjs): what Chromium's resolveProxy answers becomes the variables
-// coders-talk reads, and a proxy the person named stays theirs.
+// The system's proxy for keepplain (src/main/proxy.mjs): what Chromium's resolveProxy answers becomes the variables
+// keepplain reads, and a proxy the person named stays theirs.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { proxyVariables, withSystemProxy } from '../src/main/proxy.mjs';
 
 const local = 'localhost,127.0.0.1,::1';
 
-test('a VPN client in system-proxy mode: its HTTP or SOCKS5 port goes to coders-talk', () => {
+test('a VPN client in system-proxy mode: its HTTP or SOCKS5 port goes to keepplain', () => {
     assert.deepEqual(proxyVariables('PROXY 127.0.0.1:10809', {}), { HTTPS_PROXY: 'http://127.0.0.1:10809', HTTP_PROXY: 'http://127.0.0.1:10809', NO_PROXY: local });
     assert.deepEqual(proxyVariables('SOCKS5 127.0.0.1:1080; DIRECT', {}), { HTTPS_PROXY: 'socks5://127.0.0.1:1080', HTTP_PROXY: 'socks5://127.0.0.1:1080', NO_PROXY: local });
     assert.equal(proxyVariables('SOCKS 127.0.0.1:7890', {}).HTTPS_PROXY, 'socks5://127.0.0.1:7890', 'the Windows "socks=" setting');
@@ -24,9 +24,9 @@ test('a direct connection, or a proxy the person named, changes nothing', () => 
 
 test('each command asks for the site, and a failing question leaves the environment as it is', async () => {
     const asked = [];
-    const env = await withSystemProxy({ A: '1' }, 'https://coders.talk', async (url) => (asked.push(url), 'PROXY 127.0.0.1:2080'));
-    assert.deepEqual(asked, ['https://coders.talk']);
+    const env = await withSystemProxy({ A: '1' }, 'https://keepplain.com', async (url) => (asked.push(url), 'PROXY 127.0.0.1:2080'));
+    assert.deepEqual(asked, ['https://keepplain.com']);
     assert.equal(env.A, '1');
     assert.equal(env.HTTPS_PROXY, 'http://127.0.0.1:2080');
-    assert.deepEqual(await withSystemProxy({ A: '1' }, 'https://coders.talk', async () => { throw new Error('no session'); }), { A: '1' });
+    assert.deepEqual(await withSystemProxy({ A: '1' }, 'https://keepplain.com', async () => { throw new Error('no session'); }), { A: '1' });
 });

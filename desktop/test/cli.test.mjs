@@ -1,5 +1,5 @@
-// How the app runs coders-talk (src/main/cli.mjs): reading its JSON lines, telling a failure, and putting its own copy of
-// the file in ~/.coders-talk/bin only when that one is missing or older. A small Node script stands in for the program.
+// How the app runs keepplain (src/main/cli.mjs): reading its JSON lines, telling a failure, and putting its own copy of
+// the file in ~/.keepplain/bin only when that one is missing or older. A small Node script stands in for the program.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,7 +35,7 @@ function program(body) {
 
 test('runCli: events as they come, the result, and {"error"} as a failure with its details', async () => {
     const fake = program(`
-        if (args[0] === 'status') console.log(JSON.stringify({ site: 'https://coders.talk', json: args.includes('--json') }));
+        if (args[0] === 'status') console.log(JSON.stringify({ site: 'https://keepplain.com', json: args.includes('--json') }));
         if (args[0] === 'enable') {
             console.log(JSON.stringify({ event: 'plan', steps: ['a'] }));
             console.log('not json');
@@ -47,7 +47,7 @@ test('runCli: events as they come, the result, and {"error"} as a failure with i
     `);
 
     const status = await fake.run(['status']);
-    assert.deepEqual(status, { ok: true, result: { site: 'https://coders.talk', json: true }, events: [], error: null, details: null });
+    assert.deepEqual(status, { ok: true, result: { site: 'https://keepplain.com', json: true }, events: [], error: null, details: null });
 
     const seen = [];
     const enable = await fake.run(['enable'], { onEvent: (e) => seen.push(e.event) });
@@ -76,20 +76,20 @@ test('runCli: a cancelled sign-in says so', async () => {
 });
 
 test('a program that is not there is an error, not a crash', async () => {
-    const r = await runCli(join(tmpdir(), 'no-such-coders-talk'), ['status']);
+    const r = await runCli(join(tmpdir(), 'no-such-keepplain'), ['status']);
     assert.equal(r.ok, false);
-    assert.match(r.error, /Could not start coders-talk|ENOENT/);
+    assert.match(r.error, /Could not start keepplain|ENOENT/);
 });
 
-test('the environment coders-talk gets has no agent in it, and the shell PATH', () => {
+test('the environment keepplain gets has no agent in it, and the shell PATH', () => {
     const env = cliEnv({ CLAUDECODE: '1', CODEX_THREAD_ID: 'x', HOME: '/h', PATH: '/bin' }, '/opt/homebrew/bin:/bin');
     assert.equal(env.CLAUDECODE, undefined);
     assert.equal(env.CODEX_THREAD_ID, undefined);
-    assert.equal(env.CODERS_TALK_NO_UPDATE_CHECK, '1');
+    assert.equal(env.KEEPPLAIN_NO_UPDATE_CHECK, '1');
     assert.equal(process.platform === 'win32' ? env.Path : env.PATH, '/opt/homebrew/bin:/bin');
 });
 
-/** A coders-talk file that says it is $version, and answers `nudge --json` in JSON unless $json is false (a shell script). */
+/** A keepplain file that says it is $version, and answers `nudge --json` in JSON unless $json is false (a shell script). */
 function versioned(dir, version, { json = true, name = CLI_NAME } = {}) {
     mkdirSync(dir, { recursive: true });
     if (process.platform === 'win32') {
@@ -98,16 +98,16 @@ function versioned(dir, version, { json = true, name = CLI_NAME } = {}) {
     }
     const file = join(dir, name);
     const nudge = json ? `echo '{"nudge":true}'` : `echo 'The suggestion to share a session is on.'`;
-    writeFileSync(file, `#!/bin/sh\nif [ "$1" = nudge ]; then ${nudge}; exit 0; fi\necho "coders-talk ${version}"\n`);
+    writeFileSync(file, `#!/bin/sh\nif [ "$1" = nudge ]; then ${nudge}; exit 0; fi\necho "keepplain ${version}"\n`);
     chmodSync(file, 0o755);
 
     return file;
 }
 
-test('ensureCli puts the app\'s copy in ~/.coders-talk/bin when it is missing or older, and keeps a newer one', { skip: process.platform === 'win32' && 'needs an executable stand-in' }, () => {
+test('ensureCli puts the app\'s copy in ~/.keepplain/bin when it is missing or older, and keeps a newer one', { skip: process.platform === 'win32' && 'needs an executable stand-in' }, () => {
     const home = mkdtempSync(join(tmpdir(), 'ct-app-home-'));
-    const env = { ...process.env, CODERS_TALK_HOME: home };
-    delete env.CODERS_TALK_APP_CLI;
+    const env = { ...process.env, KEEPPLAIN_HOME: home };
+    delete env.KEEPPLAIN_APP_CLI;
     const bundled = versioned(join(home, 'app'), '0.15.0');
 
     const first = ensureCli({ bundled, env });
@@ -141,7 +141,7 @@ test('ensureCli puts the app\'s copy in ~/.coders-talk/bin when it is missing or
     // Neither speaks JSON: said plainly, nothing replaced.
     const old = versioned(join(home, 'old-app'), '0.15.0', { json: false });
     versioned(join(home, 'bin'), '0.15.0', { json: false });
-    assert.throws(() => ensureCli({ bundled: old, env }), /older than this app\. Run "coders-talk update"/);
+    assert.throws(() => ensureCli({ bundled: old, env }), /older than this app\. Run "keepplain update"/);
 
-    assert.throws(() => ensureCli({ bundled: null, env: { ...env, CODERS_TALK_HOME: join(home, 'empty') } }), /Could not find the coders-talk program/);
+    assert.throws(() => ensureCli({ bundled: null, env: { ...env, KEEPPLAIN_HOME: join(home, 'empty') } }), /Could not find the keepplain program/);
 });

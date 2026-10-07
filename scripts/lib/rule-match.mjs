@@ -1,5 +1,5 @@
 /**
- * Which of a repository's rules a prompt is about (coders.talk plan: personal rules, stage 41): first the task, then
+ * Which of a repository's rules a prompt is about (KeepPlain plan: personal rules, stage 41): first the task, then
  * the rules for it. Matched here, on the person's computer, so the prompt never leaves it: the rule's keywords (the
  * site has a model write them, in English and in the language the person writes prompts in) count twice, the words
  * of the rule itself once. Words are cut to their first five letters, which is enough for "queues" to meet "queue"

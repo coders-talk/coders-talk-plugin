@@ -1,5 +1,5 @@
 /**
- * Git hooks of one repository (plan, stage 13.5): push as the edge of a piece of work. Put in by `coders-talk enable`
+ * Git hooks of one repository (plan, stage 13.5): push as the edge of a piece of work. Put in by `keepplain enable`
  * (--git-hooks) in the repository it runs in, only when asked; never globally.
  *
  *   prepare-commit-msg  adds `Agent-Session: <id>` for the sessions behind the commit (stage 11.4): a Claude Code
@@ -10,7 +10,7 @@
  *   pre-push            finds the sessions behind the commits going out (their trailers, and Claude Code snapshots
  *                       whose HEAD was one of them). With auto mode on, team or push they are sent in the background,
  *                       as ended; push sends only those. Without auto mode, one line on stderr says how many there are.
- *                       The push never waits and never fails because of it. The coders-talk refs are never pushed.
+ *                       The push never waits and never fails because of it. The keepplain refs are never pushed.
  *
  * Our lines are a block between markers, right after the shebang: an existing hook keeps its own lines, and taking the
  * block out leaves it as it was. The pre-push block reads the refs git writes on stdin and gives them back to the rest
@@ -30,8 +30,8 @@ import { SESSION_ID } from './session.mjs';
 
 export const TRAILER = 'Agent-Session';
 export const GIT_HOOKS = ['prepare-commit-msg', 'pre-push'];
-const BEGIN = '# >>> coders-talk';
-const END = '# <<< coders-talk';
+const BEGIN = '# >>> keepplain';
+const END = '# <<< keepplain';
 const ZERO = /^0+$/;
 const MAX_COMMITS = 500;
 
@@ -53,17 +53,17 @@ export function hooksOf(cwd) {
     return { root: resolve(root), dir: hooksPath ? resolve(root, hooksPath) : dir, shared: Boolean(hooksPath) };
 }
 
-/** The block for a hook: the file itself calls `coders-talk git-hook`, and never stops the commit or the push. */
+/** The block for a hook: the file itself calls `keepplain git-hook`, and never stops the commit or the push. */
 export function hookBlock(kind, program) {
     const run = shCommand(program);
     if (kind === 'pre-push') {
         return [
             BEGIN,
-            'coders_talk_refs=$(cat)',
-            `printf '%s\\n' "$coders_talk_refs" | ${run} git-hook pre-push "$@" || true`,
-            'exec 0<<CODERS_TALK_REFS',
-            '$coders_talk_refs',
-            'CODERS_TALK_REFS',
+            'keepplain_refs=$(cat)',
+            `printf '%s\\n' "$keepplain_refs" | ${run} git-hook pre-push "$@" || true`,
+            'exec 0<<KEEPPLAIN_REFS',
+            '$keepplain_refs',
+            'KEEPPLAIN_REFS',
             END,
         ].join('\n');
     }
@@ -113,7 +113,7 @@ export function manualHookLines(program, { trailers = true } = {}) {
     return (trailers ? GIT_HOOKS : ['pre-push']).map((kind) => `${kind}:\n${hookBlock(kind, program)}`).join('\n\n');
 }
 
-/** `coders-talk git-hook <kind> <git's arguments>`: never fails, prints only the pre-push line. */
+/** `keepplain git-hook <kind> <git's arguments>`: never fails, prints only the pre-push line. */
 export function runGitHook(kind, args, { site, input = '' } = {}) {
     try {
         const root = git(process.cwd(), ['rev-parse', '--show-toplevel']);
@@ -125,7 +125,7 @@ export function runGitHook(kind, args, { site, input = '' } = {}) {
             pruneSnapshots(root);
         }
     } catch {
-        // A commit or a push never fails because of Coders Talk.
+        // A commit or a push never fails because of KeepPlain.
     }
 }
 
@@ -193,7 +193,7 @@ function onPush(root, [remote], input, site) {
     }
     if (waiting.length) {
         const n = waiting.length;
-        console.error(`Coders Talk: ${n} session${n === 1 ? '' : 's'} behind this push not sent. coders-talk sessions lists them, coders-talk build <#> sends one.`);
+        console.error(`KeepPlain: ${n} session${n === 1 ? '' : 's'} behind this push not sent. keepplain sessions lists them, keepplain build <#> sends one.`);
     }
 }
 

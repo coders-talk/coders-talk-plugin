@@ -1,7 +1,7 @@
 name: Desktop app
 
-# The Coders Talk app for macOS and Windows (desktop/): a tag desktop--vX.Y.Z builds it on each platform with the
-# coders-talk file of the same commit inside, and publishes the installers as a GitHub release. A run by hand
+# The KeepPlain app for macOS and Windows (desktop/): a tag desktop--vX.Y.Z builds it on each platform with the
+# keepplain file of the same commit inside, and publishes the installers as a GitHub release. A run by hand
 # (workflow_dispatch) builds them as artifacts only.
 #
 # Signing: without the secrets the macOS app is signed ad hoc (Gatekeeper asks the person to allow it in System Settings →
@@ -48,7 +48,7 @@ jobs:
           [ "$version" = "$tag" ] || { echo "desktop/package.json says $version, the tag $tag"; exit 1; }
       - run: node scripts/build.mjs ${{ matrix.target }}
       - if: runner.os == 'macOS'
-        run: codesign -s - --force dist/coders-talk-*
+        run: codesign -s - --force dist/keepplain-*
       - name: Install
         working-directory: desktop
         run: npm ci
@@ -119,7 +119,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#desktop--v}"
-          # Never the repository's latest release: install.sh, install.ps1 and `coders-talk update` download the CLI from
-          # releases/latest and refuse a release that is not a coders-talk--v one (lib/update.mjs).
-          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --latest=false --title "Coders Talk app $version" \
-            --notes "The Coders Talk app for macOS (.dmg, Apple silicon and Intel) and Windows (.exe). It carries the coders-talk CLI and installs it in ~/.coders-talk/bin when it is missing or older."
+          # Never the repository's latest release: install.sh, install.ps1 and `keepplain update` download the CLI from
+          # releases/latest and refuse a release that is not a keepplain--v one (lib/update.mjs).
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --latest=false --title "KeepPlain app $version" \
+            --notes "The KeepPlain app for macOS (.dmg, Apple silicon and Intel) and Windows (.exe). It carries the keepplain CLI and installs it in ~/.keepplain/bin when it is missing or older."

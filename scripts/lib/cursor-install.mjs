@@ -1,15 +1,15 @@
 /**
- * Coders Talk in Cursor, as files of Cursor's own folder (~/.cursor). Cursor has no command that installs a plugin from a
+ * KeepPlain in Cursor, as files of Cursor's own folder (~/.cursor). Cursor has no command that installs a plugin from a
  * script (one that exists is not documented), and the plugin form of hooks depends on a setting and on a format its own
  * documentation and its releases disagree about; the user-level files are read by the IDE and the CLI alike, at every
  * start, and need nothing switched on:
  *
  *   ~/.cursor/hooks.json          the four hooks, next to whatever else is there: `<program> hook cursor <event>`
- *   ~/.cursor/skills/coders-talk-<name>/SKILL.md   /coders-talk-build, -auto, -login, -logout, -use, -share, -rules and the library's lookup
+ *   ~/.cursor/skills/keepplain-<name>/SKILL.md   /keepplain-build, -auto, -login, -logout, -use, -share, -rules and the library's lookup
  *   ~/.cursor/mcp.json            the library, as a remote server (Cursor signs in to it through the browser: OAuth)
  *
  * Only what is ours is ever changed: our hook entries are found by their command (`… hook cursor <event>`), our skills by
- * their names, the server by the name coders-talk. A file this cannot read (comments, a syntax error) is left alone, and
+ * their names, the server by the name keepplain. A file this cannot read (comments, a syntax error) is left alone, and
  * the lines to add are printed instead. `disable` takes it all out again.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -22,10 +22,10 @@ export const SKILLS = ['build', 'auto', 'login', 'logout', 'lookup', 'resume', '
 export const HOOK_EVENTS = { sessionStart: 'session-start', beforeSubmitPrompt: 'prompt', stop: 'stop', sessionEnd: 'session-end' };
 
 const paths = (env = process.env) => ({ hooks: join(cursorHome(env), 'hooks.json'), mcp: join(cursorHome(env), 'mcp.json'), skills: join(cursorHome(env), 'skills') });
-const skillFolder = (name) => `coders-talk-${name}`;
+const skillFolder = (name) => `keepplain-${name}`;
 
-/** Whether a hook entry is ours: it runs `… hook cursor <event>` of a program named coders-talk. */
-export const isOurs = (entry) => typeof entry?.command === 'string' && /coders-talk/i.test(entry.command) && /\shook cursor (?:session-start|prompt|stop|session-end)\s*$/.test(entry.command);
+/** Whether a hook entry is ours: it runs `… hook cursor <event>` of a program named keepplain. */
+export const isOurs = (entry) => typeof entry?.command === 'string' && /keepplain/i.test(entry.command) && /\shook cursor (?:session-start|prompt|stop|session-end)\s*$/.test(entry.command);
 
 /** A JSON file: {data} when it is one (or is not there yet: {}), {unreadable: true} when it is something else. */
 function readJson(path) {
@@ -92,7 +92,7 @@ export function installCursor({ files, run, server = null, env = process.env }) 
         if (mcp.unreadable) done.mcp = 'unreadable';
         else if (Object.values(mcp.data.mcpServers ?? {}).some((s) => sameServer(s?.url, server))) done.mcp = 'kept';
         else {
-            mcp.data.mcpServers = { ...(mcp.data.mcpServers ?? {}), 'coders-talk': { url: server } };
+            mcp.data.mcpServers = { ...(mcp.data.mcpServers ?? {}), 'keepplain': { url: server } };
             writeJson(where.mcp, mcp.data);
             done.mcp = 'added';
         }
@@ -101,7 +101,7 @@ export function installCursor({ files, run, server = null, env = process.env }) 
     return done;
 }
 
-/** Whether the SKILL.md at $file is ours: it names itself coders-talk-<name>. A folder someone else made under that name is theirs. */
+/** Whether the SKILL.md at $file is ours: it names itself keepplain-<name>. A folder someone else made under that name is theirs. */
 function isOurSkill(file, name) {
     try {
         return new RegExp(`^name: ${skillFolder(name)}\\s*$`, 'm').test(readFileSync(file, 'utf8'));
@@ -144,8 +144,8 @@ export function uninstallCursor({ removeServer = false, server = null, env = pro
 
     if (removeServer) {
         const mcp = readJson(where.mcp);
-        if (!mcp.unreadable && !mcp.missing && mcp.data.mcpServers?.['coders-talk'] && (!server || sameServer(mcp.data.mcpServers['coders-talk'].url, server))) {
-            delete mcp.data.mcpServers['coders-talk'];
+        if (!mcp.unreadable && !mcp.missing && mcp.data.mcpServers?.['keepplain'] && (!server || sameServer(mcp.data.mcpServers['keepplain'].url, server))) {
+            delete mcp.data.mcpServers['keepplain'];
             writeJson(where.mcp, mcp.data);
             removed.mcp = true;
         }
@@ -163,17 +163,17 @@ export function cursorInstalled(env = process.env, { id, marketplace, version } 
     if (!hasHooks && !skills.length) return [];
 
     // The version they were laid out in is not in them: the caller has it (enable.json) and passes it in.
-    return [{ id: id ?? 'coders-talk@coders-talk-local', version: version ?? null, marketplace: marketplace ?? 'coders-talk-local', hooks: hasHooks, skills }];
+    return [{ id: id ?? 'keepplain@keepplain-local', version: version ?? null, marketplace: marketplace ?? 'keepplain-local', hooks: hasHooks, skills }];
 }
 
-/** The Coders Talk servers in ~/.cursor/mcp.json: [{name, scope: 'user'}]. */
+/** The KeepPlain servers in ~/.cursor/mcp.json: [{name, scope: 'user'}]. */
 export function cursorMcpServers(site, env = process.env) {
     const mcp = readJson(paths(env).mcp);
     if (mcp.unreadable) return [];
     const own = `${site}/mcp`;
 
     return Object.entries(mcp.data.mcpServers ?? {})
-        .filter(([, s]) => sameServer(s?.url, own) || /^https:\/\/coders\.talk\/mcp\/?$/.test(s?.url ?? ''))
+        .filter(([, s]) => sameServer(s?.url, own) || /^https:\/\/keepplain\.com\/mcp\/?$/.test(s?.url ?? ''))
         .map(([name]) => ({ name, scope: 'user' }));
 }
 

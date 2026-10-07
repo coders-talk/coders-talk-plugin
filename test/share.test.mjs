@@ -1,4 +1,4 @@
-// `coders-talk share` (coders.talk github-distribution-plan, stage 39): a published Build in its pull request and the
+// `keepplain share` (KeepPlain github-distribution-plan, stage 39): a published Build in its pull request and the
 // README, against a stand-in for the site's /api/v1/share and a stand-in for the GitHub CLI, in a throwaway repository.
 // And the share auto mode: the SessionStart hook puts published Builds into their pull requests in the background.
 import assert from 'node:assert/strict';
@@ -20,8 +20,8 @@ const REPO = 'https://github.com/acme/shop';
 const PR = `${REPO}/pull/12`;
 const TOKEN = 'ct_test_token';
 
-const prBlock = [`<!-- coders-talk:build ${SLUG} -->`, '### How this change was built', '', '**Ported the DSP web app to Android**  ', '6h 24m · 1 human intervention', '', `[See how this change was built →](http://127.0.0.1/b/${SLUG}?utm_source=github&utm_medium=pr&utm_campaign=build)`, '<!-- /coders-talk:build -->'].join('\n');
-const readmeBlock = ['<!-- coders-talk:repo -->', '## Built with AI', '', '[![Built with AI on Coders Talk](http://127.0.0.1/embed/r/acme/shop.svg)](http://127.0.0.1/r/acme/shop)', '<!-- /coders-talk:repo -->'].join('\n');
+const prBlock = [`<!-- keepplain:build ${SLUG} -->`, '### How this change was built', '', '**Ported the DSP web app to Android**  ', '6h 24m · 1 human intervention', '', `[See how this change was built →](http://127.0.0.1/b/${SLUG}?utm_source=github&utm_medium=pr&utm_campaign=build)`, '<!-- /keepplain:build -->'].join('\n');
+const readmeBlock = ['<!-- keepplain:repo -->', '## Built with AI', '', '[![Built with AI on KeepPlain](http://127.0.0.1/embed/r/acme/shop.svg)](http://127.0.0.1/r/acme/shop)', '<!-- /keepplain:repo -->'].join('\n');
 
 function kit(extra = {}) {
     return {
@@ -113,7 +113,7 @@ let repo;
 let env;
 before(async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    env = { ...process.env, CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`, CODERS_TALK_TOKEN: TOKEN, CODERS_TALK_HOME: join(home, 'ct'), CODERS_TALK_GH: ghBin, CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), CODERS_TALK_NO_UPDATE_CHECK: '1', CODERS_TALK_NO_BROWSER: '1' };
+    env = { ...process.env, KEEPPLAIN_URL: `http://127.0.0.1:${server.address().port}`, KEEPPLAIN_TOKEN: TOKEN, KEEPPLAIN_HOME: join(home, 'ct'), KEEPPLAIN_GH: ghBin, CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), KEEPPLAIN_NO_UPDATE_CHECK: '1', KEEPPLAIN_NO_BROWSER: '1' };
     for (const name of ['CLAUDE_CODE_SESSION_ID', 'CLAUDE_SESSION_ID', 'CODEX_THREAD_ID', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
 });
 after(() => server.close());
@@ -134,15 +134,15 @@ const cli = (args, extra = {}) => run(...coders(['share', ...args]), { env: { ..
 
 test('blocks go between their markers: replaced when there, added after a blank line otherwise, line endings kept', () => {
     const once = withPrBlock('Ports the app.\r\n\r\nCloses #3.', SLUG, prBlock);
-    assert.match(once, /^Ports the app\.\r\n\r\nCloses #3\.\r\n\r\n<!-- coders-talk:build /);
+    assert.match(once, /^Ports the app\.\r\n\r\nCloses #3\.\r\n\r\n<!-- keepplain:build /);
     assert.ok(once.includes('\r\n### How this change was built\r\n'));
     assert.equal(withPrBlock(once, SLUG, prBlock), once, 'the same block again changes nothing');
     const newer = withPrBlock(once, SLUG, prBlock.replace('6h 24m', '6h 30m'));
-    assert.equal((newer.match(/<!-- coders-talk:build /g) ?? []).length, 1);
+    assert.equal((newer.match(/<!-- keepplain:build /g) ?? []).length, 1);
     assert.ok(newer.includes('6h 30m') && !newer.includes('6h 24m'));
     // Another Build's block in the same pull request stays.
     const two = withPrBlock(once, 'another-build-a1b2c', prBlock.replaceAll(SLUG, 'another-build-a1b2c'));
-    assert.equal((two.match(/<!-- coders-talk:build /g) ?? []).length, 2);
+    assert.equal((two.match(/<!-- keepplain:build /g) ?? []).length, 2);
     assert.equal(withPrBlock('', SLUG, prBlock), `${prBlock}\n`);
 
     const readme = withReadmeBlock('# Shop\n', readmeBlock);
@@ -155,8 +155,8 @@ test("gh is found in PATH as the agents' CLIs are: on Windows by PATHEXT, a .cmd
     mkdirSync(bin, { recursive: true });
     copyFileSync(ghBin, join(bin, basename(ghBin)));
     chmodSync(join(bin, basename(ghBin)), 0o755);
-    // Only PATH says where gh is: no CODERS_TALK_GH, and Windows' own Path out of the way.
-    const pathEnv = Object.fromEntries(Object.entries(env).filter(([key]) => key.toUpperCase() !== 'PATH' && key !== 'CODERS_TALK_GH'));
+    // Only PATH says where gh is: no KEEPPLAIN_GH, and Windows' own Path out of the way.
+    const pathEnv = Object.fromEntries(Object.entries(env).filter(([key]) => key.toUpperCase() !== 'PATH' && key !== 'KEEPPLAIN_GH'));
 
     assert.equal(ghProblem({ env: { ...pathEnv, PATH: [bin, process.env.PATH].join(delimiter) } }), null);
     assert.deepEqual(gh().calls, ['--version', 'auth status']);
@@ -199,7 +199,7 @@ test('--pr shows the change first, and --write makes it with gh, keeping the res
     assert.match(written.out, /Done: https:\/\/github\.com\/acme\/shop\/pull\/12/);
     assert.match(written.out, /The Build links to the pull request now/);
     const body = gh().prs[0].body;
-    assert.ok(body.startsWith('Ports the app.\r\n\r\nCloses #3.\r\n\r\n<!-- coders-talk:build '), body);
+    assert.ok(body.startsWith('Ports the app.\r\n\r\nCloses #3.\r\n\r\n<!-- keepplain:build '), body);
     assert.deepEqual(attachments, [{ build: SLUG, target: 'pr', url: PR }]);
 
     const again = await cli([SLUG, '--pr', '--write']);
@@ -213,9 +213,9 @@ test('without a pull request or without gh it says what to do, and gives the blo
     const none = await cli([SLUG, '--pr', '--write']);
     assert.equal(none.ok, false);
     assert.match(none.out, /No pull request found for this session \(branch feat\/android\)\. Open one first \(gh pr create\), or name it/);
-    assert.match(none.out, /Or paste the block into the description by hand:\n<!-- coders-talk:build /);
+    assert.match(none.out, /Or paste the block into the description by hand:\n<!-- keepplain:build /);
 
-    const missing = await cli([SLUG, '--pr', '--write'], { CODERS_TALK_GH: join(home, 'no-such-gh') });
+    const missing = await cli([SLUG, '--pr', '--write'], { KEEPPLAIN_GH: join(home, 'no-such-gh') });
     assert.equal(missing.ok, false);
     assert.match(missing.out, /install gh \(https:\/\/cli\.github\.com\)/);
 
@@ -252,7 +252,7 @@ test('auto mode: off, nothing leaves; on, the session start puts the Build into 
     const on = await cli(['auto', 'on']);
     assert.match(on.out, /^On: when a session starts in a public repository/);
     assert.equal(autoPr, true);
-    assert.equal(shareCheckDue(env.CODERS_TALK_URL, repo, join(home, 'ct')), true);
+    assert.equal(shareCheckDue(env.KEEPPLAIN_URL, repo, join(home, 'ct')), true);
 
     assert.equal(await start(), '');
     // The background run tells the site, then notes the notice and, last, the log line: wait for that one.
@@ -260,11 +260,11 @@ test('auto mode: off, nothing leaves; on, the session start puts the Build into 
     await waitFor(() => existsSync(log) && readFileSync(log, 'utf8').includes(`share ${SLUG}: attached to ${PR}`));
     assert.match(readFileSync(log, 'utf8'), new RegExp(`share ${SLUG}: attached to ${PR}`));
     assert.deepEqual(attachments, [{ build: SLUG, target: 'pr', url: PR, auto: true }]);
-    assert.ok(gh().prs[0].body.includes(`<!-- coders-talk:build ${SLUG} -->`));
+    assert.ok(gh().prs[0].body.includes(`<!-- keepplain:build ${SLUG} -->`));
 
     // The next start tells, once, and does not check again within the hour.
     const said = JSON.parse(await start());
-    assert.match(said.systemMessage, /Coders Talk put your Build "Ported the DSP web app to Android" into https:\/\/github\.com\/acme\/shop\/pull\/12 \(auto mode/);
+    assert.match(said.systemMessage, /KeepPlain put your Build "Ported the DSP web app to Android" into https:\/\/github\.com\/acme\/shop\/pull\/12 \(auto mode/);
     assert.equal(await start(), '');
     await new Promise((r) => setTimeout(r, 500));
     assert.equal(pendingAsked, 1);
@@ -272,6 +272,6 @@ test('auto mode: off, nothing leaves; on, the session start puts the Build into 
     // Switched off on the site: the next preview's /api/v1/me or whoami tells this computer.
     autoPr = false;
     await run(...coders(['whoami']), { env, cwd: repo });
-    assert.equal(shareCheckDue(env.CODERS_TALK_URL, join(repo, 'elsewhere'), join(home, 'ct')), false);
+    assert.equal(shareCheckDue(env.KEEPPLAIN_URL, join(repo, 'elsewhere'), join(home, 'ct')), false);
     assert.ok(existsSync(join(home, 'ct', 'share.json')));
 });

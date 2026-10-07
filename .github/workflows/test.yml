@@ -21,7 +21,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm test
 
-  # The single coders-talk file (plan, stage 13.1): built with Bun, then the tests that run commands and hooks, on it.
+  # The single keepplain file (plan, stage 13.1): built with Bun, then the tests that run commands and hooks, on it.
   binary:
     name: Single file on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -37,7 +37,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: npm run build
       - if: runner.os == 'macOS'
-        run: codesign -s - --force dist/coders-talk-*
+        run: codesign -s - --force dist/keepplain-*
       - run: ls -l dist
         shell: bash
       - run: npm run test:binary

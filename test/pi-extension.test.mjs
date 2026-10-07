@@ -1,6 +1,6 @@
-// Pi's extension (pi/extensions/coders-talk.js), driven the way Pi drives it: a stand-in for Pi's extension API that
-// records what is registered, and a stand-in for the coders-talk program that records how it was called and answers as the
-// test says. The extension is loaded from a copy with its PROGRAM line filled in, as `coders-talk enable` lays it out, and a
+// Pi's extension (pi/extensions/keepplain.js), driven the way Pi drives it: a stand-in for Pi's extension API that
+// records what is registered, and a stand-in for the keepplain program that records how it was called and answers as the
+// test says. The extension is loaded from a copy with its PROGRAM line filled in, as `keepplain enable` lays it out, and a
 // stub of `typebox` (Pi provides the real one to the extensions it loads).
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -39,10 +39,10 @@ process.stdout.write(hit?.out ?? '');
 process.stderr.write(hit?.err ?? '');
 process.exit(hit?.code ?? 0);
 `);
-    const source = readFileSync(fileURLToPath(new URL('../pi/extensions/coders-talk.js', import.meta.url)), 'utf8');
+    const source = readFileSync(fileURLToPath(new URL('../pi/extensions/keepplain.js', import.meta.url)), 'utf8');
     assert.ok(source.includes('const PROGRAM = null;'));
-    writeFileSync(join(dir, 'coders-talk.js'), source.replace('const PROGRAM = null;', `const PROGRAM = ${JSON.stringify([process.execPath, cli])};`));
-    ext = await import(pathToFileURL(join(dir, 'coders-talk.js')).href);
+    writeFileSync(join(dir, 'keepplain.js'), source.replace('const PROGRAM = null;', `const PROGRAM = ${JSON.stringify([process.execPath, cli])};`));
+    ext = await import(pathToFileURL(join(dir, 'keepplain.js')).href);
 });
 
 after(() => {
@@ -97,7 +97,7 @@ function fakeCtx({ id = 'sess-1', file = sessionFile, hasUI = true, confirm = []
 const said = (ctx) => ctx.state.said.map(([, text]) => text);
 
 /** Types a command in a fake Pi. */
-const type = async (name, args, ctx) => fakePi().commands.get(`coders-talk:${name}`).handler(args, ctx);
+const type = async (name, args, ctx) => fakePi().commands.get(`keepplain:${name}`).handler(args, ctx);
 
 /** Waits for a condition that a background task makes true (the login waits without holding the editor). */
 async function until(check, what) {
@@ -110,7 +110,7 @@ async function until(check, what) {
 
 test('what the extension registers: eight commands, five events and the library\'s three tools', () => {
     const pi = fakePi();
-    assert.deepEqual([...pi.commands.keys()], ['coders-talk:build', 'coders-talk:auto', 'coders-talk:login', 'coders-talk:logout', 'coders-talk:use', 'coders-talk:share', 'coders-talk:rules', 'coders-talk:lookup']);
+    assert.deepEqual([...pi.commands.keys()], ['keepplain:build', 'keepplain:auto', 'keepplain:login', 'keepplain:logout', 'keepplain:use', 'keepplain:share', 'keepplain:rules', 'keepplain:lookup']);
     for (const [, command] of pi.commands) assert.ok(command.description.length > 10);
     assert.deepEqual([...pi.events.keys()].sort(), ['agent_settled', 'before_agent_start', 'session_shutdown', 'session_start']);
     assert.deepEqual([...pi.tools.keys()], ['search_my_work', 'get_task_context', 'get_session_excerpt', 'attach_session_to_task', 'search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures']);
@@ -131,28 +131,28 @@ test('words keeps quoted text together, and build\'s options are split between i
 
     assert.deepEqual(ext.buildOptions(ext.words('--private')), { preview: ['--private'], send: [] });
     assert.deepEqual(ext.buildOptions(ext.words('--team acme --keep 1,2')), { preview: ['--team=acme', '--keep=1,2'], send: [] });
-    assert.deepEqual(ext.buildOptions(ext.words('--team=acme --continues=https://coders.talk/b/x-1')), { preview: ['--team=acme'], send: ['--continues=https://coders.talk/b/x-1'] });
-    assert.deepEqual(ext.buildOptions(ext.words('https://coders.talk/b/x-1')), { preview: [], send: ['--continues=https://coders.talk/b/x-1'] });
+    assert.deepEqual(ext.buildOptions(ext.words('--team=acme --continues=https://keepplain.com/b/x-1')), { preview: ['--team=acme'], send: ['--continues=https://keepplain.com/b/x-1'] });
+    assert.deepEqual(ext.buildOptions(ext.words('https://keepplain.com/b/x-1')), { preview: [], send: ['--continues=https://keepplain.com/b/x-1'] });
     assert.deepEqual(ext.buildOptions(ext.words('something else')), { preview: [], send: [] });
 });
 
-test('/coders-talk:build: the preview, the person\'s yes in Pi\'s own dialog, then the send', async () => {
+test('/keepplain:build: the preview, the person\'s yes in Pi\'s own dialog, then the send', async () => {
     scenario([
         { match: '^preview', out: 'Session: sess-1\nPrompts: 2, tool calls: 7\nPrivacy: no secrets found.\n' },
-        { match: '^send', out: 'Draft created (private: only you see it): https://coders.talk/b/draft-x/edit\n' },
+        { match: '^send', out: 'Draft created (private: only you see it): https://keepplain.com/b/draft-x/edit\n' },
     ]);
     const ctx = fakeCtx({ confirm: [true] });
     await type('build', '--private', ctx);
 
     assert.deepEqual(called(), ['preview sess-1 --whole --agent=pi --private', 'send sess-1 --agent=pi']);
-    assert.deepEqual(said(ctx), ['Session: sess-1\nPrompts: 2, tool calls: 7\nPrivacy: no secrets found.', 'Draft created (private: only you see it): https://coders.talk/b/draft-x/edit']);
-    assert.deepEqual(ctx.state.asked, [['confirm', 'Send this session to Coders Talk?']]);
+    assert.deepEqual(said(ctx), ['Session: sess-1\nPrompts: 2, tool calls: 7\nPrivacy: no secrets found.', 'Draft created (private: only you see it): https://keepplain.com/b/draft-x/edit']);
+    assert.deepEqual(ctx.state.asked, [['confirm', 'Send this session to KeepPlain?']]);
     assert.equal(ctx.state.idle, 1, 'it waits for the agent to finish what it is doing');
     // The commands run as Pi runs its own: the session in their environment, in the folder Pi is in.
     for (const c of calls()) assert.deepEqual([c.id, c.file, c.agent, c.cwd.toLowerCase()], ['sess-1', sessionFile, 'true', work.toLowerCase()]);
 });
 
-test('/coders-talk:build: a no discards what was prepared, and sends nothing', async () => {
+test('/keepplain:build: a no discards what was prepared, and sends nothing', async () => {
     scenario([{ match: '^preview', out: 'Prompts: 2\n' }]);
     const ctx = fakeCtx({ confirm: [false] });
     await type('build', '', ctx);
@@ -161,20 +161,20 @@ test('/coders-talk:build: a no discards what was prepared, and sends nothing', a
     assert.equal(said(ctx).at(-1), 'Nothing was sent, and the prepared file is deleted.');
 });
 
-test('/coders-talk:build: what the privacy check found is numbered, and the person names the findings to send as they are', async () => {
+test('/keepplain:build: what the privacy check found is numbered, and the person names the findings to send as they are', async () => {
     scenario([
         { match: '^preview', out: 'Privacy: 3 findings\n  #1 email address in a prompt\n  #2 an API key\n  #3 a token\n' },
         { match: '^send', out: 'Draft created.\n' },
     ]);
     const ctx = fakeCtx({ confirm: [true], input: ['2, 3'] });
-    await type('build', '--team acme --continues https://coders.talk/b/first-1', ctx);
+    await type('build', '--team acme --continues https://keepplain.com/b/first-1', ctx);
 
     assert.equal(ctx.state.asked[0][0], 'input');
     assert.match(ctx.state.asked[0][1], /Send some findings as they are\?/);
     assert.deepEqual(called(), [
         'preview sess-1 --whole --agent=pi --team=acme',
         'preview sess-1 --whole --agent=pi --team=acme --keep=2,3',
-        'send sess-1 --agent=pi --continues=https://coders.talk/b/first-1',
+        'send sess-1 --agent=pi --continues=https://keepplain.com/b/first-1',
     ]);
 
     // An empty answer: everything found is redacted, and the preview is not run again.
@@ -184,7 +184,7 @@ test('/coders-talk:build: what the privacy check found is numbered, and the pers
     assert.deepEqual(called(), ['preview sess-1 --whole --agent=pi', 'send sess-1 --agent=pi']);
 });
 
-test('/coders-talk:build: a preview that fails is shown as an error and nothing is asked', async () => {
+test('/keepplain:build: a preview that fails is shown as an error and nothing is asked', async () => {
     scenario([{ match: '^preview', code: 1, err: 'Could not tell which session this is.' }]);
     const ctx = fakeCtx({ confirm: [true] });
     await type('build', '', ctx);
@@ -194,7 +194,7 @@ test('/coders-talk:build: a preview that fails is shown as an error and nothing 
     assert.deepEqual(called(), ['preview sess-1 --whole --agent=pi']);
 });
 
-test('/coders-talk:build: no saved session, nothing written yet, and no screen to ask on, are each said and nothing runs', async () => {
+test('/keepplain:build: no saved session, nothing written yet, and no screen to ask on, are each said and nothing runs', async () => {
     const none = fakeCtx({ file: null });
     await type('build', '', none);
     assert.deepEqual(ctx(none), [['warning', 'This session is not saved (Pi runs with --no-session), so there is nothing to send.']]);
@@ -212,7 +212,7 @@ test('/coders-talk:build: no saved session, nothing written yet, and no screen t
     } finally {
         console.error = original;
     }
-    assert.deepEqual(errors, ['Coders Talk asks before it sends: type /coders-talk:build in Pi, or run coders-talk build in a terminal.']);
+    assert.deepEqual(errors, ['KeepPlain asks before it sends: type /keepplain:build in Pi, or run keepplain build in a terminal.']);
     assert.deepEqual(called(), []);
 
     function ctx(c) {
@@ -223,7 +223,7 @@ test('/coders-talk:build: no saved session, nothing written yet, and no screen t
 test('the events go to the hooks as the other agents\' do: a JSON event on stdin, and the hook\'s message shown', async () => {
     scenario([
         { match: '^hook pi session-start', out: '{"systemMessage":"Auto mode is on: this session will be sent."}\n' },
-        { match: '^hook pi stop', out: '{"systemMessage":"Your agent used 1 Build from coders.talk in this session. Share yours: /coders-talk:build"}\n' },
+        { match: '^hook pi stop', out: '{"systemMessage":"Your agent used 1 Build from KeepPlain in this session. Share yours: /keepplain:build"}\n' },
         { match: '^hook pi session-end', out: 'not json' },
     ]);
     const pi = fakePi();
@@ -238,14 +238,14 @@ test('the events go to the hooks as the other agents\' do: a JSON event on stdin
     assert.deepEqual(JSON.parse(calls()[0].input), { hook_event_name: 'session-start', session_id: 'sess-1', transcript_path: sessionFile, cwd: work });
     // The prompt goes to the hook on stdin, for the rules it is about; it is matched there, on this computer.
     assert.equal(JSON.parse(calls()[1].input).prompt, 'Move the queues to Horizon');
-    assert.deepEqual(said(c), ['Auto mode is on: this session will be sent.', 'Your agent used 1 Build from coders.talk in this session. Share yours: /coders-talk:build']);
+    assert.deepEqual(said(c), ['Auto mode is on: this session will be sent.', 'Your agent used 1 Build from KeepPlain in this session. Share yours: /keepplain:build']);
 });
 
 test('the rules the start hands over go into the system prompt of every run, once (personal rules, stage 37)', async () => {
-    const rules = '## Coders Talk rules\n- Runs artisan on the host — Run it in the app container.\n';
-    const task = '## Coders Talk rules for this task\n- Workers stop after a deploy — Call horizon:terminate. (Laravel, yours)\n';
+    const rules = '## KeepPlain rules\n- Runs artisan on the host — Run it in the app container.\n';
+    const task = '## KeepPlain rules for this task\n- Workers stop after a deploy — Call horizon:terminate. (Laravel, yours)\n';
     scenario([
-        { match: '^hook pi session-start', out: JSON.stringify({ systemMessage: 'Coders Talk added 1 rule to this session: Laravel (1 yours). To see them: /coders-talk:rules', hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: rules } }) },
+        { match: '^hook pi session-start', out: JSON.stringify({ systemMessage: 'KeepPlain added 1 rule to this session: Laravel (1 yours). To see them: /keepplain:rules', hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: rules } }) },
         { match: '^hook pi prompt', out: JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: task } }) },
     ]);
     const answers = JSON.parse(process.env.FAKE_SCENARIO);
@@ -258,7 +258,7 @@ test('the rules the start hands over go into the system prompt of every run, onc
 
     await pi.events.get('session_start')({ reason: 'startup' }, c);
     scenario(answers);
-    assert.deepEqual(said(c), ['Coders Talk added 1 rule to this session: Laravel (1 yours). To see them: /coders-talk:rules']);
+    assert.deepEqual(said(c), ['KeepPlain added 1 rule to this session: Laravel (1 yours). To see them: /keepplain:rules']);
     // The start's rules and the ones the prompt is about, in every run after it.
     assert.deepEqual(await before({ prompt: 'Workers stopped again', systemPrompt: 'You are Pi.' }, c), { systemPrompt: `You are Pi.\n\n${rules}\n\n${task}` });
     assert.equal(await before({ prompt: 'and again', systemPrompt: `You are Pi.\n\n${rules}\n\n${task}` }, c), undefined, 'not twice');
@@ -290,39 +290,39 @@ test('a hook that fails does nothing: no error reaches Pi, no message is shown',
     assert.deepEqual(said(c), []);
 });
 
-test('the library\'s tools ask the site through coders-talk mcp-call, with what the model sent on stdin', async () => {
+test('the library\'s tools ask the site through keepplain mcp-call, with what the model sent on stdin', async () => {
     scenario([
-        { match: '^mcp-call search_coding_agent_sessions', out: '1. https://coders.talk/b/laravel-horizon-x1?ref=agent Migrate queues to Horizon\n' },
-        { match: '^mcp-call find_coding_agent_failures', code: 1, err: 'Not connected to Coders Talk: run /coders-talk:login.' },
+        { match: '^mcp-call search_coding_agent_sessions', out: '1. https://keepplain.com/b/laravel-horizon-x1?ref=agent Migrate queues to Horizon\n' },
+        { match: '^mcp-call find_coding_agent_failures', code: 1, err: 'Not connected to KeepPlain: run /keepplain:login.' },
     ]);
     const pi = fakePi();
     const c = fakeCtx();
     const search = pi.tools.get('search_coding_agent_sessions');
     const result = await search.execute('call-1', { query: 'migrate queues to horizon', stack: 'laravel' }, undefined, undefined, c);
-    assert.deepEqual(result, { content: [{ type: 'text', text: '1. https://coders.talk/b/laravel-horizon-x1?ref=agent Migrate queues to Horizon' }], details: undefined });
+    assert.deepEqual(result, { content: [{ type: 'text', text: '1. https://keepplain.com/b/laravel-horizon-x1?ref=agent Migrate queues to Horizon' }], details: undefined });
     assert.deepEqual(called(), ['mcp-call search_coding_agent_sessions --stdin --agent=pi']);
     assert.deepEqual(JSON.parse(calls()[0].input), { query: 'migrate queues to horizon', stack: 'laravel' });
 
     // A failed call fails the tool with the reason: Pi shows it to the model, which goes on with the task.
-    await assert.rejects(pi.tools.get('find_coding_agent_failures').execute('call-2', { query: 'hydration mismatch' }, undefined, undefined, c), /Not connected to Coders Talk: run \/coders-talk:login\./);
+    await assert.rejects(pi.tools.get('find_coding_agent_failures').execute('call-2', { query: 'hydration mismatch' }, undefined, undefined, c), /Not connected to KeepPlain: run \/keepplain:login\./);
 });
 
-test('/coders-talk:lookup asks the library for the person to read, and wants a question', async () => {
-    scenario([{ match: '^mcp-call search_coding_agent_sessions', out: '1. https://coders.talk/b/x-1?ref=agent Something\n' }]);
+test('/keepplain:lookup asks the library for the person to read, and wants a question', async () => {
+    scenario([{ match: '^mcp-call search_coding_agent_sessions', out: '1. https://keepplain.com/b/x-1?ref=agent Something\n' }]);
     const c = fakeCtx();
     await type('lookup', 'migrate "queues to horizon"', c);
     assert.deepEqual(called(), ['mcp-call search_coding_agent_sessions --stdin --agent=pi']);
     assert.deepEqual(JSON.parse(calls()[0].input), { query: 'migrate queues to horizon' });
-    assert.deepEqual(said(c), ['1. https://coders.talk/b/x-1?ref=agent Something']);
+    assert.deepEqual(said(c), ['1. https://keepplain.com/b/x-1?ref=agent Something']);
 
     writeFileSync(log, '');
     const empty = fakeCtx();
     await type('lookup', '   ', empty);
-    assert.deepEqual(empty.state.said, [['warning', 'Type what you are about to do: /coders-talk:lookup migrate queues to horizon']]);
+    assert.deepEqual(empty.state.said, [['warning', 'Type what you are about to do: /keepplain:lookup migrate queues to horizon']]);
     assert.deepEqual(called(), []);
 });
 
-test('auto and logout pass what was typed to coders-talk and show what it printed', async () => {
+test('auto and logout pass what was typed to keepplain and show what it printed', async () => {
     scenario([
         { match: '^auto', out: 'Auto mode is on for Pi.\n' },
         { match: '^logout', code: 1, err: 'Could not sign out.' },
@@ -360,21 +360,21 @@ test('use and share show what they would do; the yes is asked in Pi and the same
     assert.deepEqual(share.state.asked, []);
 });
 
-test('/coders-talk:login shows the link at once and waits for the click in the background', async () => {
+test('/keepplain:login shows the link at once and waits for the click in the background', async () => {
     scenario([
-        { match: '^login --agent=pi$', out: 'Open https://coders.talk/connect?code=ABCD-1234 and press Connect.\n' },
-        { match: '^login --wait', out: 'Connected to https://coders.talk as @mara. /coders-talk:build can send sessions now.\n' },
+        { match: '^login --agent=pi$', out: 'Open https://keepplain.com/connect?code=ABCD-1234 and press Connect.\n' },
+        { match: '^login --wait', out: 'Connected to https://keepplain.com as @mara. /keepplain:build can send sessions now.\n' },
     ]);
     const c = fakeCtx();
     await type('login', '', c);
-    assert.deepEqual(said(c), ['Open https://coders.talk/connect?code=ABCD-1234 and press Connect.'], 'the handler returned with the link, not the click');
+    assert.deepEqual(said(c), ['Open https://keepplain.com/connect?code=ABCD-1234 and press Connect.'], 'the handler returned with the link, not the click');
     await until(() => said(c).length === 2, 'the sign-in');
-    assert.equal(said(c)[1], 'Connected to https://coders.talk as @mara. /coders-talk:build can send sessions now.');
+    assert.equal(said(c)[1], 'Connected to https://keepplain.com as @mara. /keepplain:build can send sessions now.');
     assert.deepEqual(called(), ['login --agent=pi', 'login --wait --agent=pi']);
 
     // Already connected: nothing to wait for.
     writeFileSync(log, '');
-    scenario([{ match: '^login', out: 'Already connected to https://coders.talk as @mara.\n' }]);
+    scenario([{ match: '^login', out: 'Already connected to https://keepplain.com as @mara.\n' }]);
     const done = fakeCtx();
     await type('login', '', done);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -388,8 +388,8 @@ test('a command that throws is said as an error, never thrown into Pi', async ()
         throw new Error('the dialog went away');
     };
     scenario([{ match: '^preview', out: 'Prompts: 2\n' }]);
-    await pi.commands.get('coders-talk:build').handler('', c);
-    assert.deepEqual(c.state.said.at(-1), ['error', 'Coders Talk: the dialog went away']);
+    await pi.commands.get('keepplain:build').handler('', c);
+    assert.deepEqual(c.state.said.at(-1), ['error', 'KeepPlain: the dialog went away']);
 });
 
 test('a program that cannot be started is a result with a code and a reason, not an exception', async () => {

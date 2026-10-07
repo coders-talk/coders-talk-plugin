@@ -1,10 +1,10 @@
 /**
- * What the preview step prepared for the send step: <tmpdir>/coders-talk/<session id>.jsonl.gz (the slimmed, checked
+ * What the preview step prepared for the send step: <tmpdir>/keepplain/<session id>.jsonl.gz (the slimmed, checked
  * session) and <session id>.json (what goes with it, and the findings by number and hash). The folder is this user's
  * only (0700), the files too (0600).
  *
  * They go after a send, when the person says no (`build`, or `discard` from the agents' build skills), and otherwise
- * PREPARED_TTL_MS after the preview: every run of coders-talk and every session start sweeps older ones away. The send
+ * PREPARED_TTL_MS after the preview: every run of keepplain and every session start sweeps older ones away. The send
  * step refuses a file that old too.
  */
 import { chmodSync, readdirSync, rmSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -13,7 +13,7 @@ import { join } from 'node:path';
 
 export const PREPARED_TTL_MS = 30 * 60 * 1000;
 
-export const preparedDir = () => join(tmpdir(), 'coders-talk');
+export const preparedDir = () => join(tmpdir(), 'keepplain');
 
 function chmod(path, mode) {
     try {

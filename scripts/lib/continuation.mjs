@@ -9,7 +9,7 @@
  * having the most in common and the earliest own lines). The Claude app's own record of it (priorCliSessionIds in its
  * session metadata, a format that is not ours) is taken first when it is there and readable.
  *
- * A sample of each session's uuids is kept in ~/.coders-talk/uuids/<id>.json, so a folder of hundreds of sessions is
+ * A sample of each session's uuids is kept in ~/.keepplain/uuids/<id>.json, so a folder of hundreds of sessions is
  * not read whole at every send; a file that changed since is read again. Nothing here leaves the machine but the id of
  * the session continued and when this one left it.
  */
@@ -268,7 +268,7 @@ function transcriptOf(id, path) {
 
 /** The Claude app's session metadata folder on this system, or null. */
 export function appSessionsDir(env = process.env) {
-    if (env.CODERS_TALK_CLAUDE_APP_DIR) return env.CODERS_TALK_CLAUDE_APP_DIR;
+    if (env.KEEPPLAIN_CLAUDE_APP_DIR) return env.KEEPPLAIN_CLAUDE_APP_DIR;
     const base = process.platform === 'win32' ? env.APPDATA : process.platform === 'darwin' ? join(homedir(), 'Library', 'Application Support') : env.XDG_CONFIG_HOME || join(homedir(), '.config');
 
     return base ? join(base, 'Claude', 'claude-code-sessions') : null;

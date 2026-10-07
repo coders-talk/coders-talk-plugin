@@ -1,6 +1,6 @@
 ---
-name: coders-talk-rules
-description: Show the Coders Talk rules this repository's sessions get at their start (the user's own and their team's, for its stacks), or turn them on or off on this computer. Use only when the user types /coders-talk-rules.
+name: keepplain-rules
+description: Show the KeepPlain rules this repository's sessions get at their start (the user's own and their team's, for its stacks), or turn them on or off on this computer. Use only when the user types /keepplain-rules.
 disable-model-invocation: true
 ---
 
@@ -9,7 +9,7 @@ disable-model-invocation: true
 1. Run this command, and nothing else first:
 
    ```
-   node "<plugin>/scripts/coders-talk.mjs" rules --agent=cursor
+   node "<plugin>/scripts/keepplain.mjs" rules --agent=cursor
    ```
 
    If the user wrote `on` or `off` after the command name, put it after `rules`. If they wrote `--refresh`, add ` --refresh` at the end. Nothing else goes on it.
@@ -20,4 +20,4 @@ Rules:
 
 - Showing the rules changes nothing: do not start acting on them now, and do not change them. They change on the site, at the address the command prints.
 - Run the command as written, only with `<plugin>` filled in. Do not check the site, search, or run anything else on your own.
-- Never read or print `~/.coders-talk/credentials.json` or environment variables.
+- Never read or print `~/.keepplain/credentials.json` or environment variables.

@@ -10,11 +10,11 @@ const prompt = (text, s) => line({ type: 'user', cwd: '/home/you/code/shop', mes
 const command = (name) => line({ type: 'user', message: { role: 'user', content: `<command-message>${name}</command-message>\n<command-name>/${name}</command-name>` } });
 
 test('the plugin run and everything after it is cut from the session', () => {
-    const text = [prompt('Fix the tests', 0), command('coders-talk:build'), line({ type: 'user', isMeta: true, message: { role: 'user', content: 'skill body' } })].join('\n');
+    const text = [prompt('Fix the tests', 0), command('keepplain:build'), line({ type: 'user', isMeta: true, message: { role: 'user', content: 'skill body' } })].join('\n');
     assert.deepEqual(cutOwnCommand(text), { text: prompt('Fix the tests', 0), cut: true });
 
     // An earlier run goes too, up to the next prompt.
-    const twice = [prompt('a', 0), command('coders-talk:share'), prompt('b', 5), command('coders-talk:build')].join('\n');
+    const twice = [prompt('a', 0), command('keepplain:share'), prompt('b', 5), command('keepplain:build')].join('\n');
     assert.deepEqual(cutOwnCommand(twice).text.split('\n'), [prompt('a', 0), prompt('b', 5)]);
 
     // Other commands are not ours.
@@ -28,43 +28,43 @@ const answer = (text, s) => line({ type: 'assistant', timestamp: `2026-09-01T10:
 const meta = (text) => line({ type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text }] } });
 
 test('every run of a plugin command goes, with its output and the replies the agent answered with the script', () => {
-    const script = (sub) => `node "/p/coders-talk/scripts/coders-talk.mjs" ${sub} a1b2c3d4-0000-4000-8000-000000000001`;
+    const script = (sub) => `node "/p/keepplain/scripts/keepplain.mjs" ${sub} a1b2c3d4-0000-4000-8000-000000000001`;
     const work = [prompt('Fix the tests', 0), bash('npm test', 1), result('ok', 1), answer('Fixed.', 1)];
     const later = [prompt('Now the docs', 20), bash('cat README.md', 21), result('# Shop', 21), answer('Updated.', 21)];
     const text = [
         ...work,
         // An early build the person turned down.
-        command('coders-talk:build'), meta('Send the current session to Coders Talk as a draft.'),
-        bash(script('preview'), 10), result('Ready to send to https://coders.talk.', 10), answer('Send it?', 10),
+        command('keepplain:build'), meta('Send the current session to KeepPlain as a draft.'),
+        bash(script('preview'), 10), result('Ready to send to https://keepplain.com.', 10), answer('Send it?', 10),
         prompt('No, do not send it', 12), bash(script('discard'), 12), result('Nothing was sent, and the prepared file is deleted.', 12), answer('Nothing was sent.', 12),
         // A lookup: the plugin's too.
-        line({ type: 'user', message: { role: 'user', content: '<command-message>coders-talk:lookup</command-message>\n<command-name>/coders-talk:lookup</command-name>\n<command-args>horizon queues</command-args>' } }),
-        meta('Coders Talk is a library…'), answer('Nothing close in the library.', 15),
+        line({ type: 'user', message: { role: 'user', content: '<command-message>keepplain:lookup</command-message>\n<command-name>/keepplain:lookup</command-name>\n<command-args>horizon queues</command-args>' } }),
+        meta('KeepPlain is a library…'), answer('Nothing close in the library.', 15),
         ...later,
         // The run in progress.
-        command('coders-talk:build'), meta('Send the current session…'), bash(script('preview'), 30),
+        command('keepplain:build'), meta('Send the current session…'), bash(script('preview'), 30),
     ].join('\n');
 
     assert.deepEqual(cutOwnCommand(text), { text: [...work, ...later].join('\n'), cut: true });
     // A session sent without a run of its own (auto mode, `build` from a terminal): only the finished runs go.
-    const sentLater = [...work, command('coders-talk:build'), meta('Send…'), bash(script('preview'), 10), result('Ready to send to https://coders.talk.', 10), prompt('Yes', 11), bash(script('send'), 11), answer('Draft: https://coders.talk/b/x/edit', 11), ...later].join('\n');
+    const sentLater = [...work, command('keepplain:build'), meta('Send…'), bash(script('preview'), 10), result('Ready to send to https://keepplain.com.', 10), prompt('Yes', 11), bash(script('send'), 11), answer('Draft: https://keepplain.com/b/x/edit', 11), ...later].join('\n');
     assert.deepEqual(cutOwnCommand(sentLater, { tail: false }), { text: [...work, ...later].join('\n'), cut: true });
 
     // The person's own /build is work, unless it ran the plugin's script (an older plugin's name).
-    const mine = [prompt('a', 0), command('build'), meta('Build the app'), bash('npm run build', 1), answer('Built.', 1), prompt('b', 5), command('coders-talk:build')].join('\n');
+    const mine = [prompt('a', 0), command('build'), meta('Build the app'), bash('npm run build', 1), answer('Built.', 1), prompt('b', 5), command('keepplain:build')].join('\n');
     assert.deepEqual(cutOwnCommand(mine).text.split('\n'), [prompt('a', 0), command('build'), meta('Build the app'), bash('npm run build', 1), answer('Built.', 1), prompt('b', 5)]);
 });
 
 test('a run the person left goes alone, also as the last one: the work after it stays (QA 27.09, № 21)', () => {
-    // The plugin `coders-talk enable` lays out runs the installed program, in PowerShell with & in front.
-    const program = (sub) => `& 'C:\\Users\\qa\\.coders-talk\\bin\\coders-talk.exe' ${sub} a1b2c3d4-0000-4000-8000-000000000001`;
+    // The plugin `keepplain enable` lays out runs the installed program, in PowerShell with & in front.
+    const program = (sub) => `& 'C:\\Users\\qa\\.keepplain\\bin\\keepplain.exe' ${sub} a1b2c3d4-0000-4000-8000-000000000001`;
     const edit = (s) => line({ type: 'assistant', timestamp: `2026-09-01T10:${s}:00Z`, message: { role: 'assistant', content: [{ type: 'tool_use', id: `t${s}`, name: 'Edit', input: { file_path: 'calc.ps1' } }] } });
     const work = [prompt('Add a Median helper comment', 0), edit(10), result('updated', 10), answer('Added.', 10)];
     const later = [prompt('Add a Max helper comment', 20), edit(21), result('updated', 21), answer('Added.', 21)];
     const text = [
         ...work,
-        command('coders-talk:build'), meta('Send the current session…'),
-        bash(program('preview'), 11), result('Ready to send to https://coders.talk.', 11), answer('Send it?', 11),
+        command('keepplain:build'), meta('Send the current session…'),
+        bash(program('preview'), 11), result('Ready to send to https://keepplain.com.', 11), answer('Send it?', 11),
         prompt('No, do not send it.', 12), bash(program('discard'), 12), result('Nothing was sent, and the prepared file is deleted.', 12), answer('Nothing was sent.', 12),
         ...later,
     ].join('\n');
@@ -74,7 +74,7 @@ test('a run the person left goes alone, also as the last one: the work after it 
     // The run in progress takes a question about a finding with it: the agent did no work for it.
     const asked = [
         ...work,
-        command('coders-talk:build'), meta('Send…'), bash(program('preview'), 11), result('1. email address', 11), answer('Keep any?', 11),
+        command('keepplain:build'), meta('Send…'), bash(program('preview'), 11), result('1. email address', 11), answer('Keep any?', 11),
         prompt('What is finding 1?', 12), answer('An email address in a test fixture.', 12),
         prompt('Keep 1', 13), bash(program('preview --keep=1'), 13),
     ].join('\n');
@@ -87,15 +87,15 @@ test('a skill or command with a task after it is a prompt; Claude Code\'s own co
     assert.equal(promptText([{ type: 'text', text: run('review', 'the order scope') }]), '/review the order scope');
     assert.equal(promptText(run('ct-horizon-queues-ab12', '')), null);
     assert.equal(promptText(run('model', 'opus')), null);
-    assert.equal(promptText(run('coders-talk:build', '--private')), null);
-    assert.equal(promptText(run('coders-talk:lookup', 'horizon queues')), null);
+    assert.equal(promptText(run('keepplain:build', '--private')), null);
+    assert.equal(promptText(run('keepplain:lookup', 'horizon queues')), null);
 
     // A session started with a playbook skill has something to send.
     const text = [
         line({ type: 'user', cwd: '/home/you/code/shop', timestamp: '2026-09-01T10:00:00Z', message: { role: 'user', content: run('ct-horizon-queues-ab12', 'migrate the queues to Horizon') } }),
-        meta('A playbook from coders.talk…'),
+        meta('A playbook from KeepPlain…'),
         bash('composer require laravel/horizon', 1),
-        command('coders-talk:build'),
+        command('keepplain:build'),
     ].join('\n');
     assert.equal(summarize(cutOwnCommand(text).text).prompts, 1);
 });
@@ -165,7 +165,7 @@ test('in Codex the skill message and what the person typed to call it are cut', 
         codex({ type: 'function_call', name: 'shell', arguments: '{}' }, 1),
         codex({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Fixed.' }] }, 2),
     ];
-    const text = [...work, said('<environment_context>\n<cwd>/home/you/shop</cwd>\n</environment_context>', 3), said('$coders-talk:build', 3), skill('coders-talk:build'), codex({ type: 'function_call', name: 'shell', arguments: '{}' }, 4)].join('\n');
+    const text = [...work, said('<environment_context>\n<cwd>/home/you/shop</cwd>\n</environment_context>', 3), said('$keepplain:build', 3), skill('keepplain:build'), codex({ type: 'function_call', name: 'shell', arguments: '{}' }, 4)].join('\n');
     assert.deepEqual(cutOwnCommand(text), { text: work.join('\n'), cut: true });
 
     // Another skill is part of the work.
@@ -174,7 +174,7 @@ test('in Codex the skill message and what the person typed to call it are cut', 
     assert.deepEqual(summarize(text), {
         cwd: '/home/you/shop',
         project: 'shop',
-        // "$coders-talk:build" calls the plugin: not a prompt.
+        // "$keepplain:build" calls the plugin: not a prompt.
         prompts: 1,
         toolCalls: 2,
         startedAt: Date.parse('2026-09-01T10:00:00Z'),
@@ -182,12 +182,12 @@ test('in Codex the skill message and what the person typed to call it are cut', 
     });
 });
 
-test('in Codex an earlier $coders-talk run goes too; a playbook skill with a task is a prompt', () => {
+test('in Codex an earlier $keepplain run goes too; a playbook skill with a task is a prompt', () => {
     const env = said('<environment_context>\n<cwd>/home/you/shop</cwd>\n</environment_context>', 0);
     const call = (command, s) => codex({ type: 'function_call', name: 'shell', arguments: JSON.stringify({ command: ['bash', '-lc', command] }), call_id: `c${s}` }, s);
     const output = (text, s) => codex({ type: 'function_call_output', call_id: `c${s}`, output: text }, s);
     const reply = (text, s) => codex({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }, s);
-    const script = (sub) => `node "/p/coders-talk/scripts/coders-talk.mjs" ${sub} --agent=codex`;
+    const script = (sub) => `node "/p/keepplain/scripts/keepplain.mjs" ${sub} --agent=codex`;
 
     // Started with a playbook: what the person typed, and the skill Codex put next to it.
     const start = [codex({ id: 't1', cwd: '/home/you/shop' }, 0, 'session_meta'), env, said('$ct-horizon-queues-ab12 migrate the queues to Horizon', 0), skill('ct-horizon-queues-ab12')];
@@ -196,10 +196,10 @@ test('in Codex an earlier $coders-talk run goes too; a playbook skill with a tas
     const text = [
         ...start, ...work,
         // Called before there was anything to send: it said so, and the person went on.
-        env, said('$coders-talk:build', 5), skill('coders-talk:build'), call(script('preview'), 6), output('Ready to send to https://coders.talk.', 6), reply('Send it?', 6),
+        env, said('$keepplain:build', 5), skill('keepplain:build'), call(script('preview'), 6), output('Ready to send to https://keepplain.com.', 6), reply('Send it?', 6),
         env, said('No, do not send it', 8), call(script('discard'), 8), output('Nothing was sent.', 8), reply('Nothing was sent.', 8),
         ...later,
-        env, said('$coders-talk:build', 30), skill('coders-talk:build'), call(script('preview'), 31),
+        env, said('$keepplain:build', 30), skill('keepplain:build'), call(script('preview'), 31),
     ].join('\n');
 
     const kept = cutOwnCommand(text).text;

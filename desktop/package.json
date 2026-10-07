@@ -1,11 +1,11 @@
 {
-    "name": "coders-talk-desktop",
-    "productName": "Coders Talk",
-    "version": "0.1.1",
+    "name": "keepplain-desktop",
+    "productName": "KeepPlain",
+    "version": "0.2.0",
     "private": true,
-    "description": "Coders Talk",
-    "author": "Coders Talk",
-    "homepage": "https://coders.talk",
+    "description": "KeepPlain",
+    "author": "KeepPlain",
+    "homepage": "https://keepplain.com",
     "license": "MIT",
     "type": "module",
     "main": "main.mjs",
@@ -21,9 +21,9 @@
         "electron-builder": "26.15.3"
     },
     "build": {
-        "appId": "talk.coders.desktop",
-        "productName": "Coders Talk",
-        "artifactName": "coders-talk-desktop-${version}-${os}-${arch}.${ext}",
+        "appId": "com.keepplain.desktop",
+        "productName": "KeepPlain",
+        "artifactName": "keepplain-desktop-${version}-${os}-${arch}.${ext}",
         "directories": {
             "output": "out"
         },
@@ -61,21 +61,21 @@
         "nsis": {
             "oneClick": true,
             "perMachine": false,
-            "artifactName": "Coders-Talk-Setup-${version}.${ext}",
-            "shortcutName": "Coders Talk",
-            "uninstallDisplayName": "Coders Talk",
+            "artifactName": "KeepPlain-Setup-${version}.${ext}",
+            "shortcutName": "KeepPlain",
+            "uninstallDisplayName": "KeepPlain",
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true,
             "runAfterFinish": true,
             "deleteAppDataOnUninstall": false
         },
         "icon": "build/icon.png",
-        "copyright": "Copyright © 2026 Coders Talk",
+        "copyright": "Copyright © 2026 KeepPlain",
         "publish": [
             {
                 "provider": "github",
-                "owner": "coders-talk",
-                "repo": "coders-talk-plugin",
+                "owner": "keepplain",
+                "repo": "keepplain-plugin",
                 "releaseType": "release"
             }
         ],
@@ -84,13 +84,13 @@
             "publisher": "CN=93767D7D-2F6C-4773-88E4-0F34AE38E642",
             "publisherDisplayName": "Coder Talk",
             "applicationId": "CodersTalk",
-            "displayName": "Coders Talk",
+            "displayName": "KeepPlain",
             "backgroundColor": "#F8F7F3",
             "languages": [
                 "en-US"
             ],
             "minVersion": "10.0.17763.0",
-            "artifactName": "Coders-Talk-${version}-store.${ext}",
+            "artifactName": "KeepPlain-${version}-store.${ext}",
             "maxVersionTested": "10.0.26100.0"
         }
     },

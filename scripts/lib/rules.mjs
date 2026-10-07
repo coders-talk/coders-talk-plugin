@@ -1,5 +1,5 @@
 /**
- * Rules in every session (coders.talk plan: personal rules, stage 37). The person's own rules from Coders Talk, and in
+ * Rules in every session (KeepPlain plan: personal rules, stage 37). The person's own rules from KeepPlain, and in
  * a team's repository the team's when the team turns that on, go into the session's context at its start: the
  * agent reads them like a CLAUDE.md, and nothing is written into the repository.
  *
@@ -7,10 +7,10 @@
  * tells the site whether it is one of the person's teams'. Only those names leave the computer, with the names of the
  * team blocks the repository already has in its own files (`use --team`), so they are not said twice.
  *
- * The SessionStart hook never goes to the network: it reads what the last fetch kept (~/.coders-talk/rules.json) and,
- * when that is over FETCH_EVERY_MS old or the repository's stacks changed, starts `coders-talk rules-fetch` in the
- * background. A change on the site reaches the next session after that. `coders-talk rules off` (or
- * CODERS_TALK_RULES=0) stops it on this computer.
+ * The SessionStart hook never goes to the network: it reads what the last fetch kept (~/.keepplain/rules.json) and,
+ * when that is over FETCH_EVERY_MS old or the repository's stacks changed, starts `keepplain rules-fetch` in the
+ * background. A change on the site reaches the next session after that. `keepplain rules off` (or
+ * KEEPPLAIN_RULES=0) stops it on this computer.
  *
  * First the task, then the rules for it (stage 41). The start of a session gets only the rules for every session
  * (Everywhere). A stack's rules come with the prompt they matter for: the prompt hook matches each prompt here against
@@ -58,9 +58,9 @@ function writeRulesFile(state, dir, now = Date.now()) {
     writePrivate(stateFile(dir), JSON.stringify(state, null, 2) + '\n');
 }
 
-/** Whether rules go into sessions on this computer for this site: on unless turned off here or by CODERS_TALK_RULES=0. */
+/** Whether rules go into sessions on this computer for this site: on unless turned off here or by KEEPPLAIN_RULES=0. */
 export function rulesOn(site, dir = home(), env = process.env) {
-    if (env.CODERS_TALK_RULES === '0') return false;
+    if (env.KEEPPLAIN_RULES === '0') return false;
 
     return !readRulesFile(dir).off[siteKey(site)];
 }
@@ -164,10 +164,10 @@ export function rulesForPrompt(site, root, sessionId, prompt, dir = home(), now 
     writePrivate(givenFile(dir), JSON.stringify(given) + '\n');
     const lines = picked.map((r) => `- ${r.line} (${[r.label, r.from].filter(Boolean).join(', ')})`);
 
-    return ['## Coders Talk rules for this task', 'Where coding agents went wrong before on work like this. Keep to them; this repository\'s own instructions and the user\'s requests come first.', ...lines].join('\n') + '\n';
+    return ['## KeepPlain rules for this task', 'Where coding agents went wrong before on work like this. Keep to them; this repository\'s own instructions and the user\'s requests come first.', ...lines].join('\n') + '\n';
 }
 
-/** "Coders Talk added 5 rules to this session: Laravel (3 yours, 2 from Acme)". */
+/** "KeepPlain added 5 rules to this session: Laravel (3 yours, 2 from Acme)". */
 export function summary(entry) {
     const stacks = new Map();
     for (const s of entry.sections ?? []) {
@@ -178,7 +178,7 @@ export function summary(entry) {
     }
     const listed = [...stacks].map(([label, parts]) => `${label} (${parts.join(', ')})`).join(', ');
 
-    return `Coders Talk added ${entry.rules} ${entry.rules === 1 ? 'rule' : 'rules'} to this session${listed ? `: ${listed}` : ''}`;
+    return `KeepPlain added ${entry.rules} ${entry.rules === 1 ? 'rule' : 'rules'} to this session${listed ? `: ${listed}` : ''}`;
 }
 
 /**

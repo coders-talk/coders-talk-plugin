@@ -29,9 +29,9 @@ export function agentId(value) {
  * a slash with a hyphen, since a skill's name there cannot hold a colon.
  */
 export function commandIn(agent, name) {
-    if (agent === 'codex') return `$coders-talk:${name}`;
+    if (agent === 'codex') return `$keepplain:${name}`;
 
-    return agent === 'cursor' ? `/coders-talk-${name}` : `/coders-talk:${name}`;
+    return agent === 'cursor' ? `/keepplain-${name}` : `/keepplain:${name}`;
 }
 
 /** What a background run of this program passes on to serve the same agent (Claude Code, the default, passes nothing). */

@@ -1,6 +1,6 @@
 /**
  * The plugin's hooks, by event. Claude Code runs hooks/hooks.json, Codex runs codex/hooks.json (with --agent=codex);
- * each script there runs one of these. The single coders-talk file runs them as `coders-talk hook <agent> <event>`
+ * each script there runs one of these. The single keepplain file runs them as `keepplain hook <agent> <event>`
  * (plan, stage 13.1), one command per event, git snapshot included. Cursor runs them from the hooks.json in ~/.cursor
  * (`hook cursor <event>`: sessionStart, beforeSubmitPrompt as `prompt`, stop, sessionEnd), and Pi from the extension of
  * its package, which turns session_start, agent_start, agent_settled and session_shutdown into the same four events.
@@ -10,7 +10,7 @@
  * A hook prints nothing but one JSON object (the Stop hook's suggestion; at the start, a team's rules and what the
  * share auto mode did, and the rules for the session's context), and never fails the session: every error is swallowed.
  *
- *   session-start  Claude Code, Cursor and Pi: HEAD at the start of the session, so /coders-talk:build can tell which
+ *   session-start  Claude Code, Cursor and Pi: HEAD at the start of the session, so /keepplain:build can tell which
  *                  commits it made (Codex writes HEAD into the session itself; Cursor's first prompt does this when its
  *                  sessionStart did not run). Auto mode: catches up in the background on this agent's
  *                  sessions that never said they ended (a crash, a closed terminal) and remembers this one. In a
@@ -85,11 +85,11 @@ export async function runHook(agent, name, { snapshot = agent !== 'codex', event
             agent,
             site: siteUrl(null, agent !== 'claude-code'),
             id: SESSION_ID.test(event.session_id ?? '') ? event.session_id : null,
-            /** What `coders-talk` needs to be told to read this agent's sessions. */
+            /** What `keepplain` needs to be told to read this agent's sessions. */
             agentArgs: agentArgs(agent),
         };
         if (name === 'session-start') {
-            // Previews nobody sent go even when coders-talk itself is not run again (lib/prepared.mjs).
+            // Previews nobody sent go even when keepplain itself is not run again (lib/prepared.mjs).
             sweepPrepared();
             sessionStart(context);
         } else if (name === 'prompt') prompt(context);
@@ -148,7 +148,7 @@ function sessionStart({ event, agent, site, id, agentArgs }, emit = true) {
         else out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: rules.context };
     }
     if (agent === 'cursor' && id && SESSION_ID.test(id)) {
-        out.additional_context = [out.additional_context, `Coders Talk current session: client=cursor_plugin session_id=${id}. Use this exact id if attaching this conversation to a previous task; detect the repository again at query time.`].filter(Boolean).join('\n');
+        out.additional_context = [out.additional_context, `KeepPlain current session: client=cursor_plugin session_id=${id}. Use this exact id if attaching this conversation to a previous task; detect the repository again at query time.`].filter(Boolean).join('\n');
     }
     if (emit && Object.keys(out).length) console.log(JSON.stringify(out));
 
@@ -177,7 +177,7 @@ function teamRulesAtStart({ event, agent, site, agentArgs }) {
 }
 
 /**
- * Rules in every session (coders.talk personal rules, stage 37): the person's own and their team's for this
+ * Rules in every session (KeepPlain personal rules, stage 37): the person's own and their team's for this
  * repository's stacks, from the last fetch, for the agent's context; and a new fetch in the background when it is due.
  * No network here. Only with this site's sign-in, and not when rules are turned off on this computer.
  */
@@ -191,7 +191,7 @@ function rulesAtStart({ event, agent, site, agentArgs }) {
 }
 
 /**
- * The share auto mode (coders.talk github-distribution-plan, stage 39): what it put into pull requests since the last
+ * The share auto mode (KeepPlain github-distribution-plan, stage 39): what it put into pull requests since the last
  * start, once; and in a repository, its check in the background when one is due (at most hourly, daily while the site
  * says it is off). No network here: `share-auto` asks the site. Returns the lines to show.
  */
@@ -205,7 +205,7 @@ function shareAtStart({ event, site, agentArgs }) {
 }
 
 /**
- * First the task, then the rules for it (coders.talk personal rules, stage 41): the stack rules of this repository the
+ * First the task, then the rules for it (KeepPlain personal rules, stage 41): the stack rules of this repository the
  * prompt is about, each once a session. From what the last fetch kept: no network, and the prompt is not kept.
  */
 function rulesAtPrompt({ event, site, id }) {
@@ -214,7 +214,7 @@ function rulesAtPrompt({ event, site, id }) {
     return rulesForPrompt(site, projectRoot(event.cwd), id, event.prompt);
 }
 
-const signedIn = (site) => process.env.CODERS_TALK_TOKEN || process.env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site);
+const signedIn = (site) => process.env.KEEPPLAIN_TOKEN || process.env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site);
 
 /**
  * A prompt: the git snapshot is taken already. Cursor's hook notes it (the times of the turns and which conversation the

@@ -1,5 +1,5 @@
-// Sending from a terminal (plan, stage 13.4): `coders-talk sessions` lists this folder's Claude Code and Codex
-// sessions, `coders-talk build <#>` previews, asks and sends. The question needs a real terminal: where `script` can
+// Sending from a terminal (plan, stage 13.4): `keepplain sessions` lists this folder's Claude Code and Codex
+// sessions, `keepplain build <#>` previews, asks and sends. The question needs a real terminal: where `script` can
 // give the program one (Linux, macOS), the whole round runs in it; nothing lets a script answer it otherwise.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -62,8 +62,8 @@ before(async () => {
     const site = `http://127.0.0.1:${server.address().port}`;
     mkdirSync(join(home, 'ct'));
     writeFileSync(join(home, 'ct', 'credentials.json'), JSON.stringify({ [site]: { token: TOKEN, username: 'mara' } }));
-    env = { ...process.env, CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), CODERS_TALK_HOME: join(home, 'ct'), CODERS_TALK_URL: site, CODERS_TALK_POLL_MS: '10', CODERS_TALK_NO_BROWSER: '1', CODERS_TALK_NO_UPDATE_CHECK: '1', TMPDIR: home, TEMP: home, TMP: home };
-    for (const name of ['CODERS_TALK_TOKEN', 'CODERS_TALK_AUTO', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
+    env = { ...process.env, CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), KEEPPLAIN_HOME: join(home, 'ct'), KEEPPLAIN_URL: site, KEEPPLAIN_POLL_MS: '10', KEEPPLAIN_NO_BROWSER: '1', KEEPPLAIN_NO_UPDATE_CHECK: '1', TMPDIR: home, TEMP: home, TMP: home };
+    for (const name of ['KEEPPLAIN_TOKEN', 'KEEPPLAIN_AUTO', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
 });
 after(() => server.close());
 
@@ -78,7 +78,7 @@ test('sessions lists both agents\' sessions of this folder, newest first, and wh
     // The title the Claude app gave the session, where it has one (grouping plan, 27.4); else its first prompt.
     assert.match(rows[1], /^ {2}2 +\S+ \d\d:\d\d +Claude Code +2 +- +rate limits$/);
     assert.doesNotMatch(r.out, /aa02/, 'another folder\'s session is not listed');
-    assert.match(r.out, /Send one: coders-talk build <#>/);
+    assert.match(r.out, /Send one: keepplain build <#>/);
 
     // A folder with nothing.
     const empty = await run(...coders(['sessions']), { env, cwd: home }).then(({ stdout }) => stdout);
@@ -88,7 +88,7 @@ test('sessions lists both agents\' sessions of this folder, newest first, and wh
 test('build refuses without a terminal and says what a script can run instead', async () => {
     const r = await cli(['build', '2']);
     assert.equal(r.ok, false);
-    assert.match(r.out, /runs only in a terminal\. From a script: coders-talk preview <session-id> \[--agent=codex\|cursor\|pi\], then coders-talk send <session-id>/);
+    assert.match(r.out, /runs only in a terminal\. From a script: keepplain preview <session-id> \[--agent=codex\|cursor\|pi\], then keepplain send <session-id>/);
     assert.equal(imports.length, 0);
 });
 
@@ -103,8 +103,8 @@ test('build in a terminal: the preview, the question, and only a yes sends', asy
     assert.match(no.out, /Send this session to http:\/\/127\.0\.0\.1:\d+\? \[y\/N\]/);
     assert.match(no.out, /Nothing was sent, and the prepared file is deleted\./);
     assert.equal(imports.length, 0);
-    assert.equal(existsSync(join(home, 'coders-talk', `${claudeId}.jsonl.gz`)), false, 'a no deletes the preview');
-    assert.equal(existsSync(join(home, 'coders-talk', `${claudeId}.json`)), false);
+    assert.equal(existsSync(join(home, 'keepplain', `${claudeId}.jsonl.gz`)), false, 'a no deletes the preview');
+    assert.equal(existsSync(join(home, 'keepplain', `${claudeId}.json`)), false);
 
     const yes = await inTerminal(['build', '2'], 'y\n');
     assert.equal(yes.status, 0, yes.out);

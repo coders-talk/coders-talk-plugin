@@ -1,12 +1,12 @@
 /**
- * The Stop hook's one suggestion per session (plan, stage 18): when the agent got Builds from the Coders Talk library
+ * The Stop hook's one suggestion per session (plan, stage 18): when the agent got Builds from the KeepPlain library
  * and the session changed code, the person is told once, after an answer, that they could share theirs too. It sends
- * nothing, it never shows with auto mode on (that sends the session anyway), and `coders-talk.mjs nudge off` or
- * CODERS_TALK_NUDGE=0 turns it off.
+ * nothing, it never shows with auto mode on (that sends the session anyway), and `keepplain.mjs nudge off` or
+ * KEEPPLAIN_NUDGE=0 turns it off.
  *
  * The hook has a few seconds, and a Codex rollout can run to hundreds of megabytes, so the session file is read on
  * from where the last answer left it, at most READ_BYTES at a time, and only lines that can matter are parsed.
- * ~/.coders-talk/nudges/<agent>-<session>.json keeps where that was and what was found: counts and Build slugs, never
+ * ~/.keepplain/nudges/<agent>-<session>.json keeps where that was and what was found: counts and Build slugs, never
  * anything from the conversation. One file per session, because hooks of several sessions run at once.
  */
 import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -42,7 +42,7 @@ function write(path, data) {
 }
 
 export function nudgeOn(dir = home(), env = process.env) {
-    return env.CODERS_TALK_NUDGE !== '0' && read(settingsFile(dir)).off !== true;
+    return env.KEEPPLAIN_NUDGE !== '0' && read(settingsFile(dir)).off !== true;
 }
 
 export function setNudge(on, dir = home()) {
@@ -141,7 +141,7 @@ export function nudgeDue({ agent, id, path }, dir = home(), now = Date.now()) {
 
 /** What the person sees: plain text, one line. */
 export function nudgeMessage(builds, command) {
-    return `Your agent used ${builds} Build${builds === 1 ? '' : 's'} from coders.talk in this session. Share yours: ${command}`;
+    return `Your agent used ${builds} Build${builds === 1 ? '' : 's'} from KeepPlain in this session. Share yours: ${command}`;
 }
 
 function prune(dir, now) {

@@ -1,7 +1,7 @@
 /**
- * The plugin `coders-talk enable` lays out for the agents (plan, stage 13.3): the same skills, hooks and MCP server as
- * this repository's, as a local marketplace "coders-talk-local" in ~/.coders-talk/plugin, whose commands call the
- * installed coders-talk by its absolute path instead of node and a script. Desktop apps run hooks with their own
+ * The plugin `keepplain enable` lays out for the agents (plan, stage 13.3): the same skills, hooks and MCP server as
+ * this repository's, as a local marketplace "keepplain-local" in ~/.keepplain/plugin, whose commands call the
+ * installed keepplain by its absolute path instead of node and a script. Desktop apps run hooks with their own
  * PATH, which lacks the folder an rc file added; and the file itself stays out of the plugin, which each agent copies
  * into its cache for every version.
  *
@@ -22,15 +22,15 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MARKETPLACE = 'coders-talk-local';
-export const PLUGIN_ID = `coders-talk@${MARKETPLACE}`;
+export const MARKETPLACE = 'keepplain-local';
+export const PLUGIN_ID = `keepplain@${MARKETPLACE}`;
 
 const SOURCE_FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'hooks/hooks.json', 'codex/hooks.json'];
 const SOURCE_DIRS = ['skills', 'codex/skills', 'cursor/skills', 'pi/extensions'];
 
 /** The repository files the plugin is made from, by path: built into the single file, or read from the repository. */
 export function pluginSources() {
-    const built = globalThis.CODERS_TALK_PLUGIN_SOURCES;
+    const built = globalThis.KEEPPLAIN_PLUGIN_SOURCES;
     if (built && typeof built === 'object') return built;
     const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -55,7 +55,7 @@ export const psCommand = (parts) => `& ${parts.map((p) => `'${p.replace(/'/g, "'
 export const cmdCommand = (parts) => parts.map((p) => (/[\s&^|<>()"]/.test(p) ? `"${p}"` : p)).join(' ');
 
 /**
- * The files of the plugin, by path. $program is what runs coders-talk: the file, or node and the script.
+ * The files of the plugin, by path. $program is what runs keepplain: the file, or node and the script.
  *
  * @param {Record<string, string>} sources pluginSources()
  * @param {{program: string[], version: string, site: string, mcp?: {claude?: boolean, codex?: boolean}, windows?: boolean}} options
@@ -73,22 +73,22 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
     const codexRun = windows ? psCommand(program) : shCommand(program);
     // Cursor runs a hook, and the agent its shell commands, through PowerShell on Windows.
     const cursorRun = codexRun;
-    const description = 'Coders Talk, laid out by coders-talk enable: the commands call the installed coders-talk.';
+    const description = 'KeepPlain, laid out by keepplain enable: the commands call the installed keepplain.';
 
     json('.claude-plugin/plugin.json', { ...JSON.parse(source('.claude-plugin/plugin.json')), version });
     json('.claude-plugin/marketplace.json', {
         name: MARKETPLACE,
         description,
-        owner: { name: 'Coders Talk', url: 'https://coders.talk' },
-        plugins: [{ name: 'coders-talk', source: './', description: 'Send a Claude Code session to Coders Talk as a draft Build you review and publish on the site.' }],
+        owner: { name: 'KeepPlain', url: 'https://keepplain.com' },
+        plugins: [{ name: 'keepplain', source: './', description: 'Send a Claude Code session to KeepPlain as a draft Build you review and publish on the site.' }],
     });
     const codexManifest = { ...JSON.parse(source('.codex-plugin/plugin.json')), version };
     if (!serverFor.codex) delete codexManifest.mcpServers;
     json('.codex-plugin/plugin.json', codexManifest);
     json('.agents/plugins/marketplace.json', {
         name: MARKETPLACE,
-        interface: { displayName: 'Coders Talk' },
-        plugins: [{ name: 'coders-talk', source: { source: 'local', path: './' }, policy: { installation: 'AVAILABLE' }, category: 'Developer Tools' }],
+        interface: { displayName: 'KeepPlain' },
+        plugins: [{ name: 'keepplain', source: { source: 'local', path: './' }, policy: { installation: 'AVAILABLE' }, category: 'Developer Tools' }],
     });
 
     // One command per event: the file takes the git snapshot in the same run (lib/hooks.mjs). After a tool call only auto
@@ -113,20 +113,20 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
 
     if (serverFor.claude) {
         const helper = `${windows ? cmdCommand(program) : shCommand(program)} mcp-headers`;
-        json('.mcp.json', { mcpServers: { 'coders-talk': { type: 'http', url: `${site}/mcp`, headersHelper: helper } } });
+        json('.mcp.json', { mcpServers: { 'keepplain': { type: 'http', url: `${site}/mcp`, headersHelper: helper } } });
     }
-    if (serverFor.codex) json('codex/mcp.json', { mcpServers: { 'coders-talk': { type: 'http', url: `${site}/mcp` } } });
+    if (serverFor.codex) json('codex/mcp.json', { mcpServers: { 'keepplain': { type: 'http', url: `${site}/mcp` } } });
 
     // Pi: a package of its own (one extension), started with the installed program.
     json('pi/package.json', {
-        name: 'coders-talk',
+        name: 'keepplain',
         version,
         type: 'module',
-        description: 'Send a Pi session to Coders Talk as a draft Build, and give Pi the Coders Talk library. Laid out by coders-talk enable.',
+        description: 'Send a Pi session to KeepPlain as a draft Build, and give Pi the KeepPlain library. Laid out by keepplain enable.',
         keywords: ['pi-package'],
-        pi: { extensions: ['./extensions/coders-talk.js'] },
+        pi: { extensions: ['./extensions/keepplain.js'] },
     });
-    files['pi/extensions/coders-talk.js'] = piExtension(source('pi/extensions/coders-talk.js'), program);
+    files['pi/extensions/keepplain.js'] = piExtension(source('pi/extensions/keepplain.js'), program);
 
     for (const [path, text] of Object.entries(sources)) {
         if (path.startsWith('skills/')) files[path] = claudeSkill(text, claudeRun, windows);
@@ -141,22 +141,22 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
 }
 
 const NODE_MISSING = /- If `node` is not found, tell the user the plugin needs Node\.js 20 or newer, and that they can upload the (?:session|conversation) at (\S+) instead\./g;
-const NOT_INSTALLED = (upload) => `- If the command is not found, Coders Talk was removed from this computer: tell the user to install it again (https://coders.talk/plugins), or to upload the session at ${upload} instead.`;
+const NOT_INSTALLED = (upload) => `- If the command is not found, KeepPlain was removed from this computer: tell the user to install it again (https://keepplain.com/plugins), or to upload the session at ${upload} instead.`;
 
 /**
- * Pi's extension with the program that runs coders-talk written into its PROGRAM line, and no other way to start it: the
+ * Pi's extension with the program that runs keepplain written into its PROGRAM line, and no other way to start it: the
  * script of the repository, which the file falls back to, is not there.
  */
 function piExtension(text, program) {
     const line = 'const PROGRAM = null;';
-    const fallback = "const program = () => PROGRAM ?? [NODE, join(HERE, '..', '..', 'scripts', 'coders-talk.mjs')];";
-    if (!text.includes(line) || !text.includes(fallback)) throw new Error("The plugin's pi/extensions/coders-talk.js has no PROGRAM line to lay out.");
+    const fallback = "const program = () => PROGRAM ?? [NODE, join(HERE, '..', '..', 'scripts', 'keepplain.mjs')];";
+    if (!text.includes(line) || !text.includes(fallback)) throw new Error("The plugin's pi/extensions/keepplain.js has no PROGRAM line to lay out.");
 
     return text.replace(line, `const PROGRAM = ${JSON.stringify(program)};`).replace(fallback, 'const program = () => PROGRAM;');
 }
 
 function claudeSkill(text, run, windows) {
-    const out = text.replaceAll('node "${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs"', run).replace(NODE_MISSING, (_, upload) => NOT_INSTALLED(upload));
+    const out = text.replaceAll('node "${CLAUDE_PLUGIN_ROOT}/scripts/keepplain.mjs"', run).replace(NODE_MISSING, (_, upload) => NOT_INSTALLED(upload));
     if (!windows || out === text) return out;
 
     // The Bash tool runs these as written; PowerShell needs the call operator in front of a quoted path.
@@ -165,7 +165,7 @@ function claudeSkill(text, run, windows) {
 
 function codexSkill(text, run) {
     return text
-        .replaceAll('node "<plugin>/scripts/coders-talk.mjs"', run)
+        .replaceAll('node "<plugin>/scripts/keepplain.mjs"', run)
         // The sentence that says what <plugin> is: inline in Codex's skills, a paragraph of its own in Cursor's.
         .replace(/(In the commands? below, )?`<plugin>`( below)? is the absolute path of the plugin folder: this file is `<plugin>\/[^`]+`\.[ \t]*\n*/g, '')
         .replace(/,? (only )?with `<plugin>` filled in/g, '')

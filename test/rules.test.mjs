@@ -1,4 +1,4 @@
-// Rules in every session (coders.talk plan: personal rules, stage 37): the repository's stacks found from its
+// Rules in every session (KeepPlain plan: personal rules, stage 37): the repository's stacks found from its
 // manifests, the person's own and their team's rules asked in the background against a stand-in for the site's
 // /api/v1/rules, and the SessionStart hook handing the last answer to the agent without going to the network.
 import assert from 'node:assert/strict';
@@ -16,9 +16,9 @@ import { coders, hookCommand, waitFor } from './helpers.mjs';
 
 const run = promisify(execFile);
 const TOKEN = 'ct_member_token';
-const TEXT = "## Coders Talk rules\nWhere coding agents went wrong before on this repository's stack.\n\n### Acme team: Laravel\n- Workers stop after a deploy — Call horizon:terminate.\n\n### Your rules: Laravel\n- Runs artisan on the host — Run it in the app container.\n\n### Your rules: Everywhere\n- Says it is done without running it — Run it first.\n";
+const TEXT = "## KeepPlain rules\nWhere coding agents went wrong before on this repository's stack.\n\n### Acme team: Laravel\n- Workers stop after a deploy — Call horizon:terminate.\n\n### Your rules: Laravel\n- Runs artisan on the host — Run it in the app container.\n\n### Your rules: Everywhere\n- Says it is done without running it — Run it first.\n";
 // The start of a session gets the rules for every session; a stack's come with the prompts they matter for.
-const START = '## Coders Talk rules\nWhere coding agents went wrong before, whatever the task.\n\n### Your rules: Everywhere\n- Says it is done without running it — Run it first.\n';
+const START = '## KeepPlain rules\nWhere coding agents went wrong before, whatever the task.\n\n### Your rules: Everywhere\n- Says it is done without running it — Run it first.\n';
 const MATCHED = [
     { id: 'r1', scope: 'team', stack: 'laravel', label: 'Laravel', from: 'Acme team', line: 'Workers stop after a deploy — Call horizon:terminate.', keywords: ['horizon', 'queue', 'очередь', 'deploy', 'деплой', 'worker', 'воркер'] },
     { id: 'r2', scope: 'personal', stack: 'laravel', label: 'Laravel', from: 'yours', line: 'Runs artisan on the host — Run it in the app container.', keywords: ['artisan', 'migration', 'миграция', 'container'] },
@@ -57,8 +57,8 @@ let repo;
 let env;
 before(async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    env = { ...process.env, CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`, CODERS_TALK_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), CODERS_TALK_NO_UPDATE_CHECK: '1', CODERS_TALK_NO_BROWSER: '1' };
-    for (const name of ['CODERS_TALK_TOKEN', 'CODERS_TALK_RULES', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
+    env = { ...process.env, KEEPPLAIN_URL: `http://127.0.0.1:${server.address().port}`, KEEPPLAIN_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), KEEPPLAIN_NO_UPDATE_CHECK: '1', KEEPPLAIN_NO_BROWSER: '1' };
+    for (const name of ['KEEPPLAIN_TOKEN', 'KEEPPLAIN_RULES', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
 });
 after(() => server.close());
 // A Laravel repository of the Acme organisation on GitHub, with a fresh state file.
@@ -73,7 +73,7 @@ beforeEach(() => {
     mkdirSync(join(repo, 'app'));
 });
 
-const signedIn = { CODERS_TALK_TOKEN: TOKEN };
+const signedIn = { KEEPPLAIN_TOKEN: TOKEN };
 const state = () => (existsSync(join(home, 'ct', 'rules.json')) ? JSON.parse(readFileSync(join(home, 'ct', 'rules.json'), 'utf8')) : { repos: {} });
 const entry = () => Object.values(state().repos)[0];
 const startHook = (extra = {}, [program, args] = hookCommand('session-start')) => new Promise((resolve, reject) => {
@@ -109,7 +109,7 @@ test('the rules reach the session at its start from the last fetch, which goes i
     const first = JSON.parse(await startHook(signedIn));
     assert.equal(first.hookSpecificOutput.hookEventName, 'SessionStart');
     assert.equal(first.hookSpecificOutput.additionalContext, START, "a stack's rules wait for the prompt");
-    assert.equal(first.systemMessage, 'Coders Talk added 3 rules to this session: Laravel (1 from Acme, 1 yours), Everywhere (1 yours); 2 of them come with the prompts they matter for. To see them: /coders-talk:rules');
+    assert.equal(first.systemMessage, 'KeepPlain added 3 rules to this session: Laravel (1 from Acme, 1 yours), Everywhere (1 yours); 2 of them come with the prompts they matter for. To see them: /keepplain:rules');
     const second = JSON.parse(await startHook(signedIn));
     assert.equal(second.hookSpecificOutput.additionalContext, START);
     assert.equal(second.systemMessage, undefined, 'the same rules are not announced again');
@@ -139,7 +139,7 @@ test("first the task, then its rules: a stack's rules come with the prompt they 
     // In Russian, about queues after a deploy: the team's rule, matched on this computer.
     const said = JSON.parse(await promptHook('Почини воркеры очередей, после деплоя они опять остановились', signedIn));
     assert.equal(said.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-    assert.match(said.hookSpecificOutput.additionalContext, /^## Coders Talk rules for this task\n/);
+    assert.match(said.hookSpecificOutput.additionalContext, /^## KeepPlain rules for this task\n/);
     assert.ok(said.hookSpecificOutput.additionalContext.includes('- Workers stop after a deploy — Call horizon:terminate. (Laravel, Acme team)'));
     assert.ok(!said.hookSpecificOutput.additionalContext.includes('artisan'));
     // Said once a session; another rule when the task moves on; another session gets it again.
@@ -152,7 +152,7 @@ test("first the task, then its rules: a stack's rules come with the prompt they 
     assert.equal(requests.length, before, 'the prompt never leaves the computer');
     assert.ok(!readFileSync(join(home, 'ct', 'rules-given.json'), 'utf8').includes('воркеры'), 'and is not kept: only the ids given');
     // Off, or signed out: nothing.
-    assert.equal(await promptHook('Почини воркеры очередей', { ...signedIn, CODERS_TALK_RULES: '0' }, '3e8b5f4d-0a7c-4b5e-8d6f-9c4a1b5e7da3'), '');
+    assert.equal(await promptHook('Почини воркеры очередей', { ...signedIn, KEEPPLAIN_RULES: '0' }, '3e8b5f4d-0a7c-4b5e-8d6f-9c4a1b5e7da3'), '');
     assert.equal(await promptHook('Почини воркеры очередей', {}, '3e8b5f4d-0a7c-4b5e-8d6f-9c4a1b5e7da3'), '');
 });
 
@@ -192,8 +192,8 @@ test('an hour later it asks again with the version it has, and a change of the s
 });
 
 test('a team block already in the repository is named, so the site leaves it out', async () => {
-    mkdirSync(join(repo, '.coders-talk'));
-    writeFileSync(join(repo, '.coders-talk', 'uses.json'), JSON.stringify([{ team: 'acme', stack: 'laravel', hash: 'a1a1', format: 'rule', agent: 'claude', path: 'CLAUDE.md' }]));
+    mkdirSync(join(repo, '.keepplain'));
+    writeFileSync(join(repo, '.keepplain', 'uses.json'), JSON.stringify([{ team: 'acme', stack: 'laravel', hash: 'a1a1', format: 'rule', agent: 'claude', path: 'CLAUDE.md' }]));
     await startHook(signedIn);
     const asked = () => requests.find((r) => r.url.startsWith('/api/v1/rules'));
     await waitFor(() => asked());
@@ -205,7 +205,7 @@ test('a team block already in the repository is named, so the site leaves it out
 test('off on this computer, by the environment, or signed out: nothing asked, nothing added', async () => {
     assert.equal((await cli(['off'], signedIn)).ok, true);
     assert.equal(await startHook(signedIn), '');
-    assert.equal(await startHook({ ...signedIn, CODERS_TALK_RULES: '0' }), '');
+    assert.equal(await startHook({ ...signedIn, KEEPPLAIN_RULES: '0' }), '');
     assert.equal(await startHook(), '');
     await new Promise((r) => setTimeout(r, 300));
     assert.equal(requests.filter((r) => r.url.startsWith('/api/v1/rules')).length, 0);
@@ -214,9 +214,9 @@ test('off on this computer, by the environment, or signed out: nothing asked, no
     assert.match(on.out, /Rules are on/);
     await startHook(signedIn);
     await waitFor(() => requests.length === 1);
-    await startHook({ ...signedIn, CODERS_TALK_RULES: '0' });
+    await startHook({ ...signedIn, KEEPPLAIN_RULES: '0' });
     await waitFor(() => entry()?.hash);
-    assert.equal(await startHook({ ...signedIn, CODERS_TALK_RULES: '0' }), '');
+    assert.equal(await startHook({ ...signedIn, KEEPPLAIN_RULES: '0' }), '');
 });
 
 test('`rules` shows what a session here gets, and why', async () => {
@@ -224,7 +224,7 @@ test('`rules` shows what a session here gets, and why', async () => {
     assert.equal(shown.ok, true, shown.out);
     assert.match(shown.out, /Stacks found: laravel, php/);
     assert.match(shown.out, /GitHub owner acme: the Acme team's\. Its rules come first\./);
-    assert.match(shown.out, /Coders Talk added 3 rules to this session: Laravel \(1 from Acme, 1 yours\), Everywhere \(1 yours\):/);
+    assert.match(shown.out, /KeepPlain added 3 rules to this session: Laravel \(1 from Acme, 1 yours\), Everywhere \(1 yours\):/);
     assert.match(shown.out, /The rules for Laravel come with the prompts they matter for/);
     assert.ok(shown.out.includes('- Runs artisan on the host — Run it in the app container.'));
     assert.match(shown.out, /Change them: http:\/\/x\/rules/);
@@ -241,5 +241,5 @@ test('`rules` shows what a session here gets, and why', async () => {
 });
 
 test('the line for the person names each stack and whose rules', () => {
-    assert.equal(summary({ rules: 1, team: null, sections: [{ scope: 'personal', label: 'Go', rules: 1 }] }), 'Coders Talk added 1 rule to this session: Go (1 yours)');
+    assert.equal(summary({ rules: 1, team: null, sections: [{ scope: 'personal', label: 'Go', rules: 1 }] }), 'KeepPlain added 1 rule to this session: Go (1 yours)');
 });

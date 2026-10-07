@@ -1,4 +1,4 @@
-// The app's requests (src/main/api.mjs) against a stand-in for coders-talk: the commands they become, and the rule that
+// The app's requests (src/main/api.mjs) against a stand-in for keepplain: the commands they become, and the rule that
 // nothing is sent without its confirmation screen.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -6,7 +6,7 @@ import { createApi, PREVIEW_TTL_MS } from '../src/main/api.mjs';
 
 const ID = 'a1b2c3d4-0000-4000-8000-000000000001';
 
-/** An api whose coders-talk answers ok, with the preview of the session asked for; calls lists the commands. */
+/** An api whose keepplain answers ok, with the preview of the session asked for; calls lists the commands. */
 function stand(clock = { now: 1_000 }) {
     const calls = [];
     const run = async (args, options = {}) => {
@@ -37,7 +37,7 @@ test('send runs only for a session previewed here, once, within the half hour a 
 
     await api.preview({ id: ID, agent: 'codex', folder: '/work/shop' });
     clock.now += PREVIEW_TTL_MS + 1;
-    assert.equal((await api.send({ id: ID })).ok, false, 'a preview coders-talk has deleted is not sent');
+    assert.equal((await api.send({ id: ID })).ok, false, 'a preview keepplain has deleted is not sent');
 
     await api.preview({ id: ID, agent: 'pi', folder: '/work/shop' });
     await api.discard({ id: ID, agent: 'pi' });
@@ -76,7 +76,7 @@ test('the window cannot slip arguments in: each request checks what it gets and 
     assert.equal((await api.sessions({ folder: '' })).ok, false);
 });
 
-test('every row of the screens is one coders-talk command', async () => {
+test('every row of the screens is one keepplain command', async () => {
     const { api, calls } = stand();
     await api.connect({ agents: ['claude-code', 'pi', 'emacs'] });
     await api.setAgent({ agent: 'cursor', on: true });

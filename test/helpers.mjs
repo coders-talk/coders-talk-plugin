@@ -6,14 +6,14 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * CODERS_TALK_BIN=dist/coders-talk-… runs the commands and hooks of the tests on the single file built by
+ * KEEPPLAIN_BIN=dist/keepplain-… runs the commands and hooks of the tests on the single file built by
  * scripts/build.mjs instead of the scripts (npm run test:binary): the same checks, under Bun (plan, stage 13.1).
  */
-export const BINARY = process.env.CODERS_TALK_BIN ? resolve(process.env.CODERS_TALK_BIN) : null;
+export const BINARY = process.env.KEEPPLAIN_BIN ? resolve(process.env.KEEPPLAIN_BIN) : null;
 const scripts = fileURLToPath(new URL('../scripts/', import.meta.url));
 
-/** [program, arguments] that run `coders-talk <args>`. */
-export const coders = (args) => (BINARY ? [BINARY, args] : [process.execPath, [join(scripts, 'coders-talk.mjs'), ...args]]);
+/** [program, arguments] that run `keepplain <args>`. */
+export const coders = (args) => (BINARY ? [BINARY, args] : [process.execPath, [join(scripts, 'keepplain.mjs'), ...args]]);
 
 /** [program, arguments] that run a hook as the agent does: session-start, stop or session-end; --agent=codex for Codex. */
 export function hookCommand(name, args = []) {
@@ -34,7 +34,7 @@ export async function waitFor(check, ms = 30_000) {
 export const plain = (text) => text.replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '');
 
 /**
- * `coders-talk <args>` run in a pseudo-terminal by `script`, with $input typed in once it asks `[y/N]`: {status, out}.
+ * `keepplain <args>` run in a pseudo-terminal by `script`, with $input typed in once it asks `[y/N]`: {status, out}.
  * Null where `script` cannot give it one (Windows): nothing lets a script answer the question otherwise.
  */
 export function inTerminal(args, input, { env, cwd }) {

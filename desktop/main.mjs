@@ -1,5 +1,5 @@
 /**
- * Coders Talk for macOS and Windows: one window over the coders-talk CLI (src/main/cli.mjs runs it, src/main/api.mjs
+ * KeepPlain for macOS and Windows: one window over the keepplain CLI (src/main/cli.mjs runs it, src/main/api.mjs
  * says what the window may ask of it). The window has no Node and no network of its own: it asks through the preload
  * (preload.cjs), and only for the methods api.mjs has. Links open in the person's browser, and only the site's.
  */
@@ -18,7 +18,7 @@ const PAGE = join(HERE, 'src', 'renderer', 'index.html');
 const PAGE_URL = pathToFileURL(PAGE).href;
 
 // A separate settings folder, for trying the app beside the installed one (and for its UI checks).
-if (process.env.CODERS_TALK_APP_DATA) app.setPath('userData', process.env.CODERS_TALK_APP_DATA);
+if (process.env.KEEPPLAIN_APP_DATA) app.setPath('userData', process.env.KEEPPLAIN_APP_DATA);
 if (!app.requestSingleInstanceLock()) app.quit();
 
 /** The app's own settings: the window's size. Nothing else. */
@@ -38,13 +38,13 @@ function writeSettings(patch) {
     return next;
 }
 
-/** The coders-talk file inside the app: resources/bin in a build, the staged or built one while developing. */
+/** The keepplain file inside the app: resources/bin in a build, the staged or built one while developing. */
 function bundledCli() {
     if (app.isPackaged) return join(process.resourcesPath, 'bin', CLI_NAME);
     const os = { darwin: 'mac', win32: 'win' }[process.platform] ?? process.platform;
     const staged = join(HERE, 'resources', 'bin', `${os}-${process.arch}`, CLI_NAME);
     if (existsSync(staged)) return staged;
-    const built = join(HERE, '..', 'dist', process.platform === 'win32' ? `coders-talk-windows-${process.arch}.exe` : `coders-talk-${process.platform}-${process.arch}`);
+    const built = join(HERE, '..', 'dist', process.platform === 'win32' ? `keepplain-windows-${process.arch}.exe` : `keepplain-${process.platform}-${process.arch}`);
 
     return existsSync(built) ? built : null;
 }
@@ -52,7 +52,7 @@ function bundledCli() {
 let cli = null;
 let cliError = null;
 let api = null;
-/** The site coders-talk talks to, from its last status: the only one whose pages the app opens. */
+/** The site keepplain talks to, from its last status: the only one whose pages the app opens. */
 let site = null;
 /** The app's own updates (src/main/updater.mjs); the window hears of each change of state. */
 const updater = createUpdater({
@@ -73,9 +73,9 @@ function start() {
         run: async (args, options = {}) => {
             if (!cli) return { ok: false, result: null, events: [], error: cliError, details: null };
             // The system's proxy, asked again for each command: a VPN client may have been switched on or off meanwhile.
-            const target = process.env.CODERS_TALK_URL || site || 'https://coders.talk';
+            const target = process.env.KEEPPLAIN_URL || site || 'https://keepplain.com';
             const withProxy = await withSystemProxy(env, target, (url) => session.defaultSession.resolveProxy(url));
-            // A session's folder may be gone (a removed worktree): coders-talk finds the session by its id from anywhere.
+            // A session's folder may be gone (a removed worktree): keepplain finds the session by its id from anywhere.
             return runCli(cli.path, args, { env: withProxy, ...options, cwd: options.cwd && existsSync(options.cwd) ? options.cwd : app.getPath('home') });
         },
     });
@@ -88,7 +88,7 @@ function createWindow() {
         height: bounds?.height ?? 720,
         minWidth: 760,
         minHeight: 520,
-        title: 'Coders Talk',
+        title: 'KeepPlain',
         // The page's own background, so the window does not flash while it loads.
         backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f0e0c' : '#f1ede6',
         // macOS: the traffic lights sit on the page's sidebar, as in the system's own apps.
@@ -121,7 +121,7 @@ ipcMain.handle('ct', async (event, { method, params, token } = {}) => {
     if (!fromPage(event)) throw new Error('Not from the app.');
     const send = (data) => !event.sender.isDestroyed() && event.sender.send('ct:event', { token, data });
 
-    // The first call finds or installs coders-talk: the window is up by then and says it is starting.
+    // The first call finds or installs keepplain: the window is up by then and says it is starting.
     if (method === 'init') {
         if (!api) start();
         return { cli, cliError, app: app.getVersion(), platform: process.platform };
@@ -162,7 +162,7 @@ function openLink(url) {
     } catch {
         return false;
     }
-    const allowed = site ? new URL(site).origin : 'https://coders.talk';
+    const allowed = site ? new URL(site).origin : 'https://keepplain.com';
     if (target.origin !== allowed) return false;
     shell.openExternal(target.href);
 
@@ -171,7 +171,7 @@ function openLink(url) {
 
 // Windows groups the taskbar button and the Start menu shortcut by this id (the installer gives the shortcut the same).
 // From the Store (MSIX) the package gives the app its id: setting another one would split the taskbar button from it.
-if (process.platform === 'win32' && !process.windowsStore) app.setAppUserModelId('talk.coders.desktop');
+if (process.platform === 'win32' && !process.windowsStore) app.setAppUserModelId('com.keepplain.desktop');
 
 app.whenReady().then(() => {
     if (process.platform !== 'darwin') Menu.setApplicationMenu(null);

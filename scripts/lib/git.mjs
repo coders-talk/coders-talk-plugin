@@ -10,7 +10,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 
 export const MAX_SUBJECTS = 20;
-// More hashes than titles: the site matches a team repository's commits to the session by them (coders.talk plan, stage 12.1).
+// More hashes than titles: the site matches a team repository's commits to the session by them (KeepPlain plan, stage 12.1).
 export const MAX_SHAS = 50;
 
 function git(cwd, args) {
@@ -171,7 +171,7 @@ export function gitContext(cwd, headStart, startedAt) {
 
     if (headStart && headStart !== headEnd) {
         const range = `${headStart}..${headEnd}`;
-        // Hashes next to the titles: the site links each commit on GitHub (coders.talk plan, stage 12.1).
+        // Hashes next to the titles: the site links each commit on GitHub (KeepPlain plan, stage 12.1).
         const log = git(cwd, ['log', '--format=%H%x09%s', `--max-count=${MAX_SHAS}`, range]);
         const entries = log ? log.split('\n').map((l) => l.split('\t')) : [];
         context.commits = {

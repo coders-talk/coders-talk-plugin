@@ -1,8 +1,8 @@
 {
     "mcpServers": {
-        "coders-talk": {
+        "keepplain": {
             "type": "http",
-            "url": "https://coders.talk/mcp"
+            "url": "https://keepplain.com/mcp"
         }
     }
 }

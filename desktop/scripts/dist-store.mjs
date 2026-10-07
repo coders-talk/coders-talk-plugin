@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The Microsoft Store package (MSIX, out/*.appx), as the workflow builds it: the coders-talk file staged, then
+ * The Microsoft Store package (MSIX, out/*.appx), as the workflow builds it: the keepplain file staged, then
  * electron-builder's appx target with the makeappx of the newest Windows SDK here. electron-builder's own copy of
  * makeappx may not start on a newer Windows ("side-by-side configuration is incorrect"); the SDK's does. The Store signs
  * the package, so no certificate is needed. The package identity is build.appx in package.json (Partner Center → Product

@@ -1,5 +1,5 @@
 /**
- * Finding and reading the current Claude Code or Codex session. Pure helpers, no network: coders-talk.mjs does the talking.
+ * Finding and reading the current Claude Code or Codex session. Pure helpers, no network: keepplain.mjs does the talking.
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -10,26 +10,28 @@ import { piIdOf } from './pi.mjs';
 export const SESSION_ID = /^[A-Za-z0-9-]{8,100}$/;
 
 /**
- * The plugin's own commands inside the transcript: /coders-talk:build, :auto, :lookup… are not part of the work. An
- * older plugin went by /build and /share, without the prefix.
+ * The plugin's own commands inside the transcript: /keepplain:build, :auto, :lookup… are not part of the work. An
+ * older plugin went by /build and /share, without the prefix, and one before the rename by /coders-talk:build.
  */
-const OWN_COMMAND = /<command-name>\/(coders-talk:[a-z-]+|build|share)<\/command-name>/;
-/** Codex puts the body of a skill it runs into a user message: "<skill>\n<name>coders-talk:build</name>…". */
-const OWN_SKILL = /<skill>\s*<name>(coders-talk:[a-z-]+|build|share)<\/name>/;
-/** What the person types in Codex to call one: "$coders-talk:build". */
-const OWN_MENTION = /(?:^|\s)\$(coders-talk:[a-z-]+)/;
+const OWN_COMMAND = /<command-name>\/((?:keepplain|coders-talk):[a-z-]+|build|share)<\/command-name>/;
+/** Codex puts the body of a skill it runs into a user message: "<skill>\n<name>keepplain:build</name>…". */
+const OWN_SKILL = /<skill>\s*<name>((?:keepplain|coders-talk):[a-z-]+|build|share)<\/name>/;
+/** What the person types in Codex to call one: "$keepplain:build". */
+const OWN_MENTION = /(?:^|\s)\$((?:keepplain|coders-talk):[a-z-]+)/;
 /**
- * What the person types to call one where nothing wraps it: a Cursor skill, "/coders-talk-build" (its name cannot hold a
+ * What the person types to call one where nothing wraps it: a Cursor skill, "/keepplain-build" (its name cannot hold a
  * colon), which its transcript keeps as the message's text.
  */
-const OWN_TYPED = /^\s*\/coders-talk[:-]([a-z-]+)(?=\s|$)/;
+const OWN_TYPED = /^\s*\/(?:keepplain|coders-talk)[:-]([a-z-]+)(?=\s|$)/;
+/** One of the plugin's commands by its prefix, the old name's too. */
+const OWN_PREFIX = /^(?:keepplain|coders-talk):/;
 /** The command that sends a session: the last run of it may be the run in progress. */
-const OWN_SEND = /^(?:coders-talk:)?(?:build|share)$/;
+const OWN_SEND = /^(?:(?:keepplain|coders-talk):)?(?:build|share)$/;
 /**
  * A tool call that runs the plugin's script: the preview, discard, send… of a command run. The plugin laid out by
- * `coders-talk enable` calls the installed program instead: "& '…\bin\coders-talk.exe' preview <id>".
+ * `keepplain enable` calls the installed program instead: "& '…\bin\keepplain.exe' preview <id>".
  */
-const OWN_SCRIPT = /coders-talk\.mjs|coders-talk(?:\.exe|\.cmd)?[\\"']*\s+(?:preview|send|discard|auto|login|logout|use)\b/;
+const OWN_SCRIPT = /(?:keepplain|coders-talk)\.mjs|(?:keepplain|coders-talk)(?:\.exe|\.cmd)?[\\"']*\s+(?:preview|send|discard|auto|login|logout|use)\b/;
 
 export function configDir(env = process.env) {
     return env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
@@ -102,11 +104,11 @@ export function findRollout(threadId, dir = codexHome()) {
 }
 
 /**
- * Drops the plugin's own runs from the session: every /coders-talk:* command (in Codex the message carrying the
+ * Drops the plugin's own runs from the session: every /keepplain:* command (in Codex the message carrying the
  * skill, and the person's messages right before it: what they typed to call it, the environment note Codex adds at the
  * start of a turn), what the agent did for it, and the replies it asked for: a run goes on past the person's next
  * prompt while the agent answers it with the plugin's script ("No, do not send it" and the discard it runs).
- * With $tail, the run in progress goes to the end: the last /coders-talk:build (or :share) also takes the replies the
+ * With $tail, the run in progress goes to the end: the last /keepplain:build (or :share) also takes the replies the
  * agent did no work for (a question about a finding). A reply the agent did other work for ends even that run: the
  * command was left, and what came after is part of the session.
  */
@@ -139,7 +141,7 @@ export function cutOwnCommand(text, { tail = true } = {}) {
             to = after;
         }
         // An older plugin's /build is ours only when it ran the script; the person's own /build is work.
-        if (i !== last && !kinds[i].own.startsWith('coders-talk:') && !kinds.slice(i, to).some((k) => k.script)) continue;
+        if (i !== last && !OWN_PREFIX.test(kinds[i].own) && !kinds.slice(i, to).some((k) => k.script)) continue;
         // The environment note in front of the next Codex prompt belongs to that prompt.
         while (to < lines.length && to > i + 1 && kinds[to - 1].codexUser && !opens(kinds[to - 1])) to--;
         drop.fill(true, from, to);
@@ -166,7 +168,7 @@ function kindOf(line) {
     const content = d.message?.content;
     if (d.type === 'user' && !d.isMeta) {
         const typed = typeof content === 'string' ? content.match(OWN_TYPED)?.[1] : undefined;
-        const own = textOf(content).match(OWN_COMMAND)?.[1] ?? (typed ? `coders-talk:${typed}` : undefined);
+        const own = textOf(content).match(OWN_COMMAND)?.[1] ?? (typed ? `keepplain:${typed}` : undefined);
 
         return own ? { own } : { prompt: isPrompt(content) };
     }
@@ -249,14 +251,14 @@ const CODEX_CALLS = new Set(['function_call', 'custom_tool_call', 'local_shell_c
 
 /**
  * Typed by the person in Codex: some text that is not one of the blocks Codex adds (<environment_context>, <skill>,
- * <image …>). "$ct-horizon migrate the queues" is a prompt; "$coders-talk:build" calls the plugin and is not.
+ * <image …>). "$kp-horizon migrate the queues" is a prompt; "$keepplain:build" calls the plugin and is not.
  */
 export function isCodexPrompt(content) {
     return Array.isArray(content) && content.some((b) => {
         if (typeof b?.text !== 'string') return false;
         const text = b.text.replace(/^\s*(?:<skill>[\s\S]*?<\/skill>\s*)+/, '').trim();
 
-        return text !== '' && text !== '[image]' && !text.startsWith('<') && !text.startsWith('$coders-talk:');
+        return text !== '' && text !== '[image]' && !text.startsWith('<') && !/^\$(?:keepplain|coders-talk):/.test(text);
     });
 }
 
@@ -288,13 +290,13 @@ const SESSION_COMMANDS = new Set([
 ]);
 
 /**
- * A skill or command with a task after it, as the person typed it: "/ct-horizon-queues migrate the queues". Null for
- * one without a task, for Claude Code's own commands and for the plugin's (/coders-talk:*).
+ * A skill or command with a task after it, as the person typed it: "/kp-horizon-queues migrate the queues". Null for
+ * one without a task, for Claude Code's own commands and for the plugin's (/keepplain:*).
  */
 function commandPrompt(text) {
     const name = text.match(/<command-name>\s*\/?([^<\s]+)\s*<\/command-name>/)?.[1];
     const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim();
-    if (!name || !args || name.startsWith('coders-talk:') || SESSION_COMMANDS.has(name)) return null;
+    if (!name || !args || OWN_PREFIX.test(name) || SESSION_COMMANDS.has(name)) return null;
 
     return `/${name} ${args}`;
 }

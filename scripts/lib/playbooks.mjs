@@ -1,10 +1,10 @@
 /**
- * Use this Build (plan: library, stage 22.3): a published Build's playbook from Coders Talk, put into the repository
+ * Use this Build (plan: library, stage 22.3): a published Build's playbook from KeepPlain, put into the repository
  * you are in for Claude Code, Codex, Cursor or Pi. The text is the site's, the same for every agent
  * (/b/<slug>/use/<format>.md); where it goes differs:
  *
- *   skill   Claude Code  <repository>/.claude/skills/ct-<slug>/SKILL.md
- *           Codex        <repository>/.agents/skills/ct-<slug>/SKILL.md (Codex reads skills there, in the folder a
+ *   skill   Claude Code  <repository>/.claude/skills/kp-<slug>/SKILL.md
+ *           Codex        <repository>/.agents/skills/kp-<slug>/SKILL.md (Codex reads skills there, in the folder a
  *                        session starts in and the folders up to the repository's root; no agents/openai.yaml is
  *                        needed, and without one Codex may open the skill by itself, which is the point)
  *           Cursor, Pi   the same .agents/skills folder: both read it (Pi once the project is trusted), so one skill
@@ -13,7 +13,7 @@
  *                        that imports @AGENTS.md means every agent reads AGENTS.md, so the block goes there once
  *   prompt  nothing is written: it is pasted as the first message of a session
  *
- * What was written is noted in <repository>/.coders-talk/uses.json: the Build, the version, the format, the agent.
+ * What was written is noted in <repository>/.keepplain/uses.json: the Build, the version, the format, the agent.
  * A newer version replaces only what this wrote (the skill's folder, the block between its markers); nothing updates
  * by itself.
  */
@@ -56,9 +56,9 @@ export function projectRoot(cwd) {
     return top ? join(top) : cwd;
 }
 
-/** The skill's name, as the site writes it into SKILL.md: ct-<slug>, at most 64 characters. */
+/** The skill's name, as the site writes it into SKILL.md: kp-<slug>, at most 64 characters. */
 export function skillName(slug) {
-    return `ct-${slug}`.slice(0, 64).replace(/-+$/, '');
+    return `kp-${slug}`.slice(0, 64).replace(/-+$/, '');
 }
 
 /** A path under the repository, with / whatever the platform: what the output shows. */
@@ -84,8 +84,8 @@ const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** This Build's block in a CLAUDE.md or AGENTS.md: {start, end, text, hash}, or null. */
 export function findBlock(text, slug) {
-    const open = new RegExp(`<!-- coders-talk:${escape(slug)}@([A-Za-z0-9]+) -->`);
-    const close = `<!-- /coders-talk:${slug} -->`;
+    const open = new RegExp(`<!-- keepplain:${escape(slug)}@([A-Za-z0-9]+) -->`);
+    const close = `<!-- /keepplain:${slug} -->`;
     const m = open.exec(text);
     if (!m) return null;
     const closeAt = text.indexOf(close, m.index);
@@ -150,9 +150,9 @@ export function lineDiff(before, after) {
     return out.join('\n');
 }
 
-const usesFile = (root) => join(root, '.coders-talk', 'uses.json');
+const usesFile = (root) => join(root, '.keepplain', 'uses.json');
 
-/** What this repository took from Coders Talk: [{slug, hash, format, agent, path, at}]. */
+/** What this repository took from KeepPlain: [{slug, hash, format, agent, path, at}]. */
 export function readUses(root) {
     try {
         const list = JSON.parse(readFileSync(usesFile(root), 'utf8'));
@@ -166,7 +166,7 @@ export function readUses(root) {
 export function recordUse(root, use) {
     const list = readUses(root).filter((u) => !(u.slug === use.slug && u.format === use.format && u.agent === use.agent && u.path === use.path));
     list.push({ ...use, at: new Date().toISOString() });
-    mkdirSync(join(root, '.coders-talk'), { recursive: true });
+    mkdirSync(join(root, '.keepplain'), { recursive: true });
     writeFileSync(usesFile(root), JSON.stringify(list, null, 2) + '\n');
 }
 

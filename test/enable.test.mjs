@@ -1,4 +1,4 @@
-// coders-talk enable, disable, status and the refresh after an update (plan, stage 13.3), against stand-ins for the
+// keepplain enable, disable, status and the refresh after an update (plan, stage 13.3), against stand-ins for the
 // claude and codex commands (fixtures/fake-agent.mjs) and throwaway config folders. On Windows the stand-ins are
 // .cmd files, the way npm installs claude.
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ import { coders } from './helpers.mjs';
 
 const run = promisify(execFile);
 const fake = fileURLToPath(new URL('./fixtures/fake-agent.mjs', import.meta.url));
-const SITE = 'https://coders.talk';
+const SITE = 'https://keepplain.com';
 
 let dir;
 let env;
@@ -23,7 +23,7 @@ const calls = () => readFileSync(join(dir, 'calls.log'), 'utf8').trim().split('\
 // Outside any repository: enable would ask about the git hooks of the one it runs in (test/githooks.test.mjs).
 const cli = (args) => run(...coders(args), { env, cwd: dir }).then(({ stdout }) => ({ ok: true, out: stdout }), (e) => ({ ok: false, out: e.stdout + e.stderr }));
 
-/** A fresh computer with Claude Code and Codex, and nothing of Coders Talk. */
+/** A fresh computer with Claude Code and Codex, and nothing of KeepPlain. */
 beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'ct-enable-'));
     const bin = join(dir, 'bin');
@@ -45,16 +45,16 @@ beforeEach(() => {
         PATH: bin,
         CLAUDE_CONFIG_DIR: join(dir, 'claude'),
         CODEX_HOME: join(dir, 'codex'),
-        CODERS_TALK_HOME: join(dir, 'ct'),
+        KEEPPLAIN_HOME: join(dir, 'ct'),
         // The Claude desktop app's folder of this computer stays out of it too.
-        CODERS_TALK_CLAUDE_APP_DATA: join(dir, 'app'),
+        KEEPPLAIN_CLAUDE_APP_DATA: join(dir, 'app'),
         FAKE_AGENT_STATE: join(dir, 'state.json'),
         FAKE_AGENT_LOG: join(dir, 'calls.log'),
-        CODERS_TALK_NO_UPDATE_CHECK: '1',
+        KEEPPLAIN_NO_UPDATE_CHECK: '1',
     };
     delete env.Path;
-    delete env.CODERS_TALK_URL;
-    delete env.CODERS_TALK_AUTO;
+    delete env.KEEPPLAIN_URL;
+    delete env.KEEPPLAIN_AUTO;
 });
 
 test('enable asks first: without a terminal it needs --yes', async () => {
@@ -68,11 +68,11 @@ test('enable asks first: without a terminal it needs --yes', async () => {
 test('enable lays the plugin out and installs it in both agents from the local marketplace', async () => {
     const r = await cli(['enable', '--yes']);
     assert.equal(r.ok, true, r.out);
-    assert.match(r.out, /Claude Code +\S+claude(\.cmd)?; no Coders Talk plugin/);
-    assert.match(r.out, /- Claude Code: install coders-talk@coders-talk-local/);
+    assert.match(r.out, /Claude Code +\S+claude(\.cmd)?; no KeepPlain plugin/);
+    assert.match(r.out, /- Claude Code: install keepplain@keepplain-local/);
     assert.match(r.out, /- Auto mode: off \(as it is\)/);
-    assert.match(r.out, /Claude Code: coders-talk@coders-talk-local \S+ is installed\. Restart Claude Code/);
-    assert.match(r.out, /Not signed in to https:\/\/coders\.talk yet: run coders-talk login\./);
+    assert.match(r.out, /Claude Code: keepplain@keepplain-local \S+ is installed\. Restart Claude Code/);
+    assert.match(r.out, /Not signed in to https:\/\/keepplain\.com yet: run keepplain login\./);
 
     const [program, fixed] = coders([]);
     const hooks = JSON.parse(readFileSync(join(plugin(), 'hooks', 'hooks.json'), 'utf8')).hooks;
@@ -81,37 +81,37 @@ test('enable lays the plugin out and installs it in both agents from the local m
     assert.ok(existsSync(join(plugin(), 'codex', 'skills', 'build', 'SKILL.md')));
 
     const state = agentState();
-    assert.deepEqual(Object.keys(state.claude.plugins), ['coders-talk@coders-talk-local']);
-    assert.deepEqual(Object.keys(state.codex.plugins), ['coders-talk@coders-talk-local']);
-    assert.equal(state.claude.marketplaces['coders-talk-local'], plugin());
+    assert.deepEqual(Object.keys(state.claude.plugins), ['keepplain@keepplain-local']);
+    assert.deepEqual(Object.keys(state.codex.plugins), ['keepplain@keepplain-local']);
+    assert.equal(state.claude.marketplaces['keepplain-local'], plugin());
 
     // Again: the marketplace is there already, the plugin is updated.
     writeFileSync(join(dir, 'calls.log'), '');
-    assert.match((await cli(['enable', '--yes'])).out, /- Claude Code: update coders-talk@coders-talk-local/);
+    assert.match((await cli(['enable', '--yes'])).out, /- Claude Code: update keepplain@keepplain-local/);
     const again = calls().map((c) => `${c.agent} ${c.args.join(' ')}`);
-    assert.ok(again.includes('claude plugin update coders-talk@coders-talk-local'), again.join('\n'));
+    assert.ok(again.includes('claude plugin update keepplain@keepplain-local'), again.join('\n'));
     assert.ok(!again.some((c) => c.includes('marketplace add')), 'added once');
 
     const status = await cli(['status']);
-    assert.match(status.out, /Claude Code +coders-talk@coders-talk-local \S+; auto mode off/);
-    assert.match(status.out, /Codex +coders-talk@coders-talk-local \S+; auto mode off/);
+    assert.match(status.out, /Claude Code +keepplain@keepplain-local \S+; auto mode off/);
+    assert.match(status.out, /Codex +keepplain@keepplain-local \S+; auto mode off/);
 });
 
 test('the plugin from GitHub is replaced, and a server added by hand removed or kept', async () => {
-    writeFileSync(join(dir, 'state.json'), JSON.stringify({ claude: { plugins: { 'coders-talk@coders-talk': '0.10.0' }, marketplaces: { 'coders-talk': '/x' }, mcp: ['library'] }, codex: { plugins: {}, marketplaces: {}, mcp: ['ct'] } }));
-    writeFileSync(join(dir, 'claude', '.claude.json'), JSON.stringify({ mcpServers: { library: { type: 'http', url: 'https://coders.talk/mcp' }, other: { url: 'https://example.com/mcp' } }, projects: { [dir]: { mcpServers: { lib2: { type: 'http', url: 'https://coders.talk/mcp/' } } } } }));
-    writeFileSync(join(dir, 'codex', 'config.toml'), '[mcp_servers.ct]\nurl = "https://coders.talk/mcp"\n\n[mcp_servers.other]\nurl = "https://example.com/mcp"\n');
+    writeFileSync(join(dir, 'state.json'), JSON.stringify({ claude: { plugins: { 'keepplain@keepplain': '0.10.0' }, marketplaces: { 'keepplain': '/x' }, mcp: ['library'] }, codex: { plugins: {}, marketplaces: {}, mcp: ['ct'] } }));
+    writeFileSync(join(dir, 'claude', '.claude.json'), JSON.stringify({ mcpServers: { library: { type: 'http', url: 'https://keepplain.com/mcp' }, other: { url: 'https://example.com/mcp' } }, projects: { [dir]: { mcpServers: { lib2: { type: 'http', url: 'https://keepplain.com/mcp/' } } } } }));
+    writeFileSync(join(dir, 'codex', 'config.toml'), '[mcp_servers.ct]\nurl = "https://keepplain.com/mcp"\n\n[mcp_servers.other]\nurl = "https://example.com/mcp"\n');
 
     const status = await cli(['status']);
-    assert.match(status.out, /Claude Code +coders-talk@coders-talk 0\.10\.0; MCP server added by hand: library, lib2 \(in .+\)/);
+    assert.match(status.out, /Claude Code +keepplain@keepplain 0\.10\.0; MCP server added by hand: library, lib2 \(in .+\)/);
 
     const kept = await cli(['enable', '--yes']);
     assert.equal(kept.ok, true, kept.out);
-    assert.match(kept.out, /- Claude Code: uninstall coders-talk@coders-talk\n/);
-    assert.match(kept.out, /- Claude Code: install coders-talk@coders-talk-local, without its MCP server/);
+    assert.match(kept.out, /- Claude Code: uninstall keepplain@keepplain\n/);
+    assert.match(kept.out, /- Claude Code: install keepplain@keepplain-local, without its MCP server/);
     assert.equal(existsSync(join(plugin(), '.mcp.json')), false);
     assert.equal(JSON.parse(readFileSync(join(plugin(), '.codex-plugin', 'plugin.json'), 'utf8')).mcpServers, undefined);
-    assert.deepEqual(Object.keys(agentState().claude.plugins), ['coders-talk@coders-talk-local']);
+    assert.deepEqual(Object.keys(agentState().claude.plugins), ['keepplain@keepplain-local']);
     assert.deepEqual(agentState().claude.mcp, ['library'], 'kept by default');
 
     const removed = await cli(['enable', '--yes', '--mcp=remove']);
@@ -125,19 +125,19 @@ test('the plugin from GitHub is replaced, and a server added by hand removed or 
 });
 
 test("the plugin from Claude's plugin directory stays: no copy of ours next to it, and another copy goes", async () => {
-    writeFileSync(join(dir, 'state.json'), JSON.stringify({ claude: { plugins: { 'coders-talk@synced': '0.14.4', 'coders-talk@coders-talk-local': '0.14.3' }, marketplaces: { 'coders-talk-local': '/x' }, mcp: [] } }));
+    writeFileSync(join(dir, 'state.json'), JSON.stringify({ claude: { plugins: { 'keepplain@synced': '0.14.4', 'keepplain@keepplain-local': '0.14.3' }, marketplaces: { 'keepplain-local': '/x' }, mcp: [] } }));
 
     const status = await cli(['status']);
-    assert.match(status.out, /coders-talk@synced 0\.14\.4 \(from Claude's plugin directory\)/);
-    assert.match(status.out, /two Coders Talk plugins: their hooks run twice \(coders-talk enable keeps one\)/);
+    assert.match(status.out, /keepplain@synced 0\.14\.4 \(from Claude's plugin directory\)/);
+    assert.match(status.out, /two KeepPlain plugins: their hooks run twice \(keepplain enable keeps one\)/);
 
     const r = await cli(['enable', '--yes']);
     assert.equal(r.ok, true, r.out);
-    assert.match(r.out, /- Claude Code: keep Coders Talk from Claude's plugin directory \(coders-talk@synced\), no copy of ours/);
-    assert.match(r.out, /- Claude Code: uninstall coders-talk@coders-talk-local\n/);
-    assert.match(r.out, /Claude Code: Coders Talk from Claude's plugin directory stays; it runs its scripts with Node\.js 20 or newer\./);
-    assert.deepEqual(Object.keys(agentState().claude.plugins), ['coders-talk@synced']);
-    assert.deepEqual(Object.keys(agentState().codex.plugins), ['coders-talk@coders-talk-local'], 'the other agents as always');
+    assert.match(r.out, /- Claude Code: keep KeepPlain from Claude's plugin directory \(keepplain@synced\), no copy of ours/);
+    assert.match(r.out, /- Claude Code: uninstall keepplain@keepplain-local\n/);
+    assert.match(r.out, /Claude Code: KeepPlain from Claude's plugin directory stays; it runs its scripts with Node\.js 20 or newer\./);
+    assert.deepEqual(Object.keys(agentState().claude.plugins), ['keepplain@synced']);
+    assert.deepEqual(Object.keys(agentState().codex.plugins), ['keepplain@keepplain-local'], 'the other agents as always');
     const claude = calls().filter((c) => c.agent === 'claude').map((c) => c.args.join(' '));
     assert.ok(!claude.some((c) => c.includes('@synced') && !c.startsWith('plugin list')), claude.join('\n'));
     assert.ok(!claude.some((c) => c.startsWith('plugin install') || c.startsWith('plugin update')), claude.join('\n'));
@@ -145,8 +145,8 @@ test("the plugin from Claude's plugin directory stays: no copy of ours next to i
     // Disable takes off what is ours and says where the directory's copy goes.
     const off = await cli(['disable', '--yes']);
     assert.equal(off.ok, true, off.out);
-    assert.match(off.out, /Claude Code: Coders Talk from Claude's plugin directory stays; remove it on claude\.ai, in Customize → Plugins\./);
-    assert.deepEqual(Object.keys(agentState().claude.plugins), ['coders-talk@synced']);
+    assert.match(off.out, /Claude Code: KeepPlain from Claude's plugin directory stays; remove it on claude\.ai, in Customize → Plugins\./);
+    assert.deepEqual(Object.keys(agentState().claude.plugins), ['keepplain@synced']);
 });
 
 test("the plugin the Claude desktop app brings from the directory is found in its own folder, and no copy of ours goes next to it", async () => {
@@ -154,29 +154,29 @@ test("the plugin the Claude desktop app brings from the directory is found in it
     mkdirSync(join(rpm, 'plugin_other', '.claude-plugin'), { recursive: true });
     writeFileSync(join(rpm, 'plugin_other', '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'legal', version: '1.0.0' }));
     mkdirSync(join(rpm, 'plugin_ours', '.claude-plugin'), { recursive: true });
-    writeFileSync(join(rpm, 'plugin_ours', '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'coders-talk', version: '0.14.8' }));
+    writeFileSync(join(rpm, 'plugin_ours', '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'keepplain', version: '0.14.8' }));
 
     const status = await cli(['status']);
-    assert.match(status.out, /Claude Code +.*coders-talk@synced 0\.14\.8 \(from Claude's plugin directory\)/);
-    assert.doesNotMatch(status.out, /Claude Code +.*no Coders Talk plugin/);
+    assert.match(status.out, /Claude Code +.*keepplain@synced 0\.14\.8 \(from Claude's plugin directory\)/);
+    assert.doesNotMatch(status.out, /Claude Code +.*no KeepPlain plugin/);
 
     const r = await cli(['enable', '--yes']);
     assert.equal(r.ok, true, r.out);
-    assert.match(r.out, /- Claude Code: keep Coders Talk from Claude's plugin directory \(coders-talk@synced\), no copy of ours/);
+    assert.match(r.out, /- Claude Code: keep KeepPlain from Claude's plugin directory \(keepplain@synced\), no copy of ours/);
     assert.deepEqual(Object.keys(agentState().claude?.plugins ?? {}), []);
 });
 
 test('auto mode is one choice for both agents; push needs the git hooks', async () => {
     const push = await cli(['enable', '--yes', '--auto=push']);
     assert.match(push.out, /Auto mode is push: .*only those whose commits you push/);
-    assert.match(push.out, /Push mode sends from repositories with the Coders Talk git hooks: run coders-talk enable --git-hooks in each of them\./);
-    assert.doesNotMatch(push.out, /trust the three Coders Talk hooks/, 'push mode needs no agent hooks');
+    assert.match(push.out, /Push mode sends from repositories with the KeepPlain git hooks: run keepplain enable --git-hooks in each of them\./);
+    assert.doesNotMatch(push.out, /trust the three KeepPlain hooks/, 'push mode needs no agent hooks');
     assert.match((await cli(['enable', '--yes', '--auto=sometimes'])).out, /--auto takes off, on, team or push/);
 
     const r = await cli(['enable', '--yes', '--auto=team']);
     assert.equal(r.ok, true, r.out);
     assert.match(r.out, /Auto mode is team/);
-    assert.match(r.out, /type \/hooks in Codex and trust the three Coders Talk hooks/);
+    assert.match(r.out, /type \/hooks in Codex and trust the three KeepPlain hooks/);
     const auto = JSON.parse(readFileSync(join(dir, 'ct', 'auto.json'), 'utf8'))[SITE];
     assert.equal(auto.mode, 'team');
     assert.equal(auto.codex.mode, 'team');
@@ -189,14 +189,14 @@ test('only the agents asked for; one without its command gets the steps to do by
     const r = await cli(['enable', '--yes', '--agent=codex']);
     assert.equal(r.ok, true, r.out);
     assert.equal(agentState().claude, undefined);
-    assert.deepEqual(Object.keys(agentState().codex.plugins), ['coders-talk@coders-talk-local']);
+    assert.deepEqual(Object.keys(agentState().codex.plugins), ['keepplain@keepplain-local']);
 
     // Claude Code's folder is here, its command is not.
     rmSync(join(dir, 'bin', process.platform === 'win32' ? 'claude.cmd' : 'claude'));
     const hand = await cli(['enable', '--yes']);
     assert.equal(hand.ok, true, hand.out);
-    assert.match(hand.out, /Claude Code +\S+claude, but not its command; no Coders Talk plugin/);
-    assert.match(hand.out, /Inside Claude Code: \/plugin marketplace add .+, then \/plugin install coders-talk@coders-talk-local\./);
+    assert.match(hand.out, /Claude Code +\S+claude, but not its command; no KeepPlain plugin/);
+    assert.match(hand.out, /Inside Claude Code: \/plugin marketplace add .+, then \/plugin install keepplain@keepplain-local\./);
     assert.equal(agentState().claude, undefined);
 });
 
@@ -207,14 +207,14 @@ test('disable takes it all off and keeps the sign-in; refresh lays it out again 
     assert.equal(refreshed.ok, true, refreshed.out);
     assert.equal(refreshed.out, '');
     const again = calls().map((c) => `${c.agent} ${c.args.join(' ')}`);
-    assert.ok(again.includes('claude plugin update coders-talk@coders-talk-local'), again.join('\n'));
-    assert.ok(again.includes('codex plugin add coders-talk@coders-talk-local'), again.join('\n'));
+    assert.ok(again.includes('claude plugin update keepplain@keepplain-local'), again.join('\n'));
+    assert.ok(again.includes('codex plugin add keepplain@keepplain-local'), again.join('\n'));
 
     writeFileSync(join(dir, 'ct', 'credentials.json'), JSON.stringify({ [SITE]: { token: 'ct_x', username: 'mara' } }));
     assert.match((await cli(['disable'])).out, /asks before it changes anything/);
     const off = await cli(['disable', '--yes']);
     assert.equal(off.ok, true, off.out);
-    assert.match(off.out, /- Claude Code: uninstall coders-talk@coders-talk-local and its marketplace/);
+    assert.match(off.out, /- Claude Code: uninstall keepplain@keepplain-local and its marketplace/);
     assert.deepEqual(agentState().claude, { plugins: {}, marketplaces: {}, mcp: [] });
     assert.deepEqual(agentState().codex, { plugins: {}, marketplaces: {}, mcp: [] });
     assert.equal(existsSync(plugin()), false);
@@ -237,12 +237,12 @@ test('enable --json says each step as an event; one agent failing does not stop 
     const said = events(r.out);
     assert.equal(said.length, r.out.trim().split('\n').length, `only JSON on stdout:\n${r.out}`);
     assert.deepEqual(said.map((e) => e.event).filter((e, i, all) => all.indexOf(e) === i), ['found', 'plan', 'step', 'done']);
-    assert.ok(said.find((e) => e.event === 'plan').steps.includes('Claude Code: install coders-talk@coders-talk-local'));
+    assert.ok(said.find((e) => e.event === 'plan').steps.includes('Claude Code: install keepplain@keepplain-local'));
     const steps = said.filter((e) => e.event === 'step').map((e) => `${e.agent} ${e.status}`);
     assert.deepEqual(steps, ['claude-code running', 'claude-code done', 'codex running', 'codex failed']);
     const failed = said.find((e) => e.event === 'step' && e.status === 'failed');
     assert.equal(failed.message, 'Codex said: Error: EACCES: permission denied, mkdir plugins/cache');
-    assert.match(failed.details, /codex(\.cmd)? plugin add coders-talk@coders-talk-local\n[^]*EACCES: permission denied/);
+    assert.match(failed.details, /codex(\.cmd)? plugin add keepplain@keepplain-local\n[^]*EACCES: permission denied/);
     const done = said.at(-1);
     assert.deepEqual(done.installed.map((a) => a.id), ['claude-code']);
     assert.equal(done.installed[0].restart, 'Restart Claude Code');
@@ -251,7 +251,7 @@ test('enable --json says each step as an event; one agent failing does not stop 
     assert.equal(done.auto, 'off');
 
     // Without --yes it asks, so the app always passes it.
-    assert.deepEqual(events((await cli(['enable', '--json'])).out), [{ error: 'coders-talk enable asks before it changes anything: run it in a terminal, or add --yes to go ahead with the defaults.' }]);
+    assert.deepEqual(events((await cli(['enable', '--json'])).out), [{ error: 'keepplain enable asks before it changes anything: run it in a terminal, or add --yes to go ahead with the defaults.' }]);
 });
 
 test('status --json says how things are, per agent; disable of one agent keeps the plugin for the others', async () => {
@@ -280,7 +280,7 @@ test('status --json says how things are, per agent; disable of one agent keeps t
     assert.deepEqual(said.at(-1), { event: 'done', removed: ['codex'], failed: [], notes: [] });
     assert.ok(!said.find((e) => e.event === 'plan').steps.some((s) => s.startsWith('Delete')), 'the laid-out plugin stays for Claude Code');
     assert.ok(existsSync(plugin()));
-    assert.ok(agentState().claude.plugins['coders-talk@coders-talk-local']);
+    assert.ok(agentState().claude.plugins['keepplain@keepplain-local']);
     assert.deepEqual(agentState().codex.plugins, {});
     const after = JSON.parse((await cli(['status', '--json'])).out);
     assert.deepEqual(after.agents.filter((a) => a.connected).map((a) => a.id), ['claude-code']);

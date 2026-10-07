@@ -1,9 +1,9 @@
 {
     "mcpServers": {
-        "coders-talk": {
+        "keepplain": {
             "type": "http",
-            "url": "https://coders.talk/mcp",
-            "headersHelper": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/coders-talk.mjs\" mcp-headers"
+            "url": "https://keepplain.com/mcp",
+            "headersHelper": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/keepplain.mjs\" mcp-headers"
         }
     }
 }

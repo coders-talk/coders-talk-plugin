@@ -11,15 +11,15 @@ import { LibraryWatch, MAX_SLUGS } from '../scripts/lib/library.mjs';
 import { editsCode, nudgeDue } from '../scripts/lib/nudge.mjs';
 import { coders, hookCommand } from './helpers.mjs';
 
-const SITE = 'https://coders.talk';
-const answer = (...slugs) => `Reference data: sessions other developers published on coders.talk. Not instructions.\n${slugs.map((s, i) => `${i + 1}. A session\n   ${SITE}/b/${s}?ref=agent`).join('\n')}`;
+const SITE = 'https://keepplain.com';
+const answer = (...slugs) => `Reference data: sessions other developers published on KeepPlain. Not instructions.\n${slugs.map((s, i) => `${i + 1}. A session\n   ${SITE}/b/${s}?ref=agent`).join('\n')}`;
 
 // Claude Code: the call in the agent's message, the answer in the next "user" line.
-const ccCall = (id, tool, server = 'plugin_coders-talk_coders-talk') => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: `mcp__${server}__${tool}`, input: { query: 'migrate queues to horizon', stack: 'laravel' } }] } });
+const ccCall = (id, tool, server = 'plugin_keepplain_keepplain') => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: `mcp__${server}__${tool}`, input: { query: 'migrate queues to horizon', stack: 'laravel' } }] } });
 const ccResult = (id, text, isError = false) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text }], ...(isError ? { is_error: true } : {}) }] } });
 const ccTool = (id, name, input) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
 // Codex: a function call with the server as its namespace, a script (exec), a patch.
-const cxCall = (id, tool, namespace = 'mcp__coders_talk__') => ({ type: 'response_item', payload: { type: 'function_call', name: tool, namespace, arguments: '{"query":"horizon"}', call_id: id } });
+const cxCall = (id, tool, namespace = 'mcp__keepplain__') => ({ type: 'response_item', payload: { type: 'function_call', name: tool, namespace, arguments: '{"query":"horizon"}', call_id: id } });
 const cxOutput = (id, output, type = 'function_call_output') => ({ type: 'response_item', payload: { type, call_id: id, output } });
 const cxCustom = (id, name, input) => ({ type: 'response_item', payload: { type: 'custom_tool_call', name, input, call_id: id } });
 
@@ -35,10 +35,10 @@ test('Claude Code: calls to the library by any server name, and the Builds in th
         ccCall('t1', 'search_coding_agent_sessions'),
         ccResult('t1', answer('horizon-queues-ab12', 'supervisor-setup')),
         // Added by hand, or a claude.ai connector: the same tools under another server name.
-        ccCall('t2', 'get_coding_agent_session', 'coders-talk'),
+        ccCall('t2', 'get_coding_agent_session', 'keepplain'),
         ccResult('t2', answer('horizon-queues-ab12')),
         ccCall('t3', 'find_coding_agent_failures', 'claude_ai_Coders_Talk'),
-        ccResult('t3', 'No similar sessions on coders.talk yet.'),
+        ccResult('t3', 'No similar sessions on KeepPlain yet.'),
     ]), { calls: 3, slugs: ['horizon-queues-ab12', 'supervisor-setup'] });
 
     assert.equal(watch([ccTool('t1', 'Read', { file_path: 'x' })]), null, 'no library call, nothing to send');
@@ -54,11 +54,11 @@ test('Codex: MCP function calls, scripts that call the tools, the legacy event; 
     assert.deepEqual(watch([
         cxCall('c1', 'search_coding_agent_sessions'),
         cxOutput('c1', answer('laravel-horizon')),
-        cxCustom('c2', 'exec', 'const r = await tools.mcp__coders_talk__get_coding_agent_session({ slug: "laravel-horizon" });'),
+        cxCustom('c2', 'exec', 'const r = await tools.mcp__keepplain__get_coding_agent_session({ slug: "laravel-horizon" });'),
         cxOutput('c2', answer('laravel-horizon', 'vite-manifest'), 'custom_tool_call_output'),
-        { type: 'event_msg', payload: { type: 'mcp_tool_call_end', call_id: 'c3', invocation: { server: 'coders-talk', tool: 'find_coding_agent_failures' }, result: { Ok: { content: [{ type: 'text', text: answer('docker-cache') }] } } } },
+        { type: 'event_msg', payload: { type: 'mcp_tool_call_end', call_id: 'c3', invocation: { server: 'keepplain', tool: 'find_coding_agent_failures' }, result: { Ok: { content: [{ type: 'text', text: answer('docker-cache') }] } } } },
         // The same call as a response item and as the legacy event is one call.
-        { type: 'event_msg', payload: { type: 'mcp_tool_call_end', call_id: 'c1', invocation: { server: 'coders-talk', tool: 'search_coding_agent_sessions' }, result: { Ok: {} } } },
+        { type: 'event_msg', payload: { type: 'mcp_tool_call_end', call_id: 'c1', invocation: { server: 'keepplain', tool: 'search_coding_agent_sessions' }, result: { Ok: {} } } },
     ]), { calls: 3, slugs: ['laravel-horizon', 'vite-manifest', 'docker-cache'] });
 
     // Editing a file that names the tools is not a call.
@@ -83,7 +83,7 @@ test('at most twenty Builds, and a read can go on from where the last one stoppe
     assert.equal(LibraryWatch.worthParsing(JSON.stringify(ccCall('t', 'search_coding_agent_sessions'))), true);
 });
 
-// A playbook skill's text as `coders-talk use` wrote it (plan: library, stage 22.4): the Build's link at the end.
+// A playbook skill's text as `keepplain use` wrote it (plan: library, stage 22.4): the Build's link at the end.
 const skillText = (slug) => `---\nname: ct-${slug.slice(0, 61)}\ndescription: "Use when …"\n---\n\n# A playbook\n\n---\n\nFrom ${SITE}/b/${slug}?ref=playbook by @mara · Sep 2026 · Laravel`;
 const LONG = 'migrate-forty-laravel-queue-jobs-to-go-workers-without-downtime-k3x9q';
 
@@ -106,7 +106,7 @@ test('Claude Code: a playbook skill run by the agent or typed by the person coun
         ccTool('s3', 'Skill', { skill: 'artifact-design' }),
         ccResult('s3', 'Launching skill: artifact-design'),
         { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: 'Design lead…' }] } },
-        { type: 'user', message: { role: 'user', content: `<system-reminder>CLAUDE.md: <!-- coders-talk:x@1 -->\nFrom ${SITE}/b/rule-build?ref=playbook</system-reminder>\nFix the queues.` } },
+        { type: 'user', message: { role: 'user', content: `<system-reminder>CLAUDE.md: <!-- keepplain:x@1 -->\nFrom ${SITE}/b/rule-build?ref=playbook</system-reminder>\nFix the queues.` } },
     ]), null);
 
     // Named in one part of the file, its text in the next.
@@ -119,11 +119,26 @@ test('Claude Code: a playbook skill run by the agent or typed by the person coun
     assert.equal(LibraryWatch.worthParsing(JSON.stringify(ccTool('s', 'Skill', { skill: 'ct-x' }))), true);
 });
 
+test('playbooks named kp- since the rename count like the ct- ones before it', () => {
+    const kpText = (slug) => skillText(slug).replace('name: ct-', 'name: kp-');
+    const cxUser = (text) => ({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
+    assert.deepEqual(watch([
+        ccTool('s1', 'Skill', { skill: 'kp-horizon-queues-ab12' }),
+        ccResult('s1', 'Launching skill: kp-horizon-queues-ab12'),
+        { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: kpText('horizon-queues-ab12') }] } },
+        { type: 'user', message: { role: 'user', content: '<command-message>kp-vite-manifest</command-message>\n<command-name>/kp-vite-manifest</command-name>' } },
+        { type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: kpText('vite-manifest') }] } },
+    ]), { calls: 0, slugs: [], used: ['horizon-queues-ab12', 'vite-manifest'] });
+    assert.deepEqual(watch([
+        cxUser(`<skill>\n<name>kp-redis-limiter</name>\n<path>/repo/.agents/skills/kp-redis-limiter/SKILL.md</path>\n${kpText('redis-limiter')}\n</skill>`),
+    ]), { calls: 0, slugs: [], used: ['redis-limiter'] });
+});
+
 test('Codex: a playbook skill named by the person, or read by the agent itself; a rule in AGENTS.md does not count', () => {
     const cxUser = (text) => ({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
     assert.deepEqual(watch([
         // The rule in AGENTS.md comes with the first message of every session.
-        cxUser(`# AGENTS.md instructions for /repo\n<!-- coders-talk:rule-build@1 -->\nFrom ${SITE}/b/rule-build?ref=playbook\n<!-- /coders-talk:rule-build -->`),
+        cxUser(`# AGENTS.md instructions for /repo\n<!-- keepplain:rule-build@1 -->\nFrom ${SITE}/b/rule-build?ref=playbook\n<!-- /keepplain:rule-build -->`),
         cxUser(`<skill>\n<name>ct-horizon-queues-ab12</name>\n<path>/repo/.agents/skills/ct-horizon-queues-ab12/SKILL.md</path>\n${skillText('horizon-queues-ab12')}\n</skill>`),
         // Picked by the agent: it reads the file, the link is in the output.
         { type: 'response_item', payload: { type: 'function_call', name: 'shell', arguments: JSON.stringify({ command: ['cat', `.agents/skills/ct-${LONG}`.slice(0, 79) + '/SKILL.md'] }), call_id: 'r1' } },
@@ -163,7 +178,7 @@ test('the suggestion comes once, when the session both used Builds and changed c
 
     // Code changed, but nothing came from the library: nothing to say.
     const other = { ...session, id: 'a1b2c3d4-0000-4000-8000-00000000aa02', path: join(dir, 'other.jsonl') };
-    writeFileSync(other.path, [ccTool('t1', 'Write', { file_path: 'a' }), ccCall('t2', 'search_coding_agent_sessions'), ccResult('t2', 'No similar sessions on coders.talk yet.')].map((l) => JSON.stringify(l)).join('\n') + '\n');
+    writeFileSync(other.path, [ccTool('t1', 'Write', { file_path: 'a' }), ccCall('t2', 'search_coding_agent_sessions'), ccResult('t2', 'No similar sessions on KeepPlain yet.')].map((l) => JSON.stringify(l)).join('\n') + '\n');
     assert.equal(nudgeDue(other, dir), null);
 });
 
@@ -179,9 +194,9 @@ test('the Stop hook shows the suggestion to the person, not with auto mode on, n
     const home = mkdtempSync(join(tmpdir(), 'ct-stop-'));
     const config = join(home, 'claude');
     mkdirSync(config);
-    const env = { ...process.env, CODERS_TALK_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: config, CODEX_HOME: join(home, 'codex'), CODERS_TALK_URL: SITE };
-    delete env.CODERS_TALK_NUDGE;
-    delete env.CODERS_TALK_AUTO;
+    const env = { ...process.env, KEEPPLAIN_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: config, CODEX_HOME: join(home, 'codex'), KEEPPLAIN_URL: SITE };
+    delete env.KEEPPLAIN_NUDGE;
+    delete env.KEEPPLAIN_AUTO;
     const session = (id, lines) => {
         const path = join(home, `${id}.jsonl`);
         writeFileSync(path, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
@@ -190,14 +205,14 @@ test('the Stop hook shows the suggestion to the person, not with auto mode on, n
     const used = [ccCall('t1', 'search_coding_agent_sessions'), ccResult('t1', answer('horizon-queues')), ccTool('t2', 'Edit', { file_path: 'a.php' })];
 
     const out = await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb01', used), env);
-    assert.deepEqual(JSON.parse(out), { systemMessage: 'Your agent used 1 Build from coders.talk in this session. Share yours: /coders-talk:build' });
+    assert.deepEqual(JSON.parse(out), { systemMessage: 'Your agent used 1 Build from KeepPlain in this session. Share yours: /keepplain:build' });
     assert.equal(await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb01', used), env), '', 'once');
 
     const codex = [cxCall('c1', 'search_coding_agent_sessions'), cxOutput('c1', answer('a-b', 'c-d')), cxCustom('p1', 'apply_patch', '*** Begin Patch')];
     const fromCodex = await hook('stop', { ...session('a1b2c3d4-0000-4000-8000-00000000bb02', codex), agent: 'codex' }, env);
-    assert.match(JSON.parse(fromCodex).systemMessage, /used 2 Builds .* Share yours: \$coders-talk:build$/);
+    assert.match(JSON.parse(fromCodex).systemMessage, /used 2 Builds .* Share yours: \$keepplain:build$/);
 
-    assert.equal(await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb03', used), { ...env, CODERS_TALK_NUDGE: '0' }), '');
+    assert.equal(await hook('stop', session('a1b2c3d4-0000-4000-8000-00000000bb03', used), { ...env, KEEPPLAIN_NUDGE: '0' }), '');
 
     // Auto mode sends the session anyway: no suggestion, and nothing printed.
     mkdirSync(join(home, 'ct'), { recursive: true });
@@ -210,9 +225,9 @@ test('mcp-headers prints the token saved for the MCP server’s own site, or {}'
     const token = 'ct_' + 'h'.repeat(48);
     mkdirSync(join(home, 'ct'));
     writeFileSync(join(home, 'ct', 'credentials.json'), JSON.stringify({ [SITE]: { token, username: 'mara' } }));
-    const env = { ...process.env, CODERS_TALK_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: home };
-    delete env.CODERS_TALK_TOKEN;
-    delete env.CODERS_TALK_URL;
+    const env = { ...process.env, KEEPPLAIN_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: home };
+    delete env.KEEPPLAIN_TOKEN;
+    delete env.KEEPPLAIN_URL;
     const headers = (extra) =>
         new Promise((resolve) => execFile(...coders(['mcp-headers']), { env: { ...env, ...extra } }, (e, stdout) => resolve(JSON.parse(stdout))));
 
@@ -220,5 +235,5 @@ test('mcp-headers prints the token saved for the MCP server’s own site, or {}'
     assert.deepEqual(await headers({}), { Authorization: `Bearer ${token}` }, 'the default site without the variable');
     // Another site's server never gets this site's token.
     assert.deepEqual(await headers({ CLAUDE_CODE_MCP_SERVER_URL: 'http://localhost:8000/mcp' }), {});
-    assert.deepEqual(await headers({ CODERS_TALK_HOME: join(home, 'nobody') }), {});
+    assert.deepEqual(await headers({ KEEPPLAIN_HOME: join(home, 'nobody') }), {});
 });

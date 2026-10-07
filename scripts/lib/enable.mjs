@@ -1,24 +1,24 @@
 /**
- * coders-talk enable, disable and status (plan, stage 13.3): the installed coders-talk connects the agents on this
+ * keepplain enable, disable and status (plan, stage 13.3): the installed keepplain connects the agents on this
  * computer to itself once, through each agent's own plugin system.
  *
- * enable lays the plugin out in ~/.coders-talk/plugin (lib/plugin.mjs) and installs it from there as
- * coders-talk@coders-talk-local: `claude plugin marketplace add` and `claude plugin install`, `codex plugin marketplace
+ * enable lays the plugin out in ~/.keepplain/plugin (lib/plugin.mjs) and installs it from there as
+ * keepplain@keepplain-local: `claude plugin marketplace add` and `claude plugin install`, `codex plugin marketplace
  * add` and `codex plugin add`, `pi install` of the package it laid out (a local package is loaded where it is: laying it
  * out again updates it). Cursor has no command for it: its hooks, skills and library entry are files of ~/.cursor
  * (lib/cursor-install.mjs). It says what it found and what it will do before it does anything, and asks, unless
  * --yes. On the way:
- *   - the plugin from the GitHub marketplace (coders-talk@coders-talk) is replaced, or its hooks and snapshots would
+ *   - the plugin from the GitHub marketplace (keepplain@keepplain) is replaced, or its hooks and snapshots would
  *     run twice; for Pi, the git package of the README;
- *   - the plugin from Claude's plugin directory (coders-talk@synced, added on claude.ai) is left as it is: it has no
+ *   - the plugin from Claude's plugin directory (keepplain@synced, added on claude.ai) is left as it is: it has no
  *     install record to uninstall, and the person chose it. Claude Code then gets no copy of ours, and any other copy
  *     goes, so the hooks run once;
- *   - a Coders Talk MCP server added by hand is removed, or kept and the plugin brings none to that agent;
+ *   - a KeepPlain MCP server added by hand is removed, or kept and the plugin brings none to that agent;
  *   - auto mode is one question for every agent found (--auto=off|on|team|push), off unless the person says otherwise.
  *     Codex's trust in the hooks stays Codex's: one line says where to give it;
  *   - in a git repository, one question about its git hooks (lib/githooks.mjs, --git-hooks, --no-git-hooks,
  *     --no-trailers), no unless they are there already. Every repository they went into is remembered, for disable.
- * The choices are kept in ~/.coders-talk/enable.json, so `coders-talk update` lays the plugin out again the same way
+ * The choices are kept in ~/.keepplain/enable.json, so `keepplain update` lays the plugin out again the same way
  * (refresh): the plugin's version is always the file's.
  *
  * disable takes all of it off again; the sign-in, the settings and the file itself stay. status says how things are.
@@ -41,9 +41,9 @@ const choicesFile = () => join(home(), 'enable.json');
 const AUTO = { off: null, on: 'all', all: 'all', team: 'team', push: 'push' };
 const autoName = (mode) => (mode === 'all' ? 'on' : mode ?? 'off');
 const MCP_KEY = { 'claude-code': 'claude', codex: 'codex', cursor: 'cursor' };
-/** What Claude Code calls a plugin added from Claude's plugin directory on claude.ai: coders-talk@synced. */
+/** What Claude Code calls a plugin added from Claude's plugin directory on claude.ai: keepplain@synced. */
 const SYNCED = 'synced';
-const DIRECTORY = "Coders Talk from Claude's plugin directory";
+const DIRECTORY = "KeepPlain from Claude's plugin directory";
 /** An agent the plugin can be put into from here: it has a command that installs it, or its files are all it takes. */
 const installable = (agent) => Boolean(agent.cli || agent.native);
 /** The command line Cursor runs a hook with (through PowerShell on Windows). */
@@ -62,10 +62,10 @@ const RESTART = {
 export async function enable({ site, version, interactive, flags, json = false }) {
     if (flags.auto !== undefined && !(flags.auto in AUTO)) throw new Failure(`--auto takes off, on, team or push, not "${flags.auto}".`);
     if (flags.mcp !== undefined && !['remove', 'keep'].includes(flags.mcp)) throw new Failure(`--mcp takes remove or keep, not "${flags.mcp}".`);
-    if (!interactive && !flags.yes) throw new Failure('coders-talk enable asks before it changes anything: run it in a terminal, or add --yes to go ahead with the defaults.');
+    if (!interactive && !flags.yes) throw new Failure('keepplain enable asks before it changes anything: run it in a terminal, or add --yes to go ahead with the defaults.');
 
     const agents = chosenAgents(flags.agents).filter((a) => a.present);
-    if (!agents.length) throw new Failure('Found none of Claude Code, Codex, Cursor and Pi on this computer. Install one of them, then run coders-talk enable again.');
+    if (!agents.length) throw new Failure('Found none of Claude Code, Codex, Cursor and Pi on this computer. Install one of them, then run keepplain enable again.');
 
     const prompt = interactive && !json ? createInterface({ input: process.stdin, output: process.stdout }) : null;
     // --json (the desktop app): the steps as events, the closing lines as notes of the last one.
@@ -88,12 +88,12 @@ export async function enable({ site, version, interactive, flags, json = false }
 
             return { agent, plugins, synced, ours: synced ? undefined : ours, others, servers: manualMcpServers(agent, site) };
         });
-        log(`coders-talk ${version} (${selfProgram().join(' ')})`);
+        log(`keepplain ${version} (${selfProgram().join(' ')})`);
         log('Found:');
         event({ event: 'found', agents: state.map(({ agent, plugins }) => ({ id: agent.id, name: agent.name, cli: agent.cli ?? null, plugins: plugins.map((p) => p.id) })) });
         for (const { agent, plugins, servers } of state) {
-            const has = plugins.length ? plugins.map((p) => `${p.id} ${p.version ?? ''}`.trim()).join(', ') : 'no Coders Talk plugin';
-            const hand = servers.length ? `; Coders Talk MCP server added by hand: ${servers.map(describeServer).join(', ')}` : '';
+            const has = plugins.length ? plugins.map((p) => `${p.id} ${p.version ?? ''}`.trim()).join(', ') : 'no KeepPlain plugin';
+            const hand = servers.length ? `; KeepPlain MCP server added by hand: ${servers.map(describeServer).join(', ')}` : '';
             log(`  ${agent.name.padEnd(12)} ${agent.cli ?? (agent.native ? `${agent.home} (its files are all it takes)` : `${agent.home}, but not its command`)}; ${has}${hand}`);
         }
 
@@ -108,7 +108,7 @@ export async function enable({ site, version, interactive, flags, json = false }
         const withServers = state.filter((s) => s.servers.length && installable(s.agent));
         let mcp = flags.mcp;
         if (withServers.length && !mcp) {
-            const answer = await ask('Remove the Coders Talk MCP server added by hand, so the plugin brings its own [r], or keep it and install the plugin without one [K]?', 'k');
+            const answer = await ask('Remove the KeepPlain MCP server added by hand, so the plugin brings its own [r], or keep it and install the plugin without one [K]?', 'k');
             mcp = answer.startsWith('r') ? 'remove' : 'keep';
         }
         const current = autoName(autoMode(site, agents[0].id));
@@ -210,20 +210,20 @@ export async function enable({ site, version, interactive, flags, json = false }
         for (const s of state.filter((x) => !installable(x.agent))) say(manualSteps(s.agent));
         if (mode) {
             const which = { team: 'only those in repositories of teams that ask for it', push: 'only those whose commits you push, from repositories with the git hooks', all: 'every session' }[mode];
-            say(`Auto mode is ${auto}: sessions go to ${site} by themselves (${which}). Nothing is published by it; coders-talk enable --auto=off stops it.`);
-            if (mode !== 'push' && done.some((a) => a.id === 'codex')) say('Codex runs the plugin\'s hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks.');
-            if (mode === 'push' && !(repo && gitHooks && !repo.shared)) say('Push mode sends from repositories with the Coders Talk git hooks: run coders-talk enable --git-hooks in each of them.');
+            say(`Auto mode is ${auto}: sessions go to ${site} by themselves (${which}). Nothing is published by it; keepplain enable --auto=off stops it.`);
+            if (mode !== 'push' && done.some((a) => a.id === 'codex')) say('Codex runs the plugin\'s hooks only once you trust them: type /hooks in Codex and trust the three KeepPlain hooks.');
+            if (mode === 'push' && !(repo && gitHooks && !repo.shared)) say('Push mode sends from repositories with the KeepPlain git hooks: run keepplain enable --git-hooks in each of them.');
         }
         if (repo && !repo.shared && gitHooks) say(`Git hooks are in ${repo.dir}. ${trailers ? `Commits made with a session get an ${TRAILER} trailer; a` : 'A'} push looks for the sessions behind it.`);
         if (repo && repo.shared && gitHooks) say(`Add these lines to the hooks in ${repo.dir}, right after the first line of each:\n\n${manualHookLines(selfProgram(), { trailers })}`);
-        if (!savedUsername(site)) say(`Not signed in to ${site} yet: run coders-talk login.`);
+        if (!savedUsername(site)) say(`Not signed in to ${site} yet: run keepplain login.`);
         event({ event: 'done', installed: done.map((a) => ({ id: a.id, name: a.name, restart: RESTART[a.id] })), failed, notes: said, auto, signed_in: Boolean(savedUsername(site)) });
     } finally {
         prompt?.close();
     }
 }
 
-/** After `coders-talk update`: the plugin laid out again by the new file, and updated where it is installed. Quiet. */
+/** After `keepplain update`: the plugin laid out again by the new file, and updated where it is installed. Quiet. */
 export function refresh({ site, version }) {
     // The git hooks call the file by its path, which may be another one now.
     for (const root of readChoices().git_hooks ?? []) {
@@ -241,7 +241,7 @@ export function refresh({ site, version }) {
 }
 
 export async function disable({ interactive, flags, json = false }) {
-    if (!interactive && !flags.yes) throw new Failure('coders-talk disable asks before it changes anything: run it in a terminal, or add --yes.');
+    if (!interactive && !flags.yes) throw new Failure('keepplain disable asks before it changes anything: run it in a terminal, or add --yes.');
     const { log, say, event, said } = reporter(json);
     const agents = chosenAgents(flags.agents).filter(installable);
     // Some of the agents only (--agent, the app's switch for one): the laid-out plugin, the choices and the git hooks stay
@@ -285,7 +285,7 @@ export async function disable({ interactive, flags, json = false }) {
     const removed = [];
     const failed = [];
     for (const { agent, ours } of state) {
-        const text = `${agent.name}: take Coders Talk off`;
+        const text = `${agent.name}: take KeepPlain off`;
         if (ours) event({ event: 'step', agent: agent.id, text, status: 'running' });
         try {
             if (agent.id === 'cursor') {
@@ -317,14 +317,14 @@ export async function disable({ interactive, flags, json = false }) {
     }
     for (const line of fromDirectory) say(line);
     if (json) return event({ event: 'done', removed, failed, notes: said });
-    if (!whole) return console.log(`Done: ${state.filter((x) => x.ours).map((x) => x.agent.name).join(', ')} no longer run Coders Talk; the other agents keep it.`);
-    console.log(`Done: the agents no longer run Coders Talk. The sign-in and settings stay in ${home()}; the coders-talk file stays too (${selfProgram()[0]}). To remove it, delete that file and the "Coders Talk CLI" line from your shell's rc file (on Windows, the folder from your user PATH).`);
+    if (!whole) return console.log(`Done: ${state.filter((x) => x.ours).map((x) => x.agent.name).join(', ')} no longer run KeepPlain; the other agents keep it.`);
+    console.log(`Done: the agents no longer run KeepPlain. The sign-in and settings stay in ${home()}; the keepplain file stays too (${selfProgram()[0]}). To remove it, delete that file and the "KeepPlain CLI" line from your shell's rc file (on Windows, the folder from your user PATH).`);
 }
 
 export function status({ site, version }) {
-    const lines = [`coders-talk ${version}: ${BINARY_VERSION ? selfProgram()[0] : `${selfProgram().join(' ')} (the scripts, under Node)`}`];
+    const lines = [`keepplain ${version}: ${BINARY_VERSION ? selfProgram()[0] : `${selfProgram().join(' ')} (the scripts, under Node)`}`];
     const user = savedUsername(site);
-    lines.push(`Site:         ${site}, ${user ? `signed in as @${user}` : 'not signed in (coders-talk login)'}`);
+    lines.push(`Site:         ${site}, ${user ? `signed in as @${user}` : 'not signed in (keepplain login)'}`);
     for (const agent of detectAgents()) {
         if (!agent.present) {
             lines.push(`${agent.name.padEnd(13)} not found`);
@@ -334,13 +334,13 @@ export function status({ site, version }) {
         const ours = plugins.find((p) => p.marketplace === MARKETPLACE);
         const notes = [];
         if (!agent.cli && !agent.native) notes.push('its command is not in PATH, so the plugins cannot be listed');
-        else if (!plugins.length) notes.push('no Coders Talk plugin (coders-talk enable)');
+        else if (!plugins.length) notes.push('no KeepPlain plugin (keepplain enable)');
         for (const p of plugins) {
             const from = p.marketplace === SYNCED ? " (from Claude's plugin directory)" : '';
-            notes.push(`${p.id} ${p.version ?? ''}`.trim() + from + (p === ours && p.version && p.version !== version ? ` (older than this file: coders-talk enable)` : ''));
+            notes.push(`${p.id} ${p.version ?? ''}`.trim() + from + (p === ours && p.version && p.version !== version ? ` (older than this file: keepplain enable)` : ''));
         }
-        if (ours && agent.id === 'cursor') notes.push(`hooks ${ours.hooks ? 'in ~/.cursor/hooks.json' : 'missing (coders-talk enable)'}, ${ours.skills.length} of ${CURSOR_SKILLS.length} skills`);
-        if (plugins.length > 1) notes.push('two Coders Talk plugins: their hooks run twice (coders-talk enable keeps one)');
+        if (ours && agent.id === 'cursor') notes.push(`hooks ${ours.hooks ? 'in ~/.cursor/hooks.json' : 'missing (keepplain enable)'}, ${ours.skills.length} of ${CURSOR_SKILLS.length} skills`);
+        if (plugins.length > 1) notes.push('two KeepPlain plugins: their hooks run twice (keepplain enable keeps one)');
         const servers = manualMcpServers(agent, site);
         if (servers.length) notes.push(`MCP server ${agent.id === 'cursor' ? 'in ~/.cursor/mcp.json' : 'added by hand'}: ${servers.map(describeServer).join(', ')}`);
         notes.push(`auto mode ${autoName(autoMode(site, agent.id))}`);
@@ -349,15 +349,15 @@ export function status({ site, version }) {
     const repo = hooksOf(process.cwd());
     if (repo) {
         const there = repo.shared ? [] : installedHooks(repo);
-        const said = repo.shared ? `core.hooksPath ${repo.dir}, not ours (coders-talk enable --git-hooks prints the lines to add)` : there.length ? there.join(', ') : 'none (coders-talk enable --git-hooks)';
+        const said = repo.shared ? `core.hooksPath ${repo.dir}, not ours (keepplain enable --git-hooks prints the lines to add)` : there.length ? there.join(', ') : 'none (keepplain enable --git-hooks)';
         lines.push(`Git hooks:    ${repo.root}: ${said}`);
     }
     console.log(lines.join('\n'));
 }
 
 /**
- * status --json's agents: what status says of each, as data. connected: a Coders Talk plugin is in it, from wherever;
- * managed: ours (coders-talk@coders-talk-local), the one enable and disable put in and take out.
+ * status --json's agents: what status says of each, as data. connected: a KeepPlain plugin is in it, from wherever;
+ * managed: ours (keepplain@keepplain-local), the one enable and disable put in and take out.
  */
 export function agentStatus({ site, version }) {
     return detectAgents().map((agent) => {
@@ -368,7 +368,7 @@ export function agentStatus({ site, version }) {
         const servers = manualMcpServers(agent, site);
         const notes = [];
         if (!installable(agent)) notes.push(`Its command is not in PATH, so its plugins cannot be listed or installed from here. ${manualSteps(agent)}`);
-        if (plugins.length > 1) notes.push('Two Coders Talk plugins: their hooks run twice. Connecting it again keeps one.');
+        if (plugins.length > 1) notes.push('Two KeepPlain plugins: their hooks run twice. Connecting it again keeps one.');
         if (ours && agent.id === 'cursor' && !ours.hooks) notes.push('Its hooks are missing from ~/.cursor/hooks.json: connect it again.');
         if (plugins.some((p) => p.marketplace === SYNCED)) notes.push(`${DIRECTORY}: remove it on claude.ai, in Customize → Plugins.`);
         else if (plugins.length && !ours) notes.push(`Installed from elsewhere (${plugins.map((p) => p.id).join(', ')}): connecting it here replaces it.`);
@@ -407,7 +407,7 @@ function layOut({ site, version, mcp }) {
 function installLine(s, mcp) {
     const { agent, ours } = s;
     const verb = ours ? 'update' : 'install';
-    if (agent.id === 'cursor') return `Cursor: ${verb} the hooks (${'~/.cursor/hooks.json'}), the skills (~/.cursor/skills/coders-talk-*)${s.servers.length && mcp === 'keep' ? '' : ' and the library (~/.cursor/mcp.json)'}`;
+    if (agent.id === 'cursor') return `Cursor: ${verb} the hooks (${'~/.cursor/hooks.json'}), the skills (~/.cursor/skills/keepplain-*)${s.servers.length && mcp === 'keep' ? '' : ' and the library (~/.cursor/mcp.json)'}`;
     if (agent.id === 'pi') return `Pi: ${verb} the package ${piPackageDir()} (pi install)`;
 
     return `${agent.name}: ${verb} ${PLUGIN_ID}${s.servers.length && mcp === 'keep' ? ', without its MCP server' : ''}`;
@@ -415,7 +415,7 @@ function installLine(s, mcp) {
 
 const installedLine = (agent, version) =>
     agent.id === 'cursor'
-        ? `Cursor: Coders Talk ${version} is in ~/.cursor (hooks, skills, library). ${RESTART.cursor} to load it.`
+        ? `Cursor: KeepPlain ${version} is in ~/.cursor (hooks, skills, library). ${RESTART.cursor} to load it.`
         : `${agent.name}: ${PLUGIN_ID} ${version} is installed. ${RESTART[agent.id]} to load it.`;
 
 /**
@@ -454,10 +454,10 @@ function installCursorFiles({ site, version, mcp }) {
     writeChoices({ ...readChoices(), cursor: { version, mcp: done.mcp === 'added' || before.mcp === 'added' ? 'added' : done.mcp } });
 
     const notes = [];
-    for (const folder of done.skipped) notes.push(`Cursor: ~/.cursor/skills/${folder} was made by someone else, so it was left as it is: /${folder} is not Coders Talk's.`);
+    for (const folder of done.skipped) notes.push(`Cursor: ~/.cursor/skills/${folder} was made by someone else, so it was left as it is: /${folder} is not KeepPlain's.`);
     if (done.hooks === 'unreadable') notes.push(`Cursor: ~/.cursor/hooks.json could not be read (comments, or a syntax error), so it was left as it is. Add these hooks by hand:\n${cursorHookLines(run)}`);
-    if (done.mcp === 'added') notes.push('Cursor: the library is in ~/.cursor/mcp.json. Open Cursor → Settings → MCP → coders-talk and press Connect: it signs in through the browser.');
-    if (done.mcp === 'unreadable') notes.push(`Cursor: ~/.cursor/mcp.json could not be read, so the library was not added. Add this server by hand: {"mcpServers": {"coders-talk": {"url": "${site}/mcp"}}}`);
+    if (done.mcp === 'added') notes.push('Cursor: the library is in ~/.cursor/mcp.json. Open Cursor → Settings → MCP → keepplain and press Connect: it signs in through the browser.');
+    if (done.mcp === 'unreadable') notes.push(`Cursor: ~/.cursor/mcp.json could not be read, so the library was not added. Add this server by hand: {"mcpServers": {"keepplain": {"url": "${site}/mcp"}}}`);
 
     return notes;
 }

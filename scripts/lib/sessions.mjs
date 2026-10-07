@@ -1,5 +1,5 @@
 /**
- * The sessions of this folder, for `coders-talk sessions` and `coders-talk build` in a terminal (plan, stage 13.4): from
+ * The sessions of this folder, for `keepplain sessions` and `keepplain build` in a terminal (plan, stage 13.4): from
  * a terminal nobody knows the session id, which inside a session only the agent has.
  *
  *   Claude Code  <config>/projects/<the folder with every character but letters and digits as "-">/<id>.jsonl
@@ -8,7 +8,7 @@
  *   Cursor       ~/.cursor/projects/<the folder>/agent-transcripts/<id>/<id>.jsonl (lib/cursor.mjs)
  *
  * A folder inside a repository also finds the sessions run at the repository's top. What was sent is remembered in
- * ~/.coders-talk/sent.json (the send step; SENT_DAYS, then forgotten) and in auto mode's auto-sessions.json.
+ * ~/.keepplain/sent.json (the send step; SENT_DAYS, then forgotten) and in auto mode's auto-sessions.json.
  */
 import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';

@@ -1,4 +1,4 @@
-// `coders-talk use` (plan: library, stage 22.3): a Build's playbook into the repository, for Claude Code or Codex,
+// `keepplain use` (plan: library, stage 22.3): a Build's playbook into the repository, for Claude Code or Codex,
 // against a stand-in for the site's /b/<slug>/use/<format>.md, in a throwaway repository. A team's own Build and the
 // team's rules (22.5, /t/<team>/rules/<stack>.md) answer only to a member's token.
 import assert from 'node:assert/strict';
@@ -22,8 +22,8 @@ function playbook(version) {
     const source = `From http://127.0.0.1/b/${SLUG}?ref=playbook by @mara · Sep 2026 · Laravel, Docker`;
 
     return {
-        skill: ['---', `name: ct-${SLUG}`, 'description: "Use when moving Laravel queue workers to Horizon."', '---', '', '# Move queues to Horizon', '', '## Pitfalls seen in the original session', '', '- Horizon ends up in the web container — Give it its own service.', `- Workers stop after a deploy — ${v}`, '', '---', '', source, ''].join('\n'),
-        rule: [`<!-- coders-talk:${SLUG}@${version} -->`, '### Move queues to Horizon', 'Use when moving Laravel queue workers to Horizon.', '- Horizon ends up in the web container — Give it its own service.', `- Workers stop after a deploy — ${v}`, source, `<!-- /coders-talk:${SLUG} -->`, ''].join('\n'),
+        skill: ['---', `name: kp-${SLUG}`, 'description: "Use when moving Laravel queue workers to Horizon."', '---', '', '# Move queues to Horizon', '', '## Pitfalls seen in the original session', '', '- Horizon ends up in the web container — Give it its own service.', `- Workers stop after a deploy — ${v}`, '', '---', '', source, ''].join('\n'),
+        rule: [`<!-- keepplain:${SLUG}@${version} -->`, '### Move queues to Horizon', 'Use when moving Laravel queue workers to Horizon.', '- Horizon ends up in the web container — Give it its own service.', `- Workers stop after a deploy — ${v}`, source, `<!-- /keepplain:${SLUG} -->`, ''].join('\n'),
         prompt: `Move our queue workers from <your current runner> to Horizon.\n\nGive Horizon its own service.\n\n(${source})`,
     };
 }
@@ -36,7 +36,7 @@ function teamRules(v) {
     const name = 'team-acme-laravel';
     const extra = v === 'b2' ? ['- Retries run twice after a deploy — Make the job unique by its invoice.'] : [];
 
-    return [`<!-- coders-talk:${name}@${v}${v} -->`, '### Acme: Laravel', "Where the team's agents went wrong on Laravel, from the team's own sessions.", '- Horizon ends up in the web container — Give it its own service.', ...extra, 'From http://127.0.0.1/t/acme · 3 sessions', `<!-- /coders-talk:${name} -->`, ''].join('\n');
+    return [`<!-- keepplain:${name}@${v}${v} -->`, '### Acme: Laravel', "Where the team's agents went wrong on Laravel, from the team's own sessions.", '- Horizon ends up in the web container — Give it its own service.', ...extra, 'From http://127.0.0.1/t/acme · 3 sessions', `<!-- /keepplain:${name} -->`, ''].join('\n');
 }
 
 let version = 'a1b2c3d4e5f6';
@@ -73,8 +73,8 @@ let repo;
 let env;
 before(async () => {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    env = { ...process.env, CODERS_TALK_URL: `http://127.0.0.1:${server.address().port}`, CODERS_TALK_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), CODERS_TALK_NO_UPDATE_CHECK: '1', CODERS_TALK_NO_BROWSER: '1' };
-    for (const name of ['CODERS_TALK_TOKEN', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
+    env = { ...process.env, KEEPPLAIN_URL: `http://127.0.0.1:${server.address().port}`, KEEPPLAIN_HOME: join(home, 'ct'), CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex'), KEEPPLAIN_NO_UPDATE_CHECK: '1', KEEPPLAIN_NO_BROWSER: '1' };
+    for (const name of ['KEEPPLAIN_TOKEN', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[name];
 });
 after(() => server.close());
 // A fresh repository for each test, run from a folder inside it: the playbook goes to the repository's root.
@@ -89,9 +89,9 @@ beforeEach(() => {
 });
 
 const cli = (args, extra = {}) => run(...coders(['use', ...args]), { env: { ...env, ...extra }, cwd: join(repo, 'app') }).then(({ stdout }) => ({ ok: true, out: stdout }), (e) => ({ ok: false, out: e.stdout + e.stderr }));
-const signedIn = { CODERS_TALK_TOKEN: MEMBER };
+const signedIn = { KEEPPLAIN_TOKEN: MEMBER };
 const read = (...path) => readFileSync(join(repo, ...path), 'utf8');
-const uses = () => JSON.parse(read('.coders-talk', 'uses.json'));
+const uses = () => JSON.parse(read('.keepplain', 'uses.json'));
 
 const rulesState = () => (existsSync(join(home, 'ct', 'team-rules.json')) ? JSON.parse(readFileSync(join(home, 'ct', 'team-rules.json'), 'utf8')) : {});
 const startHook = (extra = {}) => new Promise((resolve, reject) => {
@@ -103,7 +103,7 @@ test('a skill for Claude Code: shown first, written only with --write, noted, an
     const shown = await cli([SLUG, '--agent=claude']);
     assert.equal(shown.ok, true, shown.out);
     assert.match(shown.out, new RegExp(`as a Claude Code skill, version a1b2c3d4e5f6`));
-    assert.match(shown.out, new RegExp(`Goes to: \\.claude/skills/ct-${SLUG}/SKILL\\.md \\(new\\)`));
+    assert.match(shown.out, new RegExp(`Goes to: \\.claude/skills/kp-${SLUG}/SKILL\\.md \\(new\\)`));
     assert.match(shown.out, /- Workers stop after a deploy — Restart Horizon with horizon:terminate\./, 'the whole text');
     assert.match(shown.out, /Nothing is written yet: the same command with --write writes it\./);
     assert.equal(existsSync(join(repo, '.claude')), false);
@@ -111,12 +111,12 @@ test('a skill for Claude Code: shown first, written only with --write, noted, an
 
     const written = await cli([SLUG, '--agent=claude', '--write']);
     assert.equal(written.ok, true, written.out);
-    assert.equal(read('.claude', 'skills', `ct-${SLUG}`, 'SKILL.md'), playbook('a1b2c3d4e5f6').skill);
-    assert.match(written.out, new RegExp(`Claude Code opens the skill ct-${SLUG} by itself`));
+    assert.equal(read('.claude', 'skills', `kp-${SLUG}`, 'SKILL.md'), playbook('a1b2c3d4e5f6').skill);
+    assert.match(written.out, new RegExp(`Claude Code opens the skill kp-${SLUG} by itself`));
     // Written: the site counts it (22.4), and the output asks how it went.
     assert.equal(requests.at(-1), `/b/${SLUG}/use/skill.md?via=cli&agent=claude&write=1`);
     assert.match(written.out, new RegExp(`say how it went: http://127\\.0\\.0\\.1:\\d+/b/${SLUG}\\?ref=use&agent=claude`));
-    assert.deepEqual(uses().map(({ at, ...u }) => u), [{ slug: SLUG, hash: 'a1b2c3d4e5f6', format: 'skill', agent: 'claude', path: `.claude/skills/ct-${SLUG}/SKILL.md` }]);
+    assert.deepEqual(uses().map(({ at, ...u }) => u), [{ slug: SLUG, hash: 'a1b2c3d4e5f6', format: 'skill', agent: 'claude', path: `.claude/skills/kp-${SLUG}/SKILL.md` }]);
 
     const again = await cli([SLUG, '--agent=claude', '--write']);
     assert.match(again.out, /\(already there, unchanged\)/);
@@ -130,10 +130,10 @@ test('a newer version shows what changed and replaces only what this wrote', asy
     const shown = await cli([SLUG, '--agent=claude']);
     assert.match(shown.out, /\(replaces version a1b2c3d4e5f6\)/);
     assert.match(shown.out, /What changed since the version here \(a1b2c3d4e5f6\):\n {2}…\n {2}- Horizon ends up in the web container — Give it its own service\.\n- - Workers stop after a deploy — Restart Horizon with horizon:terminate\.\n\+ - Workers stop after a deploy — Call horizon:terminate on deploy, never restart the container\.\n {2}\n {2}…/);
-    assert.equal(read('.claude', 'skills', `ct-${SLUG}`, 'SKILL.md'), playbook('a1b2c3d4e5f6').skill, 'nothing updates by itself');
+    assert.equal(read('.claude', 'skills', `kp-${SLUG}`, 'SKILL.md'), playbook('a1b2c3d4e5f6').skill, 'nothing updates by itself');
 
     await cli([SLUG, '--agent=claude', '--write']);
-    assert.equal(read('.claude', 'skills', `ct-${SLUG}`, 'SKILL.md'), playbook('f6e5d4c3b2a1').skill);
+    assert.equal(read('.claude', 'skills', `kp-${SLUG}`, 'SKILL.md'), playbook('f6e5d4c3b2a1').skill);
     assert.equal(uses().length, 1);
     assert.equal(uses()[0].hash, 'f6e5d4c3b2a1');
 });
@@ -141,9 +141,9 @@ test('a newer version shows what changed and replaces only what this wrote', asy
 test('a skill for Codex goes where Codex reads skills of a repository', async () => {
     const r = await cli([`http://example.test/b/${SLUG}?ref=playbook`, '--agent=codex', '--write']);
     assert.equal(r.ok, true, r.out);
-    assert.equal(read('.agents', 'skills', `ct-${SLUG}`, 'SKILL.md'), playbook('a1b2c3d4e5f6').skill);
+    assert.equal(read('.agents', 'skills', `kp-${SLUG}`, 'SKILL.md'), playbook('a1b2c3d4e5f6').skill);
     assert.match(r.out, /Codex opens the skill/);
-    assert.equal(existsSync(join(repo, '.agents', 'skills', `ct-${SLUG}`, 'agents')), false, 'no openai.yaml: Codex may open it by itself');
+    assert.equal(existsSync(join(repo, '.agents', 'skills', `kp-${SLUG}`, 'agents')), false, 'no openai.yaml: Codex may open it by itself');
 });
 
 test('a rule is a block between its markers: added to the file, then replaced alone, line endings kept', async () => {
@@ -188,7 +188,7 @@ test('a prompt is shown and never written', async () => {
     assert.match(r.out, /Move our queue workers from <your current runner> to Horizon\./);
     assert.match(r.out, /Nothing is written: paste it as the first message of your next session\./);
     assert.equal(requests.at(-1), `/b/${SLUG}/use/prompt.md?via=cli&agent=codex`, 'nothing written, nothing counted as written');
-    assert.equal(existsSync(join(repo, '.coders-talk')), false);
+    assert.equal(existsSync(join(repo, '.keepplain')), false);
 });
 
 test('what it refuses: no playbook, no Build, no agent, another format', async () => {
@@ -206,7 +206,7 @@ test('what it refuses: no playbook, no Build, no agent, another format', async (
 test("a team's own Build: asked again with the sign-in, which a public one never gets", async () => {
     const guest = await cli([TEAM_SLUG, '--agent=claude']);
     assert.equal(guest.ok, false);
-    assert.match(guest.out, /a team's own Build needs you signed in: \/coders-talk:login/);
+    assert.match(guest.out, /a team's own Build needs you signed in: \/keepplain:login/);
     assert.deepEqual(auths, [null]);
 
     auths.length = 0;
@@ -215,19 +215,19 @@ test("a team's own Build: asked again with the sign-in, which a public one never
     assert.equal(member.ok, true, member.out);
     assert.deepEqual(auths, [null, `Bearer ${MEMBER}`], 'without the token first, with it once the file is not public');
     assert.equal(requests[1], `/b/${TEAM_SLUG}/use/skill.md?via=cli&agent=claude&write=1`);
-    assert.match(read('.claude', 'skills', `ct-${TEAM_SLUG}`, 'SKILL.md'), new RegExp(`name: ct-${TEAM_SLUG}`));
+    assert.match(read('.claude', 'skills', `kp-${TEAM_SLUG}`, 'SKILL.md'), new RegExp(`name: kp-${TEAM_SLUG}`));
 
     auths.length = 0;
     assert.equal((await cli([SLUG, '--agent=claude'], signedIn)).ok, true);
     assert.deepEqual(auths, [null], 'a public playbook goes without it');
 
-    const outsider = await cli([TEAM_SLUG, '--agent=claude'], { CODERS_TALK_TOKEN: 'ct_someone_else' });
+    const outsider = await cli([TEAM_SLUG, '--agent=claude'], { KEEPPLAIN_TOKEN: 'ct_someone_else' });
     assert.match(outsider.out, /the Build is not public or a Build of your team, its author keeps it for reading/);
 });
 
 test("a team's rules: members only, one block in CLAUDE.md, replaced by a newer set", async () => {
     const guest = await cli(['--team=acme', '--stack=laravel', '--agent=claude']);
-    assert.match(guest.out, /A team's rules are for its members: sign in first with \/coders-talk:login\./);
+    assert.match(guest.out, /A team's rules are for its members: sign in first with \/keepplain:login\./);
     assert.equal(requests.length, 0, 'nothing is asked without the sign-in');
 
     const shown = await cli(['--team=acme', '--stack=laravel', '--agent=claude'], signedIn);
@@ -270,11 +270,11 @@ test('in a terminal it asks before it writes, and only a yes writes', async (t) 
     assert.match(yes.out, /Written: the block for move-queues-to-horizon-k3x9q in AGENTS\.md/);
     assert.equal(requests.filter((r) => r.endsWith('&write=1')).length, 1, 'the yes is counted once');
     assert.equal(read('AGENTS.md'), playbook('a1b2c3d4e5f6').rule);
-    assert.match(yes.out, /coders-talk use move-queues-to-horizon-k3x9q again shows what changed/, 'a terminal names the terminal command');
+    assert.match(yes.out, /keepplain use move-queues-to-horizon-k3x9q again shows what changed/, 'a terminal names the terminal command');
 });
 
 test('slugs, blocks and diffs', () => {
-    assert.equal(buildSlug('https://coders.talk/b/Move-Queues-k3x9q?ref=playbook#m-1'), 'move-queues-k3x9q');
+    assert.equal(buildSlug('https://keepplain.com/b/Move-Queues-k3x9q?ref=playbook#m-1'), 'move-queues-k3x9q');
     assert.equal(buildSlug('"move-queues-k3x9q"'), 'move-queues-k3x9q');
     assert.equal(buildSlug('../etc/passwd'), null);
 
@@ -289,20 +289,20 @@ test('slugs, blocks and diffs', () => {
     assert.equal(lineDiff('1\n2\n3\n4\n5\n', '1\n2\nthree\n4\n5\n'), '  …\n  2\n- 3\n+ three\n  4\n  …');
 });
 
-test('the plugin coders-talk enable lays out carries use for both agents, and the Codex one only when asked', () => {
-    const files = pluginFiles(pluginSources(), { program: ['/home/mara/.coders-talk/bin/coders-talk'], version: '9.1.0', site: 'https://coders.talk', windows: false });
-    assert.match(files['skills/use/SKILL.md'], /'\/home\/mara\/\.coders-talk\/bin\/coders-talk' use "<build>" --agent=claude/);
+test('the plugin keepplain enable lays out carries use for both agents, and the Codex one only when asked', () => {
+    const files = pluginFiles(pluginSources(), { program: ['/home/mara/.keepplain/bin/keepplain'], version: '9.1.0', site: 'https://keepplain.com', windows: false });
+    assert.match(files['skills/use/SKILL.md'], /'\/home\/mara\/\.keepplain\/bin\/keepplain' use "<build>" --agent=claude/);
     assert.match(files['skills/use/SKILL.md'], /^disable-model-invocation: true$/m);
-    assert.match(files['codex/skills/use/SKILL.md'], /'\/home\/mara\/\.coders-talk\/bin\/coders-talk' use "<build>" --agent=codex/);
-    assert.match(files['skills/use/SKILL.md'], /'\/home\/mara\/\.coders-talk\/bin\/coders-talk' use --team=<team> --stack=<stack> --agent=claude/);
-    assert.match(files['codex/skills/use/SKILL.md'], /'\/home\/mara\/\.coders-talk\/bin\/coders-talk' use --team=<team> --stack=<stack> --agent=codex/);
+    assert.match(files['codex/skills/use/SKILL.md'], /'\/home\/mara\/\.keepplain\/bin\/keepplain' use "<build>" --agent=codex/);
+    assert.match(files['skills/use/SKILL.md'], /'\/home\/mara\/\.keepplain\/bin\/keepplain' use --team=<team> --stack=<stack> --agent=claude/);
+    assert.match(files['codex/skills/use/SKILL.md'], /'\/home\/mara\/\.keepplain\/bin\/keepplain' use --team=<team> --stack=<stack> --agent=codex/);
     assert.match(files['codex/skills/use/SKILL.md'], /^Run them outside the sandbox/m, 'the sentence about <plugin> is gone');
     assert.match(files['codex/skills/use/agents/openai.yaml'], /allow_implicit_invocation: false/);
 });
 
 test("a team's rules are kept up with: a check in the background, one line at the next start, the proposals merged since", async () => {
     rmSync(join(home, 'ct', 'team-rules.json'), { force: true });
-    const key = `${env.CODERS_TALK_URL}|acme|laravel`;
+    const key = `${env.KEEPPLAIN_URL}|acme|laravel`;
     // No block here: the start says nothing and asks nothing.
     assert.equal(await startHook(signedIn), '');
     assert.equal(requests.length, 0);
@@ -330,7 +330,7 @@ test("a team's rules are kept up with: a check in the background, one line at th
     await waitFor(() => rulesState()[key].hash === 'b2b2');
     assert.deepEqual(rulesState()[key].changes, [{ number: 14, title: 'Retries after deploys' }]);
     const said = JSON.parse(await startHook(signedIn));
-    assert.equal(said.systemMessage, 'The acme team changed its rules for laravel since the block in CLAUDE.md: #14 Retries after deploys. To see and write the new one: /coders-talk:use --team=acme --stack=laravel');
+    assert.equal(said.systemMessage, 'The acme team changed its rules for laravel since the block in CLAUDE.md: #14 Retries after deploys. To see and write the new one: /keepplain:use --team=acme --stack=laravel');
     assert.equal(read('CLAUDE.md'), teamRules('a1'), 'nothing rewrites the block by itself');
 
     // `use --team` names the proposals, and once written the start is quiet again.

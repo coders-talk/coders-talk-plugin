@@ -1,6 +1,6 @@
 /**
- * Auto mode (/coders-talk:auto, $coders-talk:auto, /coders-talk-auto in Cursor): whether this computer sends an agent's
- * sessions to a Coders Talk site by itself. Off unless the person turns it on here, per site and per agent: turned on in
+ * Auto mode (/keepplain:auto, $keepplain:auto, /keepplain-auto in Cursor): whether this computer sends an agent's
+ * sessions to a KeepPlain site by itself. Off unless the person turns it on here, per site and per agent: turned on in
  * Claude Code it never sends Codex, Cursor or Pi sessions, and the other way round. A team can ask for it, never switch
  * it on.
  *
@@ -22,8 +22,8 @@
  * hooks.json Cursor reads from ~/.cursor, and Pi's extension, each with --agent=<id>. Codex runs a plugin's hooks only
  * once the person trusted them in /hooks.
  *
- * ~/.coders-talk/auto.json holds the choice; ~/.coders-talk/auto.log says what happened to each session, so the
- * person can always check what left the machine without being asked; ~/.coders-talk/auto-sessions.json remembers,
+ * ~/.keepplain/auto.json holds the choice; ~/.keepplain/auto.log says what happened to each session, so the
+ * person can always check what left the machine without being asked; ~/.keepplain/auto-sessions.json remembers,
  * for the sessions auto mode saw, where their file is and how much of it went. Never anything from the conversation.
  */
 import { spawn } from 'node:child_process';
@@ -107,9 +107,9 @@ export function removeStaleTemps(dir = home(), now = Date.now()) {
 /** auto.json per site: Claude Code's choice at the top, as 0.7 wrote it, and the others' under their ids ("codex", "cursor", "pi"). */
 const choiceOf = (all, site, agent) => (NESTED.includes(agent) ? all[site]?.[agent] : all[site]);
 
-/** 'all', 'team', 'push', or null when auto mode is off for this site and agent (or CODERS_TALK_AUTO=0 turns it off for a shell). */
+/** 'all', 'team', 'push', or null when auto mode is off for this site and agent (or KEEPPLAIN_AUTO=0 turns it off for a shell). */
 export function autoMode(site, agent = 'claude-code', dir = home(), env = process.env) {
-    if (env.CODERS_TALK_AUTO === '0') return null;
+    if (env.KEEPPLAIN_AUTO === '0') return null;
     const mode = choiceOf(read(configFile(dir)), site, agent)?.mode;
 
     return AUTO_MODES.includes(mode) ? mode : null;
@@ -117,7 +117,7 @@ export function autoMode(site, agent = 'claude-code', dir = home(), env = proces
 
 /** The mode for one session: its own choice (trackSession's `own`) over the computer's; its `on` works as 'all'. */
 export function sessionAutoMode(site, id, agent = 'claude-code', dir = home(), env = process.env) {
-    if (env.CODERS_TALK_AUTO === '0') return null;
+    if (env.KEEPPLAIN_AUTO === '0') return null;
     const own = id ? autoSession(site, id, dir)?.own : null;
     if (own === 'on') return 'all';
     if (own === 'off') return null;
@@ -269,7 +269,7 @@ export function catchUp(site, current, agent = 'claude-code', dir = home(), now 
         .map(({ id, file }) => ({ id, final: now - file.mtimeMs >= IDLE_MS }));
 }
 
-/** Runs `coders-talk <args>` after the hook has returned: the agent never waits for an upload. */
+/** Runs `keepplain <args>` after the hook has returned: the agent never waits for an upload. */
 export function inBackground(args, env = process.env) {
     const [program, programArgs] = selfCommand(args);
     spawn(program, programArgs, { detached: true, stdio: 'ignore', windowsHide: true, env }).unref();

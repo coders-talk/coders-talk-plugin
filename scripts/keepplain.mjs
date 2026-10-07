@@ -1,77 +1,77 @@
 #!/usr/bin/env node
 /**
- * Coders Talk for Claude Code and Codex: sends the current session to https://coders.talk as a draft Build.
- * The same commands run as the plugin's script (node coders-talk.mjs …) and as the single coders-talk file (plan,
+ * KeepPlain for Claude Code and Codex: sends the current session to https://keepplain.com as a draft Build.
+ * The same commands run as the plugin's script (node keepplain.mjs …) and as the single keepplain file (plan,
  * stage 13.1: scripts/build.mjs), which needs no Node.js.
  *
- *   node coders-talk.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token.
+ *   node keepplain.mjs login [--wait]         opens the browser sign-in; --wait waits for Connect and saves the token.
  *                                                 In a terminal it waits at once: no agent stops it after two minutes
- *   node coders-talk.mjs preview [session-id]   trims the session, checks it for secrets, saves it next to the temp dir, prints
+ *   node keepplain.mjs preview [session-id]   trims the session, checks it for secrets, saves it next to the temp dir, prints
  *                                                 what would go and where
  *     --keep=<numbers>                            send these findings of the last preview as they are (see lib/privacy-settings.mjs)
  *     --private | --team=<slug>                   only you see the draft / that team does; by default the site decides by the
  *                                                 repository: a team's repositories go to the team, the rest stays private
- *   node coders-talk.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
+ *   node keepplain.mjs send [session-id]      sends what preview saved, waits for the import, prints the draft link
  *     --continues=<slug or link>                  the draft continues that Build of yours: they become a series
- *   node coders-talk.mjs discard [session-id]   the person said no: deletes what preview saved (it goes after 30 minutes anyway)
- *   node coders-talk.mjs auto [on|team|push|off] auto mode for this computer and agent: send sessions by themselves while
+ *   node keepplain.mjs discard [session-id]   the person said no: deletes what preview saved (it goes after 30 minutes anyway)
+ *   node keepplain.mjs auto [on|team|push|off] auto mode for this computer and agent: send sessions by themselves while
  *                                                 they run and when they end (all of them, or only those in repositories of
  *                                                 teams that ask), or only when their commits are pushed (push, with the git
  *                                                 hooks); Claude Code and Codex are switched separately
- *   node coders-talk.mjs auto session [on|off] [session-id]  auto mode for this one session, over the computer's:
+ *   node keepplain.mjs auto session [on|off] [session-id]  auto mode for this one session, over the computer's:
  *                                                 on sends it (as `auto on` would) even when auto mode is off, off never does
- *   node coders-talk.mjs auto-send <session-id> what the SessionEnd hook runs in the background when auto mode is on
+ *   node keepplain.mjs auto-send <session-id> what the SessionEnd hook runs in the background when auto mode is on
  *     --sync                                      the Stop hook's send of a session that is still going
  *     --push                                      the pre-push git hook's send of a session behind the push
- *   coders-talk git-hook <kind> <git's args>    the repository's git hooks (lib/githooks.mjs): prepare-commit-msg, pre-push
- *   node coders-talk.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
+ *   keepplain git-hook <kind> <git's args>    the repository's git hooks (lib/githooks.mjs): prepare-commit-msg, pre-push
+ *   node keepplain.mjs auto-catch-up <session-id>  what the SessionStart hook runs: sends the sessions that never said
  *                                                 they ended (lib/auto.mjs, catchUp), other than the one starting
- *   node coders-talk.mjs team-rules-check --cwd=<repository>  what the SessionStart hook runs when a team's rules
+ *   node keepplain.mjs team-rules-check --cwd=<repository>  what the SessionStart hook runs when a team's rules
  *                                                 in the repository were not checked for a while (lib/team-rules.mjs)
- *   coders-talk rules [on|off] [--refresh]      the rules the SessionStart hook adds to sessions in this repository (lib/rules.mjs):
+ *   keepplain rules [on|off] [--refresh]      the rules the SessionStart hook adds to sessions in this repository (lib/rules.mjs):
  *                                                 the person's own and their team's for its stacks; on|off for this computer
- *   node coders-talk.mjs rules-fetch --cwd=<repository>  what the SessionStart hook runs in the background for that
- *   node coders-talk.mjs whoami | logout
- *   node coders-talk.mjs mcp-call <tool> [--json='{…}' | --stdin]   one call of the Coders Talk library's MCP tools, for agents
+ *   node keepplain.mjs rules-fetch --cwd=<repository>  what the SessionStart hook runs in the background for that
+ *   node keepplain.mjs whoami | logout
+ *   node keepplain.mjs mcp-call <tool> [--json='{…}' | --stdin]   one call of the KeepPlain library's MCP tools, for agents
  *                                                 that have no MCP of their own (Pi's extension registers the tools and runs this)
- *   node coders-talk.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper; a fixed https://coders.talk/mcp):
+ *   node keepplain.mjs mcp-headers            what Claude Code runs for the plugin's MCP server (.mcp.json, headersHelper; a fixed https://keepplain.com/mcp):
  *                                                 prints {"Authorization": "Bearer …"} for the saved sign-in, or {}
- *   node coders-talk.mjs nudge [on|off]         the Stop hook's suggestion to share a session that used the library
- *   node coders-talk.mjs hook <agent> <event>   the plugin's hooks in one command (lib/hooks.mjs): claude-code or codex,
+ *   node keepplain.mjs nudge [on|off]         the Stop hook's suggestion to share a session that used the library
+ *   node keepplain.mjs hook <agent> <event>   the plugin's hooks in one command (lib/hooks.mjs): claude-code or codex,
  *                                                 session-start, prompt, stop or session-end
- *   coders-talk update [version]                the single file only: replaces itself with the latest release (lib/update.mjs)
- *   coders-talk sessions [--limit=N]            the Claude Code, Codex, Cursor and Pi sessions of this folder, newest first (lib/sessions.mjs)
+ *   keepplain update [version]                the single file only: replaces itself with the latest release (lib/update.mjs)
+ *   keepplain sessions [--limit=N]            the Claude Code, Codex, Cursor and Pi sessions of this folder, newest first (lib/sessions.mjs)
  *     --all [--days=N]                            every folder's, changed in the last 30 days, each with its project
- *   coders-talk build [number|session-id]       in a terminal: preview, a yes or no, send. The number is one from
+ *   keepplain build [number|session-id]       in a terminal: preview, a yes or no, send. The number is one from
  *                                                 `sessions`; without one, the newest session. Takes preview's and
  *                                                 send's options. Not without a terminal: nothing may skip the question
- *   coders-talk use <build link or slug>        a published Build's playbook (plan: library, stage 22.3, lib/playbooks.mjs):
+ *   keepplain use <build link or slug>        a published Build's playbook (plan: library, stage 22.3, lib/playbooks.mjs):
  *     --as=skill|rule|prompt                      shows the text, where it goes and what changed since the version here;
  *     --agent=claude|codex                        for which agent (in a terminal it asks when both are here)
  *     --write                                     writes it (a terminal asks instead); a prompt is never written
  *                                                 A team's own Build needs the sign-in: the token goes to the site then only
- *   coders-talk use --team=<team> --stack=<stack>  the team's rules for a stack (22.5): its pitfalls, one block in
+ *   keepplain use --team=<team> --stack=<stack>  the team's rules for a stack (22.5): its pitfalls, one block in
  *                                                 CLAUDE.md or AGENTS.md; --agent and --write as above
- *   coders-talk share [build link or slug]      a published Build on GitHub (lib/share.mjs): without one, this session's
+ *   keepplain share [build link or slug]      a published Build on GitHub (lib/share.mjs): without one, this session's
  *     --pr[=<pull request link>]                  the block "How this change was built" in the session's pull request,
  *                                                 with the person's own gh
  *     --readme                                    the "Built with AI" section in the repository's README (not committed)
  *     --write                                     changes them (a terminal asks instead)
- *   coders-talk share auto [on|off]             attach published Builds to their pull requests by itself: the site's
+ *   keepplain share auto [on|off]             attach published Builds to their pull requests by itself: the site's
  *                                                 setting (Settings → GitHub), run by the SessionStart hook
- *   coders-talk share-auto --cwd=<repository>   what the SessionStart hook runs in the background for that
- *   coders-talk enable | disable | status       connects Claude Code and Codex to this coders-talk through their plugin
+ *   keepplain share-auto --cwd=<repository>   what the SessionStart hook runs in the background for that
+ *   keepplain enable | disable | status       connects Claude Code and Codex to this keepplain through their plugin
  *                                                 systems, takes that off again, says how things are (lib/enable.mjs)
  *     --yes  --agent=claude-code,codex  --auto=off|on|team|push  --mcp=remove|keep
  *     --git-hooks | --no-git-hooks | --no-trailers   this repository's git hooks (lib/githooks.mjs)
- *   coders-talk privacy [set --stdin]           the words to hide in every session (privacy.json); set takes a JSON list on stdin
- *   coders-talk version | help
+ *   keepplain privacy [set --stdin]           the words to hide in every session (privacy.json); set takes a JSON list on stdin
+ *   keepplain version | help
  *   --json                                      for a program (the desktop app, desktop/): status, sessions, preview, send,
  *                                                 discard, login, whoami, logout, enable, disable, auto, rules, nudge and
  *                                                 privacy print JSON, one object a line; long commands an {"event"} per
  *                                                 step; a failure is {"error": "…"} on stdout. login --json waits for
  *                                                 Connect until the code expires, and --client=desktop names the token
- *   --site=https://…                            another Coders Talk (the plugin's "url" option)
+ *   --site=https://…                            another KeepPlain (the plugin's "url" option)
  *   --agent=codex                               a Codex session: the id defaults to CODEX_THREAD_ID
  *
  * Two steps to send on purpose: the person sees the summary and says yes before anything leaves the machine,
@@ -124,14 +124,14 @@ import { UsageCounter } from './lib/usage.mjs';
 
 const VERSION = version();
 const MAX_UPLOAD = 20 * 1024 * 1024;
-const POLL_MS = Number(process.env.CODERS_TALK_POLL_MS) || 2000;
+const POLL_MS = Number(process.env.KEEPPLAIN_POLL_MS) || 2000;
 const POLL_FOR_MS = 3 * 60 * 1000;
 // Agents stop a command after a couple of minutes; a login still waiting then picks up again on the next run.
-const LOGIN_WAIT_MS = Number(process.env.CODERS_TALK_LOGIN_WAIT_MS) || 100_000;
+const LOGIN_WAIT_MS = Number(process.env.KEEPPLAIN_LOGIN_WAIT_MS) || 100_000;
 const STAGES = { fetching: 'Reading the session', scanning: 'Scanning for secrets', labeling: 'Proposing moments', saving: 'Saving the draft' };
 // The end of a session is sent again when the site is busy with its last sync, throttled or unreachable. The first
 // retry comes quickly: a sync takes a second or two to import, and Codex ends a session-end hook's upload when it exits.
-const RETRY_MS = Number(process.env.CODERS_TALK_RETRY_MS) ? [Number(process.env.CODERS_TALK_RETRY_MS)] : [1500, 5000, 15000];
+const RETRY_MS = Number(process.env.KEEPPLAIN_RETRY_MS) ? [Number(process.env.KEEPPLAIN_RETRY_MS)] : [1500, 5000, 15000];
 const AUTO_TRIES = 4;
 /** What the agents are called where a list of them says which sessions there were none of. */
 const SESSION_KINDS = 'Claude Code, Codex, Cursor or Pi';
@@ -155,12 +155,12 @@ const TERMINAL = Boolean(process.stdout.isTTY && process.stdin.isTTY);
 const JSON_OUT = args.includes('--json');
 const emit = (data) => console.log(JSON.stringify(data));
 /** How the person runs one of the plugin's commands: in this agent, or in the terminal they typed it in. */
-const run = (name) => (TERMINAL || JSON_OUT ? `coders-talk ${name}` : commandIn(AGENT.id, name));
+const run = (name) => (TERMINAL || JSON_OUT ? `keepplain ${name}` : commandIn(AGENT.id, name));
 
 const site = siteUrl(option('site'), !hasPluginOptions(AGENT.id));
-const token = env.CODERS_TALK_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
+const token = env.KEEPPLAIN_TOKEN || env.CLAUDE_PLUGIN_OPTION_TOKEN || savedToken(site) || '';
 
-// Sent through the Coders Talk connector (a cloud session: Claude Code on the web), not with this computer's token:
+// Sent through the KeepPlain connector (a cloud session: Claude Code on the web), not with this computer's token:
 // the preview says so, and send puts the session at the upload link the connector handed out (--upload=<link>).
 // In a cloud session with no token of its own, the plugin synced from claude.ai goes that way by itself.
 const VIA_CONNECTOR = args.includes('--connector') || Boolean(option('upload')) || (env.CLAUDE_CODE_REMOTE === 'true' && !token && AGENT.id === 'claude-code');
@@ -187,7 +187,7 @@ try {
         process.exit(0);
     }
     if (!BINARY_VERSION && Number(process.versions.node.split('.')[0]) < 20) {
-        throw new Failure(`The Coders Talk plugin needs Node.js 20 or newer (this is ${process.version}). Or upload the session at ${site}/new.`);
+        throw new Failure(`The KeepPlain plugin needs Node.js 20 or newer (this is ${process.version}). Or upload the session at ${site}/new.`);
     }
     if (command === 'preview') await preview(sessionId());
     else if (command === 'send') await send(sessionId());
@@ -204,7 +204,7 @@ try {
     else if (command === 'mcp-call') await mcpCall(argId);
     else if (command === 'logout') logout();
     else if (command === 'nudge') nudge(argId);
-    else if (command === 'version' || args.includes('--version')) console.log(`coders-talk ${VERSION}`);
+    else if (command === 'version' || args.includes('--version')) console.log(`keepplain ${VERSION}`);
     else if (command === 'update') await update(argId, { check: args.includes('--check') });
     else if (command === 'sessions') await sessions();
     else if (command === 'build') await build(argId);
@@ -232,11 +232,11 @@ try {
     process.exit(1);
 }
 
-/** `coders-talk help`: the commands a person runs, one a line; the ones hooks run are left out. */
+/** `keepplain help`: the commands a person runs, one a line; the ones hooks run are left out. */
 function help() {
     const commands = [
         ['login', 'sign in through the browser'],
-        ['enable', 'connect Claude Code and Codex to Coders Talk'],
+        ['enable', 'connect Claude Code and Codex to KeepPlain'],
         ['disable', 'take that off again'],
         ['status', 'how things are: sign-in, agents, auto mode'],
         ['sessions [--limit=N] [--all]', "this folder's sessions, newest first; --all: every folder's"],
@@ -255,13 +255,13 @@ function help() {
         ['logout', 'forget the sign-in on this computer'],
         ['nudge [on|off]', 'the suggestion to share a session that used the library'],
         ['privacy', 'the words hidden in every session'],
-        ['update [version]', 'update to the latest release (the installed coders-talk only)'],
-        ['version', 'the version of coders-talk'],
+        ['update [version]', 'update to the latest release (the installed keepplain only)'],
+        ['version', 'the version of keepplain'],
         ['help', 'this list'],
     ];
     const width = Math.max(...commands.map(([c]) => c.length));
 
-    return ['Usage: coders-talk <command> [--site=URL] [--agent=codex] [--json]', ...commands.map(([c, what]) => `  ${c.padEnd(width)}  ${what}`)].join('\n');
+    return ['Usage: keepplain <command> [--site=URL] [--agent=codex] [--json]', ...commands.map(([c, what]) => `  ${c.padEnd(width)}  ${what}`)].join('\n');
 }
 
 /** The options of enable and disable. */
@@ -311,7 +311,7 @@ function discard(id) {
 
 /**
  * This repository's git snapshots older than 14 days (lib/snapshots.mjs), also when no session starts here any more:
- * run by build and status, and by the pre-push hook. Only refs/coders-talk/*: git gc, never run here, frees their objects.
+ * run by build and status, and by the pre-push hook. Only refs/keepplain/*: git gc, never run here, frees their objects.
  */
 function pruneOwnSnapshots() {
     try {
@@ -325,7 +325,7 @@ function pruneOwnSnapshots() {
  * The session read, slimmed and packed, with what goes along with it: the git context and the tokens it spent.
  * The preview and auto mode send the same thing. Earlier runs of the plugin's commands never go; a command run also
  * cuts itself off the end ($cut). A session that ended by itself has no run in progress, and cutting at an earlier
- * /coders-talk:build would lose the rest.
+ * /keepplain:build would lose the rest.
  */
 async function prepare(id, cut = true) {
     const path = sessionPath(AGENT.id, id, env, AGENT.id === 'cursor' ? readCursorSidecar(id, env)?.transcript_path : null);
@@ -388,7 +388,7 @@ async function preview(id) {
     if (SPACE && !/^[a-z0-9-]{1,40}$/.test(SPACE)) throw new Failure(`"${SPACE}" is not a team address. Use the part after /t/ in the team's link.`);
     const out = prepared(id);
     if (option('keep')) keepFromLastPreview(out.meta, option('keep'));
-    // Only the agent's /coders-talk:build is a run of the command inside the session. From a terminal, SSH or a script
+    // Only the agent's /keepplain:build is a run of the command inside the session. From a terminal, SSH or a script
     // (--whole: `build` in a terminal) the session holds no run to cut off, only earlier ones.
     const inAgent = Boolean(env.CLAUDECODE || env.CODEX_THREAD_ID || env.CURSOR_AGENT || env.CURSOR_TRACE_ID);
     const { session, slim, stats, gz, git, gitFolders, usage, privacy, fork, library, project, continuation, title, taskKeys, earlier } = await prepare(id, inAgent && !args.includes('--whole'));
@@ -454,7 +454,7 @@ async function preview(id) {
     console.log(`  Goes to:    ${goesTo.text}`);
     if (draft) console.log(`  Updates your draft: ${draft} (sent before; while it is a draft, no second one is made)`);
     console.log(describePrivacy(privacy));
-    if (VIA_CONNECTOR) console.log('Goes through the Coders Talk connector: it hands out a one-time upload link, then makes the draft.');
+    if (VIA_CONNECTOR) console.log('Goes through the KeepPlain connector: it hands out a one-time upload link, then makes the draft.');
     else if (!token) console.log(`Not connected to ${site} yet: run ${run('login')} before sending.`);
 }
 
@@ -462,7 +462,7 @@ async function preview(id) {
  * The session slimmed line by line as it is read: Codex rollouts with screenshots run to hundreds of megabytes,
  * more than fits in one string. Null when the file is not JSON lines. Also keeps what slimming drops: where the
  * session ran, for Codex HEAD at its start (session_meta), the session it was forked from (lib/session.mjs, ForkWatch),
- * and what the agent took from the Coders Talk library (lib/library.mjs). A Cursor transcript says neither where it ran
+ * and what the agent took from the KeepPlain library (lib/library.mjs). A Cursor transcript says neither where it ran
  * nor when (but by the minute) nor what it cost: $cursorNotes, what its hooks noted, gives the folder, the times of the
  * turns and the tokens (lib/cursor.mjs). $before: the files of the sessions this one continued, oldest first (lib/continuation.mjs):
  * read first, as one session with this file's, and a line any of them copied from another is taken once.
@@ -604,7 +604,7 @@ function describeCode(code) {
 
 async function send(id) {
     if (option('upload')) return sendToLink(id, option('upload'));
-    if (VIA_CONNECTOR) throw new Failure('This cloud session sends through the Coders Talk connector: call its start_session_upload tool, then run this send step again with --upload="<the upload_url it returned>".');
+    if (VIA_CONNECTOR) throw new Failure('This cloud session sends through the KeepPlain connector: call its start_session_upload tool, then run this send step again with --upload="<the upload_url it returned>".');
     if (!token) throw notConnected();
 
     const out = prepared(id);
@@ -685,7 +685,7 @@ async function send(id) {
 /**
  * A cloud session's send (App\Services\Import\CloudUploads on the site): the session and the fields POST
  * /api/v1/imports takes, in one JSON envelope, put at the connector's one-time link in the site's bucket. The cloud
- * lets a session reach that bucket (R2) and not coders.talk; finish_session_upload then makes the draft.
+ * lets a session reach that bucket (R2) and not KeepPlain; finish_session_upload then makes the draft.
  */
 async function sendToLink(id, link) {
     let url;
@@ -827,14 +827,14 @@ async function login() {
  * or a script: the CLI.
  */
 function clientName() {
-    if (option('client') === 'desktop') return 'Coders Talk app';
-    if (TERMINAL) return 'Coders Talk CLI';
+    if (option('client') === 'desktop') return 'KeepPlain app';
+    if (TERMINAL) return 'KeepPlain CLI';
     if (option('agent') && agentId(option('agent'))) return AGENT.name;
     if (env.CODEX_THREAD_ID) return 'Codex';
     if (env.PI_SESSION_ID) return 'Pi';
     if (env.CURSOR_AGENT || env.CURSOR_TRACE_ID) return 'Cursor';
 
-    return env.CLAUDECODE ? 'Claude Code' : 'Coders Talk CLI';
+    return env.CLAUDECODE ? 'Claude Code' : 'KeepPlain CLI';
 }
 
 /** Polls until Connect, a refusal, or $until: in an agent, less than its command timeout; in a terminal, the code's life. */
@@ -856,7 +856,7 @@ async function waitForApproval(until = Date.now() + LOGIN_WAIT_MS) {
             forgetMcpNeedsAuth();
             if (JSON_OUT) return emit({ event: 'connected', username: state.username });
             console.log(`Connected to ${site} as @${state.username}. ${run('build')} can send sessions now.`);
-            if (AGENT.id === 'claude-code') console.log('If Claude Code is open, run /mcp → Reconnect for coders-talk, or start a new session: its library tools connect then.');
+            if (AGENT.id === 'claude-code') console.log('If Claude Code is open, run /mcp → Reconnect for keepplain, or start a new session: its library tools connect then.');
             return;
         }
         if (state.status !== 'pending') {
@@ -886,7 +886,7 @@ function logout() {
 }
 
 /**
- * `coders-talk sessions`: this folder's sessions, numbered for `coders-talk build <number>`. `--all`: every folder's,
+ * `keepplain sessions`: this folder's sessions, numbered for `keepplain build <number>`. `--all`: every folder's,
  * changed in the last 30 days (--days=N), each with the project it ran in.
  */
 async function sessions() {
@@ -924,7 +924,7 @@ async function sessions() {
         const where = all ? `${(s.project ?? '?').slice(0, 16).padEnd(16)} ` : '';
         console.log(`  ${String(i + 1).padEnd(3)} ${when(s.mtimeMs).padEnd(17)} ${(AGENTS[s.agent]?.name ?? s.agent).padEnd(12)} ${where}${String(s.prompts).padEnd(8)} ${(s.sent ? 'yes' : '-').padEnd(5)} ${first}`);
     });
-    console.log(`Send one: coders-talk build <#>${all ? ' --all' : ''}`);
+    console.log(`Send one: keepplain build <#>${all ? ' --all' : ''}`);
 }
 
 /** The sessions with prompts, described; $limit of them. With --all, every folder's, each with where it ran. */
@@ -964,19 +964,19 @@ function when(ms) {
 }
 
 /**
- * `coders-talk build [number|id]` in a terminal: the same preview and send the agent runs, as this same program, with
+ * `keepplain build [number|id]` in a terminal: the same preview and send the agent runs, as this same program, with
  * the person's yes in between. The session is whole: a terminal run is not part of it.
  */
 async function build(which) {
     if (!TERMINAL) {
-        throw new Failure('coders-talk build asks before it sends, so it runs only in a terminal. From a script: coders-talk preview <session-id> [--agent=codex|cursor|pi], then coders-talk send <session-id> [--agent=codex|cursor|pi].');
+        throw new Failure('keepplain build asks before it sends, so it runs only in a terminal. From a script: keepplain preview <session-id> [--agent=codex|cursor|pi], then keepplain send <session-id> [--agent=codex|cursor|pi].');
     }
 
     let chosen;
     if (!which || /^\d{1,3}$/.test(which)) {
         const list = await folderList(Math.max(10, Number(which) || 1));
         chosen = list[(Number(which) || 1) - 1];
-        if (!chosen) throw new Failure(list.length ? `There is no session #${which} here: coders-talk sessions lists them.` : `No ${SESSION_KINDS} sessions with prompts in ${process.cwd()}. Run it in the folder the session ran in, or give its id.`);
+        if (!chosen) throw new Failure(list.length ? `There is no session #${which} here: keepplain sessions lists them.` : `No ${SESSION_KINDS} sessions with prompts in ${process.cwd()}. Run it in the folder the session ran in, or give its id.`);
         console.log(`Session #${Number(which) || 1}: ${AGENTS[chosen.agent]?.name ?? chosen.agent}, ${when(chosen.mtimeMs)}, "${chosen.firstPrompt.slice(0, 60)}"`);
     } else if (agentOfSession(which, env)) chosen = { agent: agentOfSession(which, env), id: which };
     else throw new Failure(`No ${SESSION_KINDS} session ${which} on this computer.`);
@@ -1094,7 +1094,7 @@ async function use(what) {
     console.log(format === 'skill'
         ? `Written: ${shown(root, change.file)}. ${target.name} opens the skill ${skillName(slug)} by itself when a task matches its description. To take it away, delete its folder.`
         : `Written: the block for ${slug} in ${shown(root, change.file)}. The agent reads it at the start of every session. A newer version replaces only that block; the rest of the file is as it was.`);
-    console.log(`Noted in ${shown(root, join(root, '.coders-talk', 'uses.json'))}. Nothing updates by itself: ${run('use')} ${slug} again shows what changed.`);
+    console.log(`Noted in ${shown(root, join(root, '.keepplain', 'uses.json'))}. Nothing updates by itself: ${run('use')} ${slug} again shows what changed.`);
     console.log(`Once your agent has worked with it, say how it went: ${source}?ref=use&agent=${agent}`);
 }
 
@@ -1123,7 +1123,7 @@ async function useTeamRules(team, stack) {
     }
     if (!response.ok) throw Object.assign(new Failure(`The site answered ${response.status}.`), { unavailable: response.status >= 500 });
     const text = (await response.text()).replace(/\r\n/g, '\n');
-    const marker = /<!-- coders-talk:(team-[a-z0-9-]+)@([A-Za-z0-9]+) -->/.exec(text);
+    const marker = /<!-- keepplain:(team-[a-z0-9-]+)@([A-Za-z0-9]+) -->/.exec(text);
     if (!marker) throw new Failure('The site sent something other than a block of rules. Update the plugin, then try again.');
     const [, slug, hash] = marker;
 
@@ -1164,7 +1164,7 @@ async function useTeamRules(team, stack) {
 }
 
 /**
- * `coders-talk team-rules-check --cwd=<repository>`: what the SessionStart hook starts in the background when a team's
+ * `keepplain team-rules-check --cwd=<repository>`: what the SessionStart hook starts in the background when a team's
  * block in the repository was not checked for a while (team rules review, stage 33). Asks the site with this site's
  * sign-in, notes what it found for the next start; prints nothing and never fails.
  */
@@ -1188,7 +1188,7 @@ async function rulesFetch() {
 }
 
 /**
- * `coders-talk rules` (coders.talk plan: personal rules, stage 37): what the sessions in this repository get at their
+ * `keepplain rules` (KeepPlain plan: personal rules, stage 37): what the sessions in this repository get at their
  * start, and why: its stacks, whose repository it is, the text. `--refresh` asks the site now instead of using what the
  * last fetch kept; `on` and `off` switch it for this computer. The rules themselves change on the site only.
  */
@@ -1248,7 +1248,7 @@ The rules for ${[...new Set(entry.matched.map((r) => r.label))].join(', ')} come
 }
 
 /**
- * `coders-talk share` (coders.talk github-distribution-plan, stage 39): a published Build on GitHub. Without --pr or
+ * `keepplain share` (KeepPlain github-distribution-plan, stage 39): a published Build on GitHub. Without --pr or
  * --readme it shows what there is; with them, what would change, and changes it with --write (a terminal asks). The
  * blocks are the site's; the pull request is changed with the person's own gh, the README in the working tree only.
  * Nothing is published here: a draft gets its link, to publish it first.
@@ -1269,7 +1269,7 @@ async function share(what) {
     try {
         kit = await api('GET', `/api/v1/share?${query}`);
     } catch (e) {
-        if (e.status === 404 && !slug) throw new Failure(`This session is not on Coders Talk yet. Send it with ${run('build')}, publish it on the site, then share it.`);
+        if (e.status === 404 && !slug) throw new Failure(`This session is not on KeepPlain yet. Send it with ${run('build')}, publish it on the site, then share it.`);
         throw e;
     }
     if (!kit.published) {
@@ -1320,7 +1320,7 @@ async function sharePr(kit, named) {
     }
     const body = withPrBlock(pr.body, kit.slug, kit.share.pr);
     const same = body.replace(/\r\n/g, '\n').trim() === (pr.body ?? '').replace(/\r\n/g, '\n').trim();
-    const had = (pr.body ?? '').includes(`<!-- coders-talk:build ${kit.slug} -->`);
+    const had = (pr.body ?? '').includes(`<!-- keepplain:build ${kit.slug} -->`);
     console.log(`The pull request: ${pr.url}${pr.title ? ` (#${pr.number} ${pr.title})` : ''}`);
 
     if (same) {
@@ -1349,7 +1349,7 @@ async function shareReadme(kit) {
     if (after === before) {
         console.log(`${name} already has the section, unchanged.`);
     } else {
-        console.log(`Goes to: ${name}${before ? (before.includes('<!-- coders-talk:repo -->') ? ' (replaces the section)' : ' (added at the end)') : ' (new)'}`);
+        console.log(`Goes to: ${name}${before ? (before.includes('<!-- keepplain:repo -->') ? ' (replaces the section)' : ' (added at the end)') : ' (new)'}`);
         console.log(`----- section -----\n${kit.share.readme}\n----- end -----`);
         if (kit.repo) console.log('The badge counts the public sessions of this repository by itself: once is enough.');
         if (!(await confirmed(`Write it to ${name}?`, `writes it to ${name}`))) return;
@@ -1396,7 +1396,7 @@ async function shareAuto() {
             const body = withPrBlock(pr.body, kit.slug, kit.share.pr);
             if (body.trim() !== (pr.body ?? '').trim() && editPullRequest(pr.url, body, { cwd: root })) continue;
             await api('POST', '/api/v1/share/attachments', json({ build: kit.slug, target: 'pr', url: pr.url, auto: true }), true, 10_000);
-            addNotice(`Coders Talk put your Build "${kit.title}" into ${pr.url} (auto mode; ${run('share')} auto off turns it off).`);
+            addNotice(`KeepPlain put your Build "${kit.title}" into ${pr.url} (auto mode; ${run('share')} auto off turns it off).`);
             logAuto(`share ${kit.slug}: attached to ${pr.url}`);
         }
     } catch {
@@ -1433,7 +1433,7 @@ function ruleChange(root, agent, slug, text) {
 
 /**
  * The agent the playbook is for: --agent, which the plugin's skills always pass. In a terminal without it, the agent
- * whose Coders Talk plugin is installed here, or the one that is here at all; when both are, the person picks.
+ * whose KeepPlain plugin is installed here, or the one that is here at all; when both are, the person picks.
  */
 async function useAgent() {
     const given = option('agent');
@@ -1493,7 +1493,7 @@ function importForm(id, gz, { git = null, gitFolders = null, usage = null, space
     if (continues) form.append('continues', continues);
     // The session this one was forked from and when: the site links the two Builds both ways.
     if (fork) form.append('fork', JSON.stringify(fork));
-    // How often the agent called the Coders Talk library and the Builds it got: the site links the draft to them.
+    // How often the agent called the KeepPlain library and the Builds it got: the site links the draft to them.
     if (library) form.append('library', JSON.stringify(library));
     // Which project it belongs to, for grouping on the site: a hash and a folder name (grouping plan, 23.1).
     if (project) form.append('project', JSON.stringify(project));
@@ -1528,7 +1528,7 @@ async function auto(mode) {
     // close without a word: what it never said it ended goes at the next start.
     const ends = CODEX ? 'when they end or sit idle for 30 minutes' : AGENT.id === 'cursor' ? 'when a turn ends, and once more at the next start if it never said it ended' : 'when they end';
     const endsOne = CODEX ? 'when it ends or sits idle for 30 minutes' : AGENT.id === 'cursor' ? 'when a turn ends, and once more at the next start if it never said it ended' : 'when it ends';
-    const trust = CODEX ? ` Codex runs a plugin's hooks only once you trust them: type /hooks in Codex and trust the three Coders Talk hooks. Until then nothing is sent.` : '';
+    const trust = CODEX ? ` Codex runs a plugin's hooks only once you trust them: type /hooks in Codex and trust the three KeepPlain hooks. Until then nothing is sent.` : '';
     if (mode === 'session') return autoForSession(endsOne, trust);
     if (JSON_OUT) {
         const chosen = mode ? { on: 'all', all: 'all', team: 'team', push: 'push', off: null }[mode] : autoMode(site, AGENT.id);
@@ -1546,7 +1546,7 @@ async function auto(mode) {
             : current === 'team'
               ? `Auto mode is on for ${site}, for team repositories: ${AGENT.name} sessions in repositories of teams that ask for it are sent while they run and ${ends}.${trust}`
               : current === 'push'
-                ? `Auto mode is push for ${site}: a ${AGENT.name} session is sent when its commits are pushed, from repositories with the Coders Talk git hooks (coders-talk enable in the repository).`
+                ? `Auto mode is push for ${site}: a ${AGENT.name} session is sent when its commits are pushed, from repositories with the KeepPlain git hooks (keepplain enable in the repository).`
                 : `Auto mode is off for ${site} in ${AGENT.name}: sessions are sent only when you run ${run('build')}.`);
         const recent = recentAuto(5);
         if (recent.length) console.log(`Last sessions it looked at (${logFile()}):\n${recent.map((l) => `  ${l}`).join('\n')}`);
@@ -1566,7 +1566,7 @@ async function auto(mode) {
     const asking = (me.teams ?? []).filter((t) => t.auto_capture);
     setAutoMode(site, chosen, AGENT.id);
     if (chosen === 'push') {
-        console.log(`Auto mode is push. A ${AGENT.name} session is sent to ${site} as @${me.username} when you push its commits, from repositories with the Coders Talk git hooks (coders-talk enable in each repository puts them in): to your team's space when the repository is one of your team's, else to your private Builds. Sessions whose code you never push stay on this computer. Nothing is published.`);
+        console.log(`Auto mode is push. A ${AGENT.name} session is sent to ${site} as @${me.username} when you push its commits, from repositories with the KeepPlain git hooks (keepplain enable in each repository puts them in): to your team's space when the repository is one of your team's, else to your private Builds. Sessions whose code you never push stay on this computer. Nothing is published.`);
     } else if (chosen === 'all') {
         console.log(`Auto mode is on. ${AGENT.name} sessions on this computer are sent to ${site} as @${me.username} by themselves, every five minutes while they run and once more ${ends}: to your team's space when the repository is one of your team's, else to your private Builds, where only you see them. Nothing is published. Keys, tokens and other secrets the privacy check recognises are redacted on this computer before a session is sent; anything it does not recognise goes as it is, so read a draft before you publish it. Moments are suggested once a session is over.${trust}`);
     } else {
@@ -1596,9 +1596,9 @@ async function autoForSession(endsOne, trust) {
         // note the conversation of each workspace.
         const asked = `auto session${choice ? ` ${choice}` : ''}`;
         throw new Failure(TERMINAL
-            ? `Which session? Add its id: coders-talk ${asked} <session-id>.`
+            ? `Which session? Add its id: keepplain ${asked} <session-id>.`
             : AGENT.id === 'claude-code'
-              ? `Could not tell which session this is. Run /coders-talk:${asked} yourself: only the skill knows this session's id.`
+              ? `Could not tell which session this is. Run /keepplain:${asked} yourself: only the skill knows this session's id.`
               : `Could not tell which session this is. Run ${commandIn(AGENT.id, asked)} from inside a ${AGENT.name} session.`);
     }
     const computer = autoMode(site, AGENT.id);
@@ -1821,7 +1821,7 @@ function keepFromLastPreview(metaPath, list) {
 
 /**
  * The plugin's MCP server in Claude Code (.mcp.json) gets its token here, at each connection, so the sign-in of
- * /coders-talk:login serves the library too and the token never appears in a config file or the conversation. The site is
+ * /keepplain:login serves the library too and the token never appears in a config file or the conversation. The site is
  * the server's own (Claude Code passes its address), so a token never goes to another site. Not signed in, or anything
  * odd: {}, and the server asks the person to sign in through the browser (OAuth) instead.
  */
@@ -1830,7 +1830,7 @@ function mcpHeaders() {
     try {
         const server = env.CLAUDE_CODE_MCP_SERVER_URL?.replace(/\/mcp\/?$/, '').replace(/\/+$/, '');
         const own = server && /^https?:\/\/\S+$/.test(server) ? server : siteUrl(null, true);
-        const saved = env.CODERS_TALK_TOKEN || savedToken(own);
+        const saved = env.KEEPPLAIN_TOKEN || savedToken(own);
         if (saved && /^[\x21-\x7e]+$/.test(saved)) headers = { Authorization: `Bearer ${saved}` };
     } catch {
         // No home folder, an unreadable file: no token.
@@ -1905,7 +1905,7 @@ function nudge(mode) {
     else if (mode) throw new Failure('Use: nudge on, or nudge off.');
     if (JSON_OUT) return emit({ nudge: nudgeOn() });
     console.log(nudgeOn()
-        ? `After an answer that used Builds from the Coders Talk library in a session that changed code, ${AGENT.name} suggests once to share the session with ${run('build')}. It sends nothing. Turn it off with: nudge off`
+        ? `After an answer that used Builds from the KeepPlain library in a session that changed code, ${AGENT.name} suggests once to share the session with ${run('build')}. It sends nothing. Turn it off with: nudge off`
         : 'The suggestion to share a session that used the library is off. Turn it on with: nudge on');
 }
 
@@ -1950,7 +1950,7 @@ function statusJson() {
 }
 
 /**
- * `coders-talk privacy`: the words to hide in every session (lib/privacy-settings.mjs, privacy.json). `privacy set --stdin`
+ * `keepplain privacy`: the words to hide in every session (lib/privacy-settings.mjs, privacy.json). `privacy set --stdin`
  * takes the new list as a JSON array of strings, for the desktop app's field; the file's other keys stay as they are.
  */
 async function privacyWords(action) {
@@ -2007,7 +2007,7 @@ function revealFile(file) {
 }
 
 function launch(cmd, cmdArgs, options = {}) {
-    if (env.CODERS_TALK_NO_BROWSER) return;
+    if (env.KEEPPLAIN_NO_BROWSER) return;
     try {
         spawn(cmd, cmdArgs, { detached: true, stdio: 'ignore', windowsHide: true, ...options }).on('error', () => {}).unref();
     } catch {
@@ -2079,7 +2079,7 @@ function retryAfter(value) {
 
 /**
  * The proxy the environment names would not let the site through. Claude Code on the web lets a session reach only
- * the domains its environment allows, and coders.talk is not among the defaults. Trying again later can help once
+ * the domains its environment allows, and KeepPlain is not among the defaults. Trying again later can help once
  * it is allowed, so auto mode keeps the session.
  */
 function proxyRefused(status, target = site) {

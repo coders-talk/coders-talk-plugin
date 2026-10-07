@@ -1,13 +1,13 @@
 /**
- * Git snapshots of the working tree at each turn (coders.talk plan, stage 11.3): what the agent changed, Bash and
+ * Git snapshots of the working tree at each turn (KeepPlain plan, stage 11.3): what the agent changed, Bash and
  * subagents included, and what the person changed by hand between its answers.
  *
  * A snapshot is a tree written from a temporary index, never the person's own: their branch, index and files stay as
- * they are. Trees are chained as commits under one ref per session, refs/coders-talk/<session>, so `git gc` keeps them;
- * a plain `git push` does not send such refs. Nothing leaves the machine here: /coders-talk:build turns the snapshots
+ * they are. Trees are chained as commits under one ref per session, refs/keepplain/<session>, so `git gc` keeps them;
+ * a plain `git push` does not send such refs. Nothing leaves the machine here: /keepplain:build turns the snapshots
  * into "git-changes" lines of the session it sends, after the preview.
  *
- * ~/.coders-talk/snapshots/<session>.json holds the list {kind: start|prompt|stop, at, tree, head}; <session>.index is
+ * ~/.keepplain/snapshots/<session>.json holds the list {kind: start|prompt|stop, at, tree, head}; <session>.index is
  * the temporary index. Best effort throughout: no git, no repository or a failing command means no snapshot.
  */
 import { execFileSync } from 'node:child_process';
@@ -25,13 +25,13 @@ export const MAX_NEW_FILE = 1_000_000;
 const MAX_NEW_FILES = 2000;
 const MAX_COMMITS = 50;
 const KEEP_DAYS = 14;
-const REF = 'refs/coders-talk/';
+const REF = 'refs/keepplain/';
 
 // commit-tree needs a name even where the person set none; the snapshot commits are never theirs.
-const IDENTITY = { GIT_AUTHOR_NAME: 'coders-talk', GIT_AUTHOR_EMAIL: 'snapshots@coders.talk', GIT_COMMITTER_NAME: 'coders-talk', GIT_COMMITTER_EMAIL: 'snapshots@coders.talk' };
+const IDENTITY = { GIT_AUTHOR_NAME: 'keepplain', GIT_AUTHOR_EMAIL: 'snapshots@keepplain.com', GIT_COMMITTER_NAME: 'keepplain', GIT_COMMITTER_EMAIL: 'snapshots@keepplain.com' };
 
 export function snapshotDir(env = process.env) {
-    return join(env.CODERS_TALK_HOME || join(homedir(), '.coders-talk'), 'snapshots');
+    return join(env.KEEPPLAIN_HOME || join(homedir(), '.keepplain'), 'snapshots');
 }
 
 function git(cwd, args, { env = process.env, input = null, timeout = BUDGET_MS, maxBuffer = 16 * 1024 * 1024 } = {}) {
@@ -109,7 +109,7 @@ export function takeSnapshot(event, kind, { dir = snapshotDir(), now = Date.now(
 
     const last = state.snapshots[state.snapshots.length - 1];
     if (!last || last.tree !== tree) {
-        const commit = git(root, ['commit-tree', tree, '-m', `coders-talk snapshot ${id}`, ...(state.commit ? ['-p', state.commit] : [])], { env, timeout: budgetMs });
+        const commit = git(root, ['commit-tree', tree, '-m', `keepplain snapshot ${id}`, ...(state.commit ? ['-p', state.commit] : [])], { env, timeout: budgetMs });
         if (commit && git(root, ['update-ref', `${REF}${id}`, commit], { env, timeout: budgetMs }) !== null) state.commit = commit;
     }
 

@@ -130,7 +130,7 @@ const upload = (size) => {
 };
 
 test('proxyFor reads HTTPS_PROXY, HTTP_PROXY, ALL_PROXY and NO_PROXY the way curl does', () => {
-    const https = 'https://coders.talk/api/v1/me';
+    const https = 'https://keepplain.com/api/v1/me';
     assert.equal(proxyFor(https, {}), null);
     assert.equal(proxyFor(https, { HTTPS_PROXY: 'http://127.0.0.1:2081' }).host, '127.0.0.1:2081');
     assert.equal(proxyFor(https, { https_proxy: '127.0.0.1:2081' }).href, 'http://127.0.0.1:2081/');
@@ -143,10 +143,10 @@ test('proxyFor reads HTTPS_PROXY, HTTP_PROXY, ALL_PROXY and NO_PROXY the way cur
     assert.equal(proxyFor(https, { HTTPS_PROXY: '::not a url' }), null);
 
     const behind = { HTTPS_PROXY: 'http://p:1', HTTP_PROXY: 'http://p:1' };
-    for (const noProxy of ['*', 'coders.talk', '.coders.talk', '*.talk', 'localhost, coders.talk', 'coders.talk:443']) {
+    for (const noProxy of ['*', 'keepplain.com', '.keepplain.com', '*.com', 'localhost, keepplain.com', 'keepplain.com:443']) {
         assert.equal(proxyFor(https, { ...behind, NO_PROXY: noProxy }), null, noProxy);
     }
-    for (const noProxy of ['localhost,127.0.0.1,::1,.local', 'talk.coders', 'coders.talk:8443']) {
+    for (const noProxy of ['localhost,127.0.0.1,::1,.local', 'com.keepplain', 'keepplain.com:8443']) {
         assert.notEqual(proxyFor(https, { ...behind, NO_PROXY: noProxy }), null, noProxy);
     }
     assert.equal(proxyFor('http://127.0.0.1:8000/', { ...behind, no_proxy: 'localhost,127.0.0.1,::1' }), null);

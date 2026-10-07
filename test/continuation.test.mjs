@@ -78,6 +78,8 @@ test('the Claude app\'s own record is taken when it is there, and any other shap
     writeFileSync(join(home, 'app', 'acct', 'org', 'local_2.json'), 'not json');
     assert.equal(appPredecessor(X, env), P);
     assert.equal(appPredecessor(Y, env), null);
+    // A session edited away is in the list once the app has moved on: the one before it is what it continued.
+    assert.equal(appPredecessor(P, env), Y);
     assert.equal(appPredecessor(X, { ...env, KEEPPLAIN_CLAUDE_APP_DIR: join(home, 'none') }), null);
 });
 

@@ -276,7 +276,8 @@ export function appSessionsDir(env = process.env) {
 
 /**
  * The session the Claude app says this one continues: the last of priorCliSessionIds in the local_*.json that names
- * this session as its cliSessionId. Any other shape, no such file, no app: null, and the uuids decide.
+ * this session as its cliSessionId, or the one before it in that list. Any other shape, no such file, no app: null,
+ * and the uuids decide.
  */
 export function appPredecessor(id, env = process.env) {
     return appPredecessors(id, env).at(-1) ?? null;
@@ -302,9 +303,11 @@ export function appPredecessors(id, env = process.env) {
             else if (entry.isFile() && /^local_[\w-]+\.json$/.test(entry.name)) {
                 try {
                     const meta = JSON.parse(readFileSync(path, 'utf8'));
-                    if (meta?.cliSessionId !== id) continue;
-                    const prior = Array.isArray(meta.priorCliSessionIds) ? meta.priorCliSessionIds.filter((p) => typeof p === 'string' && SESSION_ID.test(p) && p !== id) : [];
-                    found = [...new Set(prior)];
+                    const prior = Array.isArray(meta?.priorCliSessionIds) ? [...new Set(meta.priorCliSessionIds.filter((p) => typeof p === 'string' && SESSION_ID.test(p)))] : [];
+                    // The app names only the latest session of a conversation. One edited away is sent as it ends, when
+                    // the app has moved on already: then it is in the list, and those before it are what it continued.
+                    if (meta?.cliSessionId === id) found = prior.filter((p) => p !== id);
+                    else if (prior.includes(id)) found = prior.slice(0, prior.indexOf(id));
                 } catch {
                     // unreadable, or not the format this was written for
                 }

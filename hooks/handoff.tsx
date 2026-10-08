@@ -7,7 +7,6 @@
  */
 import type { Register, SessionRateLimit } from 'claude-code';
 
-const PANE = 'keepplain-handoff';
 // The installed keepplain, written in by `keepplain enable` (lib/plugin.mjs); null in the repository, where the script runs under Node.
 const PROGRAM: string[] | null = null;
 const LABELS: Record<string, string> = { five_hour: '5-hour', seven_day: '7-day', spend_limit: 'spend' };
@@ -51,7 +50,6 @@ async function hand($: any, target: Target, surface: unknown): Promise<void> {
     } catch (error) {
         $.ui.toast(`KeepPlain: the brief could not be built (${String((error as Error)?.message ?? error)})`, { timeoutMs: 12_000 });
     }
-    await $.ui.close({ id: PANE });
 }
 
 export const register: Register = (on) => {
@@ -72,8 +70,7 @@ export const register: Register = (on) => {
             if (!found || !found.on || worst.percentUsed < found.threshold || !found.targets.length) return next(e);
             said.add(key);
             offer = { hit: worst, targets: found.targets };
-            const opened = await $.ui.open({ id: PANE, title: 'KeepPlain: continue elsewhere', focus: true, closeOnEscape: true, rows: 9 });
-            if (!opened.isPlaced) $.ui.toast(`KeepPlain: the ${LABELS[worst.kind] ?? worst.kind} limit is ${worst.percentUsed}% used. Continue in another agent: /keepplain:handoff`, { timeoutMs: 12_000 });
+            $.ui.invalidate('ui.render');
         } finally {
             busy = false;
         }
@@ -81,29 +78,35 @@ export const register: Register = (on) => {
         return next(e);
     });
 
-    on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    // The offer: one band above the prompt, as a survey sits there; a digit in the empty prompt presses its button.
+    on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+        if (!offer || e.props.hasSurvey) return next(e);
         const { Box, Text, Button } = $.ui.resolve(e);
-        if (!offer) return <Text dimColor>Nothing to hand off.</Text>;
         const { hit, targets } = offer;
         const resets = hit.resetsAt ? `, resets ${new Date(hit.resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '';
+        const close = () => {
+            offer = null;
+            $.ui.invalidate('ui.render');
+        };
 
         return (
-            <Box flexDirection="column">
+            <Box flexDirection="column" paddingX={1} gap={0}>
                 <Text>
-                    Claude's {LABELS[hit.kind] ?? hit.kind} limit is {hit.percentUsed}% used{resets}. Continue in:
+                    <Text bold>KeepPlain</Text>
+                    <Text dimColor> · </Text>
+                    Claude's {LABELS[hit.kind] ?? hit.kind} limit is {hit.percentUsed}% used{resets}. Continue in another agent with a brief of this session:
                 </Text>
-                <Box>
+                <Box gap={1}>
                     {targets.map((t, i) => (
-                        <Button key={`to-${t.id}`} hotkey={String(i + 1)} variant={i === 0 ? 'primary' : 'secondary'} onPress={(press) => void hand($, t, press.surface)}>
+                        <Button key={`to-${t.id}`} hotkey={String(i + 1)} variant={i === 0 ? 'primary' : 'secondary'} onPress={(press) => void hand($, t, press.surface).then(close)}>
                             {t.name}
                         </Button>
                     ))}
-                    <Button key="not-now" role="dismiss" onPress={() => void $.ui.close({ id: PANE })}>
+                    <Button key="not-now" hotkey="0" role="dismiss" onPress={close}>
                         Not now
                     </Button>
                 </Box>
-                <Text dimColor>The brief of this session (task, done, checked, where it stopped) is built on this computer and goes to your clipboard with the command that starts the agent on it.</Text>
-                <Text dimColor>Sign in (/keepplain:login) and the next agent reads the whole session instead, on any machine: /keepplain:resume. Off: keepplain handoff off.</Text>
+                <Text dimColor>The brief goes to your clipboard with the command that starts the agent. Signed in, the next agent reads the whole session instead: /keepplain:resume.</Text>
             </Box>
         );
     });

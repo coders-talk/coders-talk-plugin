@@ -8,7 +8,7 @@
  *   node scripts/stage-cli.mjs --rebuild  build the file again even when dist has one
  */
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,6 +28,8 @@ if (process.argv.includes('--rebuild') || !existsSync(built)) {
 const os = { darwin: 'mac', win32: 'win' }[platform] ?? platform;
 const dir = join(HERE, '..', 'resources', 'bin', `${os}-${arch}`);
 const name = platform === 'win32' ? 'keepplain.exe' : 'keepplain';
+// The folder goes whole into the package: nothing but this file, not one left from an earlier name or build.
+rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
 copyFileSync(built, join(dir, name));
 if (platform !== 'win32') chmodSync(join(dir, name), 0o755);

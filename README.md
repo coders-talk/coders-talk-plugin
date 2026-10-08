@@ -125,6 +125,7 @@ The commands are the same in every agent, typed its way: `/keepplain:build` in C
 | `/keepplain:lookup <task>` | Searches the KeepPlain library for sessions of a similar task and shows what came back. The agent also does this by itself (see below). |
 | `/keepplain:use <link>` | Shows a published Build's playbook as a skill for this agent: the whole text, where it goes and what changed since the version here. Asks, then writes it. `--as rule` or `--as prompt` for the other two forms; `--team <team> --stack <stack>` for your team's rules (see [Playbooks](#playbooks)). |
 | `/keepplain:rules` | Shows the rules this repository's sessions get at their start, and why: its stacks, whose repository it is (see [Rules in every session](#rules-in-every-session)). `on` or `off` switches them for this computer; `--refresh` asks the site now. |
+| `/keepplain:handoff [agent]` | A brief of this session for another agent on this computer, in your clipboard and a file, with the command that starts that agent on it (see [Continue in another agent](#continue-in-another-agent)). `on`, `off` or a percent sets the offer the plugin makes by itself when a limit is near. |
 
 Sending the same session again updates its draft until you publish it.
 
@@ -204,6 +205,16 @@ A published Build can come with a playbook: what its session taught, written for
 - Your team's rules: `use --team=<team> --stack=<stack>`, as the team's page shows it. The rules the team merged for that stack, in one block in `CLAUDE.md` or `AGENTS.md` (`<!-- keepplain:team-<team>-<stack>@<version> -->`), written the same way as a rule. A rule changes only when the team merges a proposal on the site, so every member gets the same block. For members only, so it needs the sign-in. When the block here is older, `use --team` names the proposals merged since.
 - Kept up with: at the start of a session in a repository with a team's block, the `SessionStart` hook says in one line when the team merged a proposal since the block was written, from what the last check found. It never goes to the network itself: when the last check is over six hours old it starts one in the background (`GET /t/<team>/rules/<stack>.md` with `If-None-Match` and your sign-in; the site answers 304 until a merge), and notes the result in `~/.keepplain/team-rules.json`. It never rewrites the block: `use --team` does, when you run it.
 - Once written, it prints the Build's link with `?ref=use`: open it after your agent has worked with the playbook and say whether it worked for you.
+
+### Continue in another agent
+
+When the usage limit of the agent you are in is nearly used up, the plugin offers to go on in another one installed on this computer, and gives it a brief of the session so you do not start from nothing. Nothing leaves the computer, and no sign-in is needed.
+
+- **When.** In Claude Code, the plugin's hooks module reads the figures Claude Code shows in its status line (the 5-hour and 7-day windows of a Pro or Max subscription); past 90% it opens a small pane once: "Claude's 5-hour limit is 92% used, resets 14:30. Continue in: [Codex] [Pi] [Not now]". When a turn ends on the limit itself, a line says the same. In Codex, the Stop hook reads the limits Codex writes into the session's file and shows one line with the commands. Pi and Cursor report no limits locally: there you type `/keepplain:handoff` yourself.
+- **The brief.** Built on this computer from the session's file, without a model (at the limit there is none): the task (your first prompt), what you asked along the way, the files changed, the commands run and which failed, the last answer (where it stopped), and the repository's branch and uncommitted changes. A couple of screens of Markdown, in `~/.keepplain/handoff/<agent>-<session>.md`.
+- **The handoff.** A button in Claude Code, `/keepplain:handoff codex` anywhere: the brief goes to your clipboard, and the plugin prints the command that starts the other agent with the brief as its first message, `codex "$(cat ~/.keepplain/handoff/….md)"` (on Windows, `codex (Get-Content -Raw '…')`). `--open` tries to open a new terminal window running it. Cursor without `cursor-agent` gets the clipboard only: paste it into the chat.
+- **With a sign-in**, the next agent does not need the brief: `/keepplain:resume` there reads the whole session from KeepPlain, on this computer or another, and the work goes on in one Build.
+- **Off.** `keepplain handoff off` (or `KEEPPLAIN_HANDOFF=0`) stops the offer; `keepplain handoff 80` moves the percent. The command itself always works.
 
 ### Rules in every session
 
@@ -288,7 +299,8 @@ Each network call, and what goes with it:
 | `share.json` | Whether the share auto mode is on, when each repository was last checked, what it did since the last start | Checks 30 days; the notes until the next start shows them |
 | `rules.json` | Per repository (by its path): the stacks and owner asked about, the rules' text the site answered, when; and whether rules are off on this computer | Each repository 30 days after its last session; the switch until you change it |
 | `rules-given.json` | Per session: the ids of the stack rules its prompts were given, so each comes once. Not the prompts | 7 days |
-| `enable.json`, `plugin/`, `update.json`, `nudge.json` | `enable`'s answers, the plugin it lays out, the update check, the suggestion switch | Until `disable` or the next `enable`/`update` |
+| `enable.json`, `plugin/`, `update.json`, `nudge.json`, `handoff.json` | `enable`'s answers, the plugin it lays out, the update check, the suggestion switch, the handoff switch and percent | Until `disable` or the next `enable`/`update` |
+| `handoff/<agent>-<id>.md`, `handoffs/` | The brief of a session for another agent; which limit windows a session was told about | 14 days |
 
 The preview writes `<temp folder>/keepplain/<session>.jsonl.gz` and `.json` (a private folder, private files): deleted after a send, when you say no (`build`, or the `discard` step of the agent's build skill), and otherwise 30 minutes after the preview, by the next run of `keepplain` or the next session start.
 
@@ -309,6 +321,7 @@ The preview writes `<temp folder>/keepplain/<session>.jsonl.gz` and `.json` (a p
 | Data folder | `KEEPPLAIN_HOME` | `~/.keepplain` |
 | Suggestion to share a session that used the library | `KEEPPLAIN_NUDGE=0` turns it off for a shell; `keepplain.mjs nudge off` for this computer | on |
 | Rules in every session | `KEEPPLAIN_RULES=0` turns them off for a shell; `keepplain rules off` for this computer | on |
+| Offer to continue in another agent when a limit is near | `KEEPPLAIN_HANDOFF=0` turns it off for a shell; `keepplain handoff off` for this computer; `keepplain handoff <percent>` or `KEEPPLAIN_HANDOFF_AT` moves the percent | on, at 90% |
 | Proxy | `HTTPS_PROXY` (`HTTP_PROXY` for an `http://` site, `ALL_PROXY` for both), `NO_PROXY` for hosts that go direct. Lower-case names work too. An `http://` or `https://` proxy, with `user:password@` if it asks; SOCKS5 proxies are supported too (socks://, socks5://, socks5h://). In Codex, if a variable does not reach the plugin, add it to `set` as above | none: direct |
 
 On Windows, when no proxy variable is set, the CLI and agent hooks read the enabled manual proxy from Internet Settings before each request. Shared and per-protocol HTTP/SOCKS5 proxies, ProxyOverride wildcards, ports and <local> are supported; loopback stays direct. Machine-wide settings are used when the ProxySettingsPerUser policy is disabled. Explicit proxy variables and NO_PROXY keep their priority. Reading settings has a two-second timeout per registry query; missing or unreadable settings use a direct connection. An unavailable configured proxy reports an error without retrying directly. PAC/WPAD scripts are not evaluated by the CLI; use an explicit proxy variable for those networks, or the desktop app's Chromium resolver.

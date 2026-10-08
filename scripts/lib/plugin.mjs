@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 export const MARKETPLACE = 'keepplain-local';
 export const PLUGIN_ID = `keepplain@${MARKETPLACE}`;
 
-const SOURCE_FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'hooks/hooks.json', 'codex/hooks.json'];
+const SOURCE_FILES = ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'hooks/hooks.json', 'hooks/handoff.tsx', 'codex/hooks.json'];
 const SOURCE_DIRS = ['skills', 'codex/skills', 'cursor/skills', 'pi/extensions'];
 
 /** The repository files the plugin is made from, by path: built into the single file, or read from the repository. */
@@ -100,10 +100,14 @@ export function pluginFiles(sources, { program, version, site, mcp = {}, windows
             SessionStart: [claudeHook('session-start')],
             UserPromptSubmit: [claudeHook('prompt')],
             Stop: [claudeHook('stop')],
+            StopFailure: [{ matcher: 'rate_limit', ...claudeHook('stop-failure') }],
             PostToolUse: [claudeHook('tool', { async: true })],
             SessionEnd: [claudeHook('session-end')],
         },
+        // The hooks module (handoff plan, 47.3): the limit figures and the pane with the agents to go on in.
+        modules: ['./handoff.tsx'],
     });
+    files['hooks/handoff.tsx'] = handoffModule(source('hooks/handoff.tsx'), program);
     const codexHook = (event, timeout = 10) => ({ hooks: [{ type: 'command', command: `${codexRun} hook codex ${event}`, timeout }] });
     json('codex/hooks.json', {
         description: JSON.parse(source('codex/hooks.json')).description,
@@ -153,6 +157,15 @@ function piExtension(text, program) {
     if (!text.includes(line) || !text.includes(fallback)) throw new Error("The plugin's pi/extensions/keepplain.js has no PROGRAM line to lay out.");
 
     return text.replace(line, `const PROGRAM = ${JSON.stringify(program)};`).replace(fallback, 'const program = () => PROGRAM;');
+}
+
+/** The hooks module with the installed program written into its PROGRAM line: the script it falls back to is not there. */
+function handoffModule(text, program) {
+    const line = 'const PROGRAM: string[] | null = null;';
+    const fallback = "return PROGRAM ?? ['node', `${$.plugin.root}/scripts/keepplain.mjs`];";
+    if (!text.includes(line) || !text.includes(fallback)) throw new Error("The plugin's hooks/handoff.tsx has no PROGRAM line to lay out.");
+
+    return text.replace(line, `const PROGRAM: string[] | null = ${JSON.stringify(program)};`).replace(fallback, 'return PROGRAM as string[];');
 }
 
 function claudeSkill(text, run, windows) {

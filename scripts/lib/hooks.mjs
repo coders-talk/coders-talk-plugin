@@ -38,6 +38,7 @@ import { siteUrl } from './config.mjs';
 import { savedToken } from './credentials.mjs';
 import { cursorEvent, noteCursorEvent, pruneCursorNotes, readCursorSidecar } from './cursor.mjs';
 import { readEvent } from './event.mjs';
+import { handoffDue, handoffMessage, handoffOn, handoffTargets, handoffThreshold, nearLimit, readLimits } from './handoff.mjs';
 import { nudgeDue, nudgeMessage, nudgeOn } from './nudge.mjs';
 import { projectRoot } from './playbooks.mjs';
 import { SESSION_ID } from './session.mjs';
@@ -50,7 +51,7 @@ import { rulesCheckDue, rulesNotice, teamRuleUses } from './team-rules.mjs';
 import { shareCheckDue, takeNotices } from './share.mjs';
 import { currentHead, repositoryRoot } from './git.mjs';
 
-export const HOOK_EVENTS = ['session-start', 'prompt', 'stop', 'tool', 'session-end'];
+export const HOOK_EVENTS = ['session-start', 'prompt', 'stop', 'stop-failure', 'tool', 'session-end'];
 
 /** Codex gives a SessionEnd hook three seconds at most (codex/hooks.json asks for all of them). */
 const CODEX_WAIT_MS = 2500;
@@ -94,6 +95,7 @@ export async function runHook(agent, name, { snapshot = agent !== 'codex', event
             sessionStart(context);
         } else if (name === 'prompt') prompt(context);
         else if (name === 'stop') stop(context);
+        else if (name === 'stop-failure') stopFailure(context);
         else if (name === 'tool') syncIfDue(context.site, context.id, { path: event.transcript_path, agent, args: context.agentArgs });
         else if (name === 'session-end') await sessionEnd(context);
     } catch {
@@ -238,13 +240,36 @@ function stop({ event, agent, site, id, agentArgs }) {
     const mode = sessionAutoMode(site, id, agent);
     // Push mode sends at the push; it needs no suggestion either.
     if (id && mode === 'push') return;
+    const messages = [];
     if (id && mode) {
         syncIfDue(site, id, { path: event.transcript_path, agent, args: agentArgs });
     } else if (id && nudgeOn() && SAYS(agent)) {
         const path = event.transcript_path || sessionPath(agent, id);
         const builds = path ? nudgeDue({ agent, id, path }) : null;
-        if (builds) console.log(JSON.stringify({ systemMessage: nudgeMessage(builds, commandIn(agent, 'build')) }));
+        if (builds) messages.push(nudgeMessage(builds, commandIn(agent, 'build')));
     }
+    // The limit of this agent is nearly used up (handoff plan, 47.3): once per crossing, the agents to go on in.
+    if (id && SAYS(agent) && handoffOn()) {
+        const path = event.transcript_path || sessionPath(agent, id);
+        const hit = nearLimit(readLimits(agent, path), handoffThreshold());
+        if (hit && handoffDue(agent, id, hit)) {
+            const message = handoffMessage(agent, hit, handoffTargets(agent));
+            if (message) messages.push(message);
+        }
+    }
+    if (messages.length) console.log(JSON.stringify({ systemMessage: messages.join('\n') }));
+}
+
+/**
+ * Claude Code's StopFailure hook (hooks/hooks.json, matcher rate_limit): the turn ended on the limit itself. One line
+ * with the agents to go on in; the brief is the handoff command's.
+ */
+export function stopFailure({ event, agent, id }) {
+    if (!handoffOn() || event.error !== 'rate_limit') return;
+    const hit = { kind: 'five_hour', percentUsed: 100 };
+    if (!handoffDue(agent, id ?? 'failed', { ...hit, resetsAt: new Date(Math.floor(Date.now() / 600_000) * 600_000).toISOString() })) return;
+    const message = handoffMessage(agent, hit, handoffTargets(agent), { reason: 'failed' });
+    if (message) console.log(JSON.stringify({ systemMessage: message }));
 }
 
 async function sessionEnd({ event, agent, site, id, agentArgs }) {

@@ -108,9 +108,9 @@ async function until(check, what) {
     assert.fail(`Timed out waiting for ${what}.`);
 }
 
-test('what the extension registers: eight commands, five events and the library\'s three tools', () => {
+test('what the extension registers: nine commands, five events and the library\'s three tools', () => {
     const pi = fakePi();
-    assert.deepEqual([...pi.commands.keys()], ['keepplain:build', 'keepplain:auto', 'keepplain:login', 'keepplain:logout', 'keepplain:use', 'keepplain:share', 'keepplain:rules', 'keepplain:lookup']);
+    assert.deepEqual([...pi.commands.keys()], ['keepplain:build', 'keepplain:auto', 'keepplain:login', 'keepplain:logout', 'keepplain:use', 'keepplain:share', 'keepplain:rules', 'keepplain:lookup', 'keepplain:handoff']);
     for (const [, command] of pi.commands) assert.ok(command.description.length > 10);
     assert.deepEqual([...pi.events.keys()].sort(), ['agent_settled', 'before_agent_start', 'session_shutdown', 'session_start']);
     assert.deepEqual([...pi.tools.keys()], ['search_my_work', 'get_task_context', 'get_session_excerpt', 'attach_session_to_task', 'search_coding_agent_sessions', 'get_coding_agent_session', 'find_coding_agent_failures']);

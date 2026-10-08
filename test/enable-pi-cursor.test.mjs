@@ -100,7 +100,7 @@ test('enable installs the package into Pi with pi install, and the hooks, skills
 
     const status = await cli(['status']);
     assert.match(status.out, /Pi +keepplain@keepplain-local \S+; auto mode off/);
-    assert.match(status.out, /Cursor +keepplain@keepplain-local \S+; hooks in ~\/\.cursor\/hooks\.json, 9 of 9 skills; MCP server in ~\/\.cursor\/mcp\.json: keepplain; auto mode off/);
+    assert.match(status.out, /Cursor +keepplain@keepplain-local \S+; hooks in ~\/\.cursor\/hooks\.json, 10 of 10 skills; MCP server in ~\/\.cursor\/mcp\.json: keepplain; auto mode off/);
 
     // Again: nothing is doubled, Pi is not asked to install what it has, and our own library entry stays ours.
     writeFileSync(join(dir, 'calls.log'), '');

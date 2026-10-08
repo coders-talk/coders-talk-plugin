@@ -187,6 +187,34 @@ async function lookup(args, ctx) {
     say(ctx, shown(r), r.code === 0 ? 'info' : 'error');
 }
 
+/**
+ * /keepplain:handoff [agent] [--open] [on|off|<percent>]: the agents on this computer to go on in, chosen in a dialog
+ * when none was named, then the brief of this session in the clipboard and the command that starts that agent on it.
+ */
+async function handoff(args, ctx) {
+    const list = words(args);
+    const env = sessionEnv(ctx);
+    let target = list.find((w) => !w.startsWith('--')) ?? null;
+    if (target === 'on' || target === 'off' || /^\d+$/.test(target)) return passThrough('handoff')(args, ctx);
+    if (!target) {
+        const r = await run(['handoff', '--targets', '--json', '--agent=pi'], { cwd: ctx.cwd, env });
+        let targets = [];
+        try {
+            targets = JSON.parse(r.out.trim().split('\n').at(-1) || '{}').targets ?? [];
+        } catch {
+            // the error is shown below
+        }
+        if (r.code !== 0 || !targets.length) return say(ctx, r.code === 0 ? 'No other agent found on this computer (Claude Code, Codex or Cursor).' : shown(r), 'warning');
+        if (ctx.hasUI) {
+            const chosen = await ctx.ui.select('Continue in', targets.map((t) => t.name));
+            if (!chosen) return;
+            target = targets.find((t) => t.name === chosen)?.id ?? null;
+        }
+    }
+    const r = await run(['handoff', ...(target ? [target] : []), ...list.filter((w) => w === '--open'), '--agent=pi'], { cwd: ctx.cwd, env });
+    say(ctx, shown(r), r.code === 0 ? 'info' : 'error');
+}
+
 /** The hook of an event, as `keepplain hook pi <name>` takes it. Returns what the hook printed. */
 async function hook(name, ctx, timeout = 15_000, extra = {}) {
     try {
@@ -302,6 +330,7 @@ export default function (pi) {
         share: ['Put a published Build in its pull request or the README', showThenWrite('share')],
         rules: ['Show the KeepPlain rules this repository\'s sessions get, or turn them on or off here', passThrough('rules')],
         lookup: ['Look up how others did a task in the KeepPlain library', lookup],
+        handoff: ['Continue this session in another agent on this computer: a brief of it goes to the clipboard', handoff],
     };
     for (const [name, [description, handler]] of Object.entries(commands)) {
         pi.registerCommand(`keepplain:${name}`, {

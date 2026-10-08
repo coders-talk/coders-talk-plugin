@@ -102,6 +102,7 @@ import { HOOK_EVENTS, runHook } from './lib/hooks.mjs';
 import { proxyFor, request } from './lib/http.mjs';
 import { describeLibrary, LibraryWatch } from './lib/library.mjs';
 import { nudgeOn, setNudge } from './lib/nudge.mjs';
+import { agentName, buildBrief, copyToClipboard, handoffOn, handoffTargets, handoffThreshold, openTerminal, pruneHandoffs, setHandoff, startCommand, writeBrief } from './lib/handoff.mjs';
 import { MEMORY_TOOLS, workContext, memoryArguments } from './lib/work-memory.mjs';
 import { ForkWatch, SESSION_ID, TitleWatch, cutOwnCommand, formatBytes, formatDuration, isCodexPrompt, newestSessionId, promptText, summarize } from './lib/session.mjs';
 import { currentCursorSession, cursorPrompt, readCursorSidecar, withCursorTimes } from './lib/cursor.mjs';
@@ -204,6 +205,7 @@ try {
     else if (command === 'mcp-call') await mcpCall(argId);
     else if (command === 'logout') logout();
     else if (command === 'nudge') nudge(argId);
+    else if (command === 'handoff') await handoff(argId);
     else if (command === 'version' || args.includes('--version')) console.log(`keepplain ${VERSION}`);
     else if (command === 'update') await update(argId, { check: args.includes('--check') });
     else if (command === 'sessions') await sessions();
@@ -254,6 +256,8 @@ function help() {
         ['whoami', 'the account this computer is signed in to'],
         ['logout', 'forget the sign-in on this computer'],
         ['nudge [on|off]', 'the suggestion to share a session that used the library'],
+        ['handoff [agent] [--open]', "a brief of this session for another agent here: in the clipboard and a file, with the command to start it"],
+        ['handoff on|off|<percent>', 'the offer to continue elsewhere when a limit passes the percent (90 by default)'],
         ['privacy', 'the words hidden in every session'],
         ['update [version]', 'update to the latest release (the installed keepplain only)'],
         ['version', 'the version of keepplain'],
@@ -1907,6 +1911,50 @@ function nudge(mode) {
     console.log(nudgeOn()
         ? `After an answer that used Builds from the KeepPlain library in a session that changed code, ${AGENT.name} suggests once to share the session with ${run('build')}. It sends nothing. Turn it off with: nudge off`
         : 'The suggestion to share a session that used the library is off. Turn it on with: nudge on');
+}
+
+/**
+ * `handoff`: the targets and the brief; `handoff <agent>`: the brief for that one, in the clipboard (unless --no-copy)
+ * and in a file, with the command that starts the agent on it; --open tries a new terminal window; --print prints the
+ * brief itself; --targets only lists the agents (for the hooks module and Pi). `on|off|<percent>` is the switch.
+ */
+async function handoff(what) {
+    if (what === 'on' || what === 'off' || /^\d+$/.test(what ?? '')) {
+        setHandoff(what);
+        if (JSON_OUT) return emit({ handoff: handoffOn(), threshold: handoffThreshold() });
+        return console.log(handoffOn() ? `When a limit of ${AGENT.name} passes ${handoffThreshold()}%, it offers to continue in another agent on this computer, with a brief of the session. Turn it off with: handoff off` : 'The offer to continue in another agent is off. Turn it on with: handoff on');
+    }
+    pruneHandoffs();
+    const targets = handoffTargets(AGENT.id);
+    if (args.includes('--targets')) {
+        if (JSON_OUT) return emit({ targets, threshold: handoffThreshold(), on: handoffOn() });
+        return console.log(targets.length ? targets.map((t) => `${t.id}: ${t.name}${t.cli ? '' : ' (no command line here: the brief goes to the clipboard only)'}`).join('\n') : `No other agent found on this computer (${SESSION_KINDS}).`);
+    }
+    const target = what ? targets.find((t) => t.id === agentId(what) || t.id === what) : null;
+    if (what && !target) throw new Failure(targets.length ? `No ${what} here. Hand to one of: ${targets.map((t) => t.id).join(', ')}.` : `No other agent found on this computer (${SESSION_KINDS}).`);
+    const id = sessionId(option('session'));
+    const path = sessionPath(AGENT.id, id, env, AGENT.id === 'cursor' ? readCursorSidecar(id, env)?.transcript_path : null);
+    if (!path) throw new Failure(`The session's file was not found for ${AGENT.name}.`);
+    const brief = await buildBrief({ agent: AGENT.id, id, path, cwd: AGENT.id === 'cursor' ? readCursorSidecar(id, env)?.cwd ?? process.cwd() : null, env });
+    if (args.includes('--print')) return console.log(brief.text);
+    const file = writeBrief(AGENT.id, id, brief.text);
+    const copied = args.includes('--no-copy') ? false : copyToClipboard(brief.text);
+    const chosen = target ? [target] : targets;
+    const commands = chosen.map((t) => ({ id: t.id, name: t.name, command: startCommand(t, file) }));
+    let opened = false;
+    if (target && args.includes('--open')) opened = openTerminal(target, file, brief.cwd ?? process.cwd());
+    if (JSON_OUT) return emit({ file, copied, opened, brief: brief.text, targets: commands, prompts: brief.prompts.length, files: brief.files.length, commands: brief.commands.length });
+
+    const lines = [`Brief of this ${AGENT.name} session (${brief.prompts.length} prompt${brief.prompts.length === 1 ? '' : 's'}, ${brief.files.length} file${brief.files.length === 1 ? '' : 's'} changed, ${brief.commands.length} command${brief.commands.length === 1 ? '' : 's'}): ${file}`];
+    if (copied) lines.push('It is in your clipboard: paste it as the first message of the next agent.');
+    else if (!args.includes('--no-copy')) lines.push('Nothing on this computer takes the clipboard: paste the file instead.');
+    if (opened) lines.push(`A new window runs ${target.name} on it.`);
+    else if (commands.length) {
+        lines.push(target ? `Or start ${target.name} on it:` : 'Or start the next agent on it:');
+        for (const c of commands) lines.push(c.command ? `  ${c.command}` : `  ${c.name}: no command line here; paste the brief into its chat.`);
+    } else lines.push(`No other agent found on this computer (${SESSION_KINDS}).`);
+    lines.push(`Sign in (${run('login')}) and the next agent reads the whole session instead, on any machine: ${run('resume')}.`);
+    console.log(lines.join('\n'));
 }
 
 async function whoami() {

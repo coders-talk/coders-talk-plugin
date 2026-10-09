@@ -1,234 +1,234 @@
 [
     {
         "name": "aws access key",
-        "text": "aws_access_key_id = AKIA<fake>2E0A8F<fake>3B244C9986",
-        "redacted": "aws_access_key_id = [REDACTED:AWS_ACCESS_KEY]",
+        "text_base64": "YXdzX2FjY2Vzc19rZXlfaWQgPSBBS0lBPGZha2U+MkUwQThGPGZha2U+M0IyNDRDOTk4Ng==",
+        "redacted_base64": "YXdzX2FjY2Vzc19rZXlfaWQgPSBbUkVEQUNURUQ6QVdTX0FDQ0VTU19LRVld",
         "types": [
             "AWS_ACCESS_KEY"
         ]
     },
     {
         "name": "aws secret key",
-        "text": "aws_secret_access_key = Zq3V<fake>t8Lr/Ny5Wp2Ks9Hd<fake>+Jf4Gb7Mc1Xa6Ue0Qo3T",
-        "redacted": "aws_secret_access_key = [REDACTED:AWS_SECRET_KEY]",
+        "text_base64": "YXdzX3NlY3JldF9hY2Nlc3Nfa2V5ID0gWnEzVjxmYWtlPnQ4THIvTnk1V3AyS3M5SGQ8ZmFrZT4rSmY0R2I3TWMxWGE2VWUwUW8zVA==",
+        "redacted_base64": "YXdzX3NlY3JldF9hY2Nlc3Nfa2V5ID0gW1JFREFDVEVEOkFXU19TRUNSRVRfS0VZXQ==",
         "types": [
             "AWS_SECRET_KEY"
         ]
     },
     {
         "name": "gcp api key",
-        "text": "const key = \"AIza<fake>SyD-9tSrke72Pou<fake>QMnMX-a7eZSW0jkFMBWY\"",
-        "redacted": "const key = \"[REDACTED:GCP_API_KEY]\"",
+        "text_base64": "Y29uc3Qga2V5ID0gIkFJemE8ZmFrZT5TeUQtOXRTcmtlNzJQb3U8ZmFrZT5RTW5NWC1hN2VaU1cwamtGTUJXWSI=",
+        "redacted_base64": "Y29uc3Qga2V5ID0gIltSRURBQ1RFRDpHQ1BfQVBJX0tFWV0i",
         "types": [
             "GCP_API_KEY"
         ]
     },
     {
         "name": "stripe live key",
-        "text": "Stripe.api_key = \"sk_l<fake>ive_51H8xYzA<fake>bCdEfGhIjKlMnOpQr\"",
-        "redacted": "Stripe.api_key = \"[REDACTED:STRIPE_KEY]\"",
+        "text_base64": "U3RyaXBlLmFwaV9rZXkgPSAic2tfbDxmYWtlPml2ZV81MUg4eFl6QTxmYWtlPmJDZEVmR2hJaktsTW5PcFFyIg==",
+        "redacted_base64": "U3RyaXBlLmFwaV9rZXkgPSAiW1JFREFDVEVEOlNUUklQRV9LRVldIg==",
         "types": [
             "STRIPE_KEY"
         ]
     },
     {
         "name": "stripe webhook secret",
-        "text": "endpoint secret whse<fake>c_5a8f9e2b1c3d4<fake>e6f7a8b9c0d1e2f3a4b",
-        "redacted": "endpoint secret [REDACTED:STRIPE_KEY]",
+        "text_base64": "ZW5kcG9pbnQgc2VjcmV0IHdoc2U8ZmFrZT5jXzVhOGY5ZTJiMWMzZDQ8ZmFrZT5lNmY3YThiOWMwZDFlMmYzYTRi",
+        "redacted_base64": "ZW5kcG9pbnQgc2VjcmV0IFtSRURBQ1RFRDpTVFJJUEVfS0VZXQ==",
         "types": [
             "STRIPE_KEY"
         ]
     },
     {
         "name": "openai project key",
-        "text": "OPENAI: sk-p<fake>roj-Ab3dEf6hIj9kLm2nOp5qRs<fake>8tUv1wXy4zAb7cDe0fGh3iJk6lMn9o",
-        "redacted": "OPENAI: [REDACTED:OPENAI_KEY]",
+        "text_base64": "T1BFTkFJOiBzay1wPGZha2U+cm9qLUFiM2RFZjZoSWo5a0xtMm5PcDVxUnM8ZmFrZT44dFV2MXdYeTR6QWI3Y0RlMGZHaDNpSms2bE1uOW8=",
+        "redacted_base64": "T1BFTkFJOiBbUkVEQUNURUQ6T1BFTkFJX0tFWV0=",
         "types": [
             "OPENAI_KEY"
         ]
     },
     {
         "name": "anthropic key",
-        "text": "x-api-key: sk-a<fake>nt-api03-q8Zk3LmN5pR7tV9wX1yA3bC5dE7fG9hJ1kL3mN5pQ7rS<fake>9tU1vW3xY5zA7bC9dE1fG3hJ5kL7mN9pQ1rS3tU5vW7xY9zA1bC3dE5fAA",
-        "redacted": "x-api-key: [REDACTED:ANTHROPIC_KEY]",
+        "text_base64": "eC1hcGkta2V5OiBzay1hPGZha2U+bnQtYXBpMDMtcThaazNMbU41cFI3dFY5d1gxeUEzYkM1ZEU3Zkc5aEoxa0wzbU41cFE3clM8ZmFrZT45dFUxdlczeFk1ekE3YkM5ZEUxZkczaEo1a0w3bU45cFExclMzdFU1dlc3eFk5ekExYkMzZEU1ZkFB",
+        "redacted_base64": "eC1hcGkta2V5OiBbUkVEQUNURUQ6QU5USFJPUElDX0tFWV0=",
         "types": [
             "ANTHROPIC_KEY"
         ]
     },
     {
         "name": "github classic token",
-        "text": "git remote set-url origin https://ghp_<fake>16C7e42F292c6912<fake>E7710c838347Ae178B4a@github.com/x/y",
-        "redacted": "git remote set-url origin https://[REDACTED:GITHUB_TOKEN]@github.com/x/y",
+        "text_base64": "Z2l0IHJlbW90ZSBzZXQtdXJsIG9yaWdpbiBodHRwczovL2docF88ZmFrZT4xNkM3ZTQyRjI5MmM2OTEyPGZha2U+RTc3MTBjODM4MzQ3QWUxNzhCNGFAZ2l0aHViLmNvbS94L3k=",
+        "redacted_base64": "Z2l0IHJlbW90ZSBzZXQtdXJsIG9yaWdpbiBodHRwczovL1tSRURBQ1RFRDpHSVRIVUJfVE9LRU5dQGdpdGh1Yi5jb20veC95",
         "types": [
             "GITHUB_TOKEN"
         ]
     },
     {
         "name": "github fine-grained token",
-        "text": "token: gith<fake>ub_pat_11ABCDEFG0123456789_abcdefgh<fake>ijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV",
-        "redacted": "token: [REDACTED:GITHUB_TOKEN]",
+        "text_base64": "dG9rZW46IGdpdGg8ZmFrZT51Yl9wYXRfMTFBQkNERUZHMDEyMzQ1Njc4OV9hYmNkZWZnaDxmYWtlPmlqa2xtbm9wcXJzdHV2d3h5ekFCQ0RFRkdISUpLTE1OT1BRUlNUVVY=",
+        "redacted_base64": "dG9rZW46IFtSRURBQ1RFRDpHSVRIVUJfVE9LRU5d",
         "types": [
             "GITHUB_TOKEN"
         ]
     },
     {
         "name": "slack bot token",
-        "text": "SLACK=xoxb<fake>-1234567890123-123456789<fake>0123-AbCdEfGhIjKlMnOpQrStUvWx",
-        "redacted": "SLACK=[REDACTED:SLACK_TOKEN]",
+        "text_base64": "U0xBQ0s9eG94YjxmYWtlPi0xMjM0NTY3ODkwMTIzLTEyMzQ1Njc4OTxmYWtlPjAxMjMtQWJDZEVmR2hJaktsTW5PcFFyU3RVdld4",
+        "redacted_base64": "U0xBQ0s9W1JFREFDVEVEOlNMQUNLX1RPS0VOXQ==",
         "types": [
             "SLACK_TOKEN"
         ]
     },
     {
         "name": "slack webhook",
-        "text": "curl https://hooks.slack.com/services/T00000000/B00000000/T4k9<fake>Qm2Lp7Xw<fake>1Zr8Vn3Bc6Hs",
-        "redacted": "curl [REDACTED:SLACK_TOKEN]",
+        "text_base64": "Y3VybCBodHRwczovL2hvb2tzLnNsYWNrLmNvbS9zZXJ2aWNlcy9UMDAwMDAwMDAvQjAwMDAwMDAwL1Q0azk8ZmFrZT5RbTJMcDdYdzxmYWtlPjFacjhWbjNCYzZIcw==",
+        "redacted_base64": "Y3VybCBbUkVEQUNURUQ6U0xBQ0tfVE9LRU5d",
         "types": [
             "SLACK_TOKEN"
         ]
     },
     {
         "name": "jwt",
-        "text": "Authorization: Bearer eyJh<fake>bGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0N<fake>TY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
-        "redacted": "Authorization: Bearer [REDACTED:JWT]",
+        "text_base64": "QXV0aG9yaXphdGlvbjogQmVhcmVyIGV5Smg8ZmFrZT5iR2NpT2lKSVV6STFOaUlzSW5SNWNDSTZJa3BYVkNKOS5leUp6ZFdJaU9pSXhNak0wTjxmYWtlPlRZM09Ea3dJbjAuZG96amdOcnlQNEozalZtTkhsMHc1Tl9YZ0wwbjNJOVBsRlVQMFRIc1I4VQ==",
+        "redacted_base64": "QXV0aG9yaXphdGlvbjogQmVhcmVyIFtSRURBQ1RFRDpKV1Rd",
         "types": [
             "JWT"
         ]
     },
     {
         "name": "rsa private key",
-        "text": "----<fake>-BEGIN RSA <fake>PRIVATE KEY-----\nMIIE<fake>pAIBAAKCAQEA0Z3VS5JJcds3<fake>xfn/ygWyF8PbnGy0AHB7MaFwEpN3\n-----END RSA PRIVATE KEY-----",
-        "redacted": "[REDACTED:PRIVATE_KEY]",
+        "text_base64": "LS0tLTxmYWtlPi1CRUdJTiBSU0EgPGZha2U+UFJJVkFURSBLRVktLS0tLQpNSUlFPGZha2U+cEFJQkFBS0NBUUVBMFozVlM1SkpjZHMzPGZha2U+eGZuL3lnV3lGOFBibkd5MEFIQjdNYUZ3RXBOMwotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQ==",
+        "redacted_base64": "W1JFREFDVEVEOlBSSVZBVEVfS0VZXQ==",
         "types": [
             "PRIVATE_KEY"
         ]
     },
     {
         "name": "openssh private key",
-        "text": "----<fake>-BEGIN OPENSS<fake>H PRIVATE KEY-----\nb3Bl<fake>bnNzaC1rZXktdjEAAAAABG5vbmUAAAA<fake>Ebm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n-----END OPENSSH PRIVATE KEY-----",
-        "redacted": "[REDACTED:PRIVATE_KEY]",
+        "text_base64": "LS0tLTxmYWtlPi1CRUdJTiBPUEVOU1M8ZmFrZT5IIFBSSVZBVEUgS0VZLS0tLS0KYjNCbDxmYWtlPmJuTnphQzFyWlhrdGRqRUFBQUFBQkc1dmJtVUFBQUE8ZmFrZT5FYm05dVpRQUFBQUFBQUFBQkFBQUFNd0FBQUF0emMyZ3RaVwotLS0tLUVORCBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0=",
+        "redacted_base64": "W1JFREFDVEVEOlBSSVZBVEVfS0VZXQ==",
         "types": [
             "PRIVATE_KEY"
         ]
     },
     {
         "name": "postgres url",
-        "text": "DATABASE_URL=postgres:<fake>//app:s3cr<fake>3tP<fake>assw0rd@db.internal:5432/app",
-        "redacted": "DATABASE_URL=[REDACTED:DATABASE_URL]",
+        "text_base64": "REFUQUJBU0VfVVJMPXBvc3RncmVzOjxmYWtlPi8vYXBwOnMzY3I8ZmFrZT4zdFA8ZmFrZT5hc3N3MHJkQGRiLmludGVybmFsOjU0MzIvYXBw",
+        "redacted_base64": "REFUQUJBU0VfVVJMPVtSRURBQ1RFRDpEQVRBQkFTRV9VUkxd",
         "types": [
             "DATABASE_URL"
         ]
     },
     {
         "name": "mongodb url",
-        "text": "mongodb+srv:<fake>//admin:hunt<fake>er2<fake>hunter2@cluster0.ab1cd.mongodb.net/prod",
-        "redacted": "[REDACTED:DATABASE_URL]",
+        "text_base64": "bW9uZ29kYitzcnY6PGZha2U+Ly9hZG1pbjpodW50PGZha2U+ZXIyPGZha2U+aHVudGVyMkBjbHVzdGVyMC5hYjFjZC5tb25nb2RiLm5ldC9wcm9k",
+        "redacted_base64": "W1JFREFDVEVEOkRBVEFCQVNFX1VSTF0=",
         "types": [
             "DATABASE_URL"
         ]
     },
     {
         "name": "env secret",
-        "text": "APP_SECRET=9f86<fake>d081884c7d65<fake>9a2feaa0c55ad015",
-        "redacted": "APP_SECRET=[REDACTED:SECRET_ASSIGNMENT]",
+        "text_base64": "QVBQX1NFQ1JFVD05Zjg2PGZha2U+ZDA4MTg4NGM3ZDY1PGZha2U+OWEyZmVhYTBjNTVhZDAxNQ==",
+        "redacted_base64": "QVBQX1NFQ1JFVD1bUkVEQUNURUQ6U0VDUkVUX0FTU0lHTk1FTlRd",
         "types": [
             "SECRET_ASSIGNMENT"
         ]
     },
     {
         "name": "env token",
-        "text": "SENTRY_AUTH_TOKEN=\"sntr<fake>ys_eyJp<fake>YXQiOjE3MDA\"",
-        "redacted": "SENTRY_AUTH_TOKEN=\"[REDACTED:SECRET_ASSIGNMENT]\"",
+        "text_base64": "U0VOVFJZX0FVVEhfVE9LRU49InNudHI8ZmFrZT55c19leUpwPGZha2U+WVhRaU9qRTNNREEi",
+        "redacted_base64": "U0VOVFJZX0FVVEhfVE9LRU49IltSRURBQ1RFRDpTRUNSRVRfQVNTSUdOTUVOVF0i",
         "types": [
             "SECRET_ASSIGNMENT"
         ]
     },
     {
         "name": "sendgrid key",
-        "text": "SG.n<fake>geVfQFYQlKU0ufo8x5d1A.TwL2iGAB<fake>f9DHoTf-09kqeF8tAmbihYzrnopKc-1s5cr",
-        "redacted": "[REDACTED:SENDGRID_KEY]",
+        "text_base64": "U0cubjxmYWtlPmdlVmZRRllRbEtVMHVmbzh4NWQxQS5Ud0wyaUdBQjxmYWtlPmY5REhvVGYtMDlrcWVGOHRBbWJpaFl6cm5vcEtjLTFzNWNy",
+        "redacted_base64": "W1JFREFDVEVEOlNFTkRHUklEX0tFWV0=",
         "types": [
             "SENDGRID_KEY"
         ]
     },
     {
         "name": "npm token",
-        "text": "//registry.npmjs.org/:_authToken=npm_<fake>a1B2c3D4e5F6g7H8<fake>i9J0k1L2m3N4o5P6q7R8",
-        "redacted": "//registry.npmjs.org/:_authToken=[REDACTED:NPM_TOKEN]",
+        "text_base64": "Ly9yZWdpc3RyeS5ucG1qcy5vcmcvOl9hdXRoVG9rZW49bnBtXzxmYWtlPmExQjJjM0Q0ZTVGNmc3SDg8ZmFrZT5pOUowazFMMm0zTjRvNVA2cTdSOA==",
+        "redacted_base64": "Ly9yZWdpc3RyeS5ucG1qcy5vcmcvOl9hdXRoVG9rZW49W1JFREFDVEVEOk5QTV9UT0tFTl0=",
         "types": [
             "NPM_TOKEN"
         ]
     },
     {
         "name": "shell command substitution",
-        "text": "TOKEN=$(docker compose exec -T app php artisan tinker) curl …",
-        "redacted": "TOKEN=$(docker compose exec -T app php artisan tinker) curl …",
+        "text_base64": "VE9LRU49JChkb2NrZXIgY29tcG9zZSBleGVjIC1UIGFwcCBwaHAgYXJ0aXNhbiB0aW5rZXIpIGN1cmwg4oCm",
+        "redacted_base64": "VE9LRU49JChkb2NrZXIgY29tcG9zZSBleGVjIC1UIGFwcCBwaHAgYXJ0aXNhbiB0aW5rZXIpIGN1cmwg4oCm",
         "types": []
     },
     {
         "name": "shell variable",
-        "text": "export CODERS_TALK_TOKEN=$PLUGIN_TOKEN",
-        "redacted": "export CODERS_TALK_TOKEN=$PLUGIN_TOKEN",
+        "text_base64": "ZXhwb3J0IENPREVSU19UQUxLX1RPS0VOPSRQTFVHSU5fVE9LRU4=",
+        "redacted_base64": "ZXhwb3J0IENPREVSU19UQUxLX1RPS0VOPSRQTFVHSU5fVE9LRU4=",
         "types": []
     },
     {
         "name": "php interpolation",
-        "text": "$env = \"API_TOKEN={$plain}\";",
-        "redacted": "$env = \"API_TOKEN={$plain}\";",
+        "text_base64": "JGVudiA9ICJBUElfVE9LRU49eyRwbGFpbn0iOw==",
+        "redacted_base64": "JGVudiA9ICJBUElfVE9LRU49eyRwbGFpbn0iOw==",
         "types": []
     },
     {
         "name": "template",
-        "text": "STRIPE_SECRET: {{ secrets.stripe }}",
-        "redacted": "STRIPE_SECRET: {{ secrets.stripe }}",
+        "text_base64": "U1RSSVBFX1NFQ1JFVDoge3sgc2VjcmV0cy5zdHJpcGUgfX0=",
+        "redacted_base64": "U1RSSVBFX1NFQ1JFVDoge3sgc2VjcmV0cy5zdHJpcGUgfX0=",
         "types": []
     },
     {
         "name": "env reference",
-        "text": "const API_KEY = process.env.OPENAI_API_KEY",
-        "redacted": "const API_KEY = process.env.OPENAI_API_KEY",
+        "text_base64": "Y29uc3QgQVBJX0tFWSA9IHByb2Nlc3MuZW52Lk9QRU5BSV9BUElfS0VZ",
+        "redacted_base64": "Y29uc3QgQVBJX0tFWSA9IHByb2Nlc3MuZW52Lk9QRU5BSV9BUElfS0VZ",
         "types": []
     },
     {
         "name": "short word in a test",
-        "text": "cli(['whoami'], { CODERS_TALK_TOKEN: 'ct_wrong' })",
-        "redacted": "cli(['whoami'], { CODERS_TALK_TOKEN: 'ct_wrong' })",
+        "text_base64": "Y2xpKFsnd2hvYW1pJ10sIHsgQ09ERVJTX1RBTEtfVE9LRU46ICdjdF93cm9uZycgfSk=",
+        "redacted_base64": "Y2xpKFsnd2hvYW1pJ10sIHsgQ09ERVJTX1RBTEtfVE9LRU46ICdjdF93cm9uZycgfSk=",
         "types": []
     },
     {
         "name": "aws documentation keys",
-        "text": "aws_access_key_id = AKIA<fake>IOSFODNN7EXAMPLE\naws_secret_access_key = wJalr<fake>XUtnFEMI/K7MDENG/bPxRf<fake>iCYEXAMPLEKEY",
-        "redacted": "aws_access_key_id = AKIA<fake>IOSFODNN7EXAMPLE\naws_secret_access_key = wJalr<fake>XUtnFEMI/K7MDENG/bPxRf<fake>iCYEXAMPLEKEY",
+        "text_base64": "YXdzX2FjY2Vzc19rZXlfaWQgPSBBS0lBPGZha2U+SU9TRk9ETk43RVhBTVBMRQphd3Nfc2VjcmV0X2FjY2Vzc19rZXkgPSB3SmFscjxmYWtlPlhVdG5GRU1JL0s3TURFTkcvYlB4UmY8ZmFrZT5pQ1lFWEFNUExFS0VZ",
+        "redacted_base64": "YXdzX2FjY2Vzc19rZXlfaWQgPSBBS0lBPGZha2U+SU9TRk9ETk43RVhBTVBMRQphd3Nfc2VjcmV0X2FjY2Vzc19rZXkgPSB3SmFscjxmYWtlPlhVdG5GRU1JL0s3TURFTkcvYlB4UmY8ZmFrZT5pQ1lFWEFNUExFS0VZ",
         "types": []
     },
     {
         "name": "masked in docs",
-        "text": "OPENAI_API_KEY=sk-…, GITHUB_TOKEN=ghp_<fake>xxxxxxxxxxxxxxxxxx<fake>xxxxxxxxxxxxxxxxxx",
-        "redacted": "OPENAI_API_KEY=sk-…, GITHUB_TOKEN=ghp_<fake>xxxxxxxxxxxxxxxxxx<fake>xxxxxxxxxxxxxxxxxx",
+        "text_base64": "T1BFTkFJX0FQSV9LRVk9c2st4oCmLCBHSVRIVUJfVE9LRU49Z2hwXzxmYWtlPnh4eHh4eHh4eHh4eHh4eHh4eDxmYWtlPnh4eHh4eHh4eHh4eHh4eHh4eA==",
+        "redacted_base64": "T1BFTkFJX0FQSV9LRVk9c2st4oCmLCBHSVRIVUJfVE9LRU49Z2hwXzxmYWtlPnh4eHh4eHh4eHh4eHh4eHh4eDxmYWtlPnh4eHh4eHh4eHh4eHh4eHh4eA==",
         "types": []
     },
     {
         "name": "ssh remotes",
-        "text": "git clone git@github.com:mara/shop.git\nssh://git@gitlab.com/mara/shop.git",
-        "redacted": "git clone git@github.com:mara/shop.git\nssh://git@gitlab.com/mara/shop.git",
+        "text_base64": "Z2l0IGNsb25lIGdpdEBnaXRodWIuY29tOm1hcmEvc2hvcC5naXQKc3NoOi8vZ2l0QGdpdGxhYi5jb20vbWFyYS9zaG9wLmdpdA==",
+        "redacted_base64": "Z2l0IGNsb25lIGdpdEBnaXRodWIuY29tOm1hcmEvc2hvcC5naXQKc3NoOi8vZ2l0QGdpdGxhYi5jb20vbWFyYS9zaG9wLmdpdA==",
         "types": []
     },
     {
         "name": "user part of a url",
-        "text": "https:<fake>//mara:ghp_<fake>secret@github.com/mara/shop.git and ftp://deploy@files.acme.io/",
-        "redacted": "https:<fake>//mara:ghp_<fake>secret@github.com/mara/shop.git and ftp://deploy@files.acme.io/",
+        "text_base64": "aHR0cHM6PGZha2U+Ly9tYXJhOmdocF88ZmFrZT5zZWNyZXRAZ2l0aHViLmNvbS9tYXJhL3Nob3AuZ2l0IGFuZCBmdHA6Ly9kZXBsb3lAZmlsZXMuYWNtZS5pby8=",
+        "redacted_base64": "aHR0cHM6PGZha2U+Ly9tYXJhOmdocF88ZmFrZT5zZWNyZXRAZ2l0aHViLmNvbS9tYXJhL3Nob3AuZ2l0IGFuZCBmdHA6Ly9kZXBsb3lAZmlsZXMuYWNtZS5pby8=",
         "types": []
     },
     {
         "name": "github noreply",
-        "text": "Author: mara <1234+mara@users.noreply.github.com>",
-        "redacted": "Author: mara <1234+mara@users.noreply.github.com>",
+        "text_base64": "QXV0aG9yOiBtYXJhIDwxMjM0K21hcmFAdXNlcnMubm9yZXBseS5naXRodWIuY29tPg==",
+        "redacted_base64": "QXV0aG9yOiBtYXJhIDwxMjM0K21hcmFAdXNlcnMubm9yZXBseS5naXRodWIuY29tPg==",
         "types": []
     },
     {
         "name": "emails and ips",
-        "text": "ping 10.0.0.12, then 203.0.113.9 and 127.0.0.1; mail ops@acme.io or dev@example.com. Version 1.2.3.",
-        "redacted": "ping 10.0.0.12, then [REDACTED:IP_ADDRESS] and 127.0.0.1; mail [REDACTED:EMAIL] or dev@example.com. Version 1.2.3.",
+        "text_base64": "cGluZyAxMC4wLjAuMTIsIHRoZW4gMjAzLjAuMTEzLjkgYW5kIDEyNy4wLjAuMTsgbWFpbCBvcHNAYWNtZS5pbyBvciBkZXZAZXhhbXBsZS5jb20uIFZlcnNpb24gMS4yLjMu",
+        "redacted_base64": "cGluZyAxMC4wLjAuMTIsIHRoZW4gW1JFREFDVEVEOklQX0FERFJFU1NdIGFuZCAxMjcuMC4wLjE7IG1haWwgW1JFREFDVEVEOkVNQUlMXSBvciBkZXZAZXhhbXBsZS5jb20uIFZlcnNpb24gMS4yLjMu",
         "types": [
             "EMAIL",
             "IP_ADDRESS"
@@ -236,8 +236,8 @@
     },
     {
         "name": "url password and redis",
-        "text": "Clone https:<fake>//mara:Tk7f<fake>Q<fake>2pLw9@git.acme.io/shop.git. Redis is at redis:<fake>//:s3cr<fake><fake>3tPw@10.0.0.9:6379.",
-        "redacted": "Clone https://mara:[REDACTED:URL_PASSWORD]@git.acme.io/shop.git. Redis is at [REDACTED:DATABASE_URL].",
+        "text_base64": "Q2xvbmUgaHR0cHM6PGZha2U+Ly9tYXJhOlRrN2Y8ZmFrZT5RPGZha2U+MnBMdzlAZ2l0LmFjbWUuaW8vc2hvcC5naXQuIFJlZGlzIGlzIGF0IHJlZGlzOjxmYWtlPi8vOnMzY3I8ZmFrZT48ZmFrZT4zdFB3QDEwLjAuMC45OjYzNzku",
+        "redacted_base64": "Q2xvbmUgaHR0cHM6Ly9tYXJhOltSRURBQ1RFRDpVUkxfUEFTU1dPUkRdQGdpdC5hY21lLmlvL3Nob3AuZ2l0LiBSZWRpcyBpcyBhdCBbUkVEQUNURUQ6REFUQUJBU0VfVVJMXS4=",
         "types": [
             "DATABASE_URL",
             "URL_PASSWORD"
@@ -245,14 +245,14 @@
     },
     {
         "name": "plain code",
-        "text": "function tokenize(input) {\n  const PASSWORD_MIN = 8;\n  return input.split(' ');\n}\nSee RFC 8058 and docs/v2.3.1.",
-        "redacted": "function tokenize(input) {\n  const PASSWORD_MIN = 8;\n  return input.split(' ');\n}\nSee RFC 8058 and docs/v2.3.1.",
+        "text_base64": "ZnVuY3Rpb24gdG9rZW5pemUoaW5wdXQpIHsKICBjb25zdCBQQVNTV09SRF9NSU4gPSA4OwogIHJldHVybiBpbnB1dC5zcGxpdCgnICcpOwp9ClNlZSBSRkMgODA1OCBhbmQgZG9jcy92Mi4zLjEu",
+        "redacted_base64": "ZnVuY3Rpb24gdG9rZW5pemUoaW5wdXQpIHsKICBjb25zdCBQQVNTV09SRF9NSU4gPSA4OwogIHJldHVybiBpbnB1dC5zcGxpdCgnICcpOwp9ClNlZSBSRkMgODA1OCBhbmQgZG9jcy92Mi4zLjEu",
         "types": []
     },
     {
         "name": "internal hosts",
-        "text": "curl http://billing.internal/api then ssh deploy@build-01.lan; wiki at confluence.acme.corp, svc redis.cache.svc.cluster.local",
-        "redacted": "curl http://[REDACTED:INTERNAL_HOST]/api then ssh [REDACTED:EMAIL]; wiki at [REDACTED:INTERNAL_HOST], svc [REDACTED:INTERNAL_HOST]",
+        "text_base64": "Y3VybCBodHRwOi8vYmlsbGluZy5pbnRlcm5hbC9hcGkgdGhlbiBzc2ggZGVwbG95QGJ1aWxkLTAxLmxhbjsgd2lraSBhdCBjb25mbHVlbmNlLmFjbWUuY29ycCwgc3ZjIHJlZGlzLmNhY2hlLnN2Yy5jbHVzdGVyLmxvY2Fs",
+        "redacted_base64": "Y3VybCBodHRwOi8vW1JFREFDVEVEOklOVEVSTkFMX0hPU1RdL2FwaSB0aGVuIHNzaCBbUkVEQUNURUQ6RU1BSUxdOyB3aWtpIGF0IFtSRURBQ1RFRDpJTlRFUk5BTF9IT1NUXSwgc3ZjIFtSRURBQ1RFRDpJTlRFUk5BTF9IT1NUXQ==",
         "types": [
             "EMAIL",
             "INTERNAL_HOST",
@@ -262,30 +262,30 @@
     },
     {
         "name": "internal lookalikes",
-        "text": "from app.internal import x; this.private = true; see config.local.php and pkg/internal/lan.go",
-        "redacted": "from app.internal import x; this.private = true; see config.local.php and pkg/internal/lan.go",
+        "text_base64": "ZnJvbSBhcHAuaW50ZXJuYWwgaW1wb3J0IHg7IHRoaXMucHJpdmF0ZSA9IHRydWU7IHNlZSBjb25maWcubG9jYWwucGhwIGFuZCBwa2cvaW50ZXJuYWwvbGFuLmdv",
+        "redacted_base64": "ZnJvbSBhcHAuaW50ZXJuYWwgaW1wb3J0IHg7IHRoaXMucHJpdmF0ZSA9IHRydWU7IHNlZSBjb25maWcubG9jYWwucGhwIGFuZCBwa2cvaW50ZXJuYWwvbGFuLmdv",
         "types": []
     },
     {
         "name": "json tool input",
-        "text": "{\"command\":\"export GITHUB_TOKEN=ghp_<fake>16C7e42F292c6912<fake>E7710c838347Ae178B4a && gh pr list\",\"description\":\"List PRs\"}",
-        "redacted": "{\"command\":\"export GITHUB_TOKEN=[REDACTED:GITHUB_TOKEN] && gh pr list\",\"description\":\"List PRs\"}",
+        "text_base64": "eyJjb21tYW5kIjoiZXhwb3J0IEdJVEhVQl9UT0tFTj1naHBfPGZha2U+MTZDN2U0MkYyOTJjNjkxMjxmYWtlPkU3NzEwYzgzODM0N0FlMTc4QjRhICYmIGdoIHByIGxpc3QiLCJkZXNjcmlwdGlvbiI6Ikxpc3QgUFJzIn0=",
+        "redacted_base64": "eyJjb21tYW5kIjoiZXhwb3J0IEdJVEhVQl9UT0tFTj1bUkVEQUNURUQ6R0lUSFVCX1RPS0VOXSAmJiBnaCBwciBsaXN0IiwiZGVzY3JpcHRpb24iOiJMaXN0IFBScyJ9",
         "types": [
             "GITHUB_TOKEN"
         ]
     },
     {
         "name": "json with escapes",
-        "text": "{\"content\":\"DB_PASSWORD=Xk29<fake>fLq7<fake>Vp3mZw81\\nAPP_URL=http://shop.local\"}",
-        "redacted": "{\"content\":\"DB_PASSWORD=[REDACTED:SECRET_ASSIGNMENT]\"}",
+        "text_base64": "eyJjb250ZW50IjoiREJfUEFTU1dPUkQ9WGsyOTxmYWtlPmZMcTc8ZmFrZT5WcDNtWnc4MVxuQVBQX1VSTD1odHRwOi8vc2hvcC5sb2NhbCJ9",
+        "redacted_base64": "eyJjb250ZW50IjoiREJfUEFTU1dPUkQ9W1JFREFDVEVEOlNFQ1JFVF9BU1NJR05NRU5UXSJ9",
         "types": [
             "SECRET_ASSIGNMENT"
         ]
     },
     {
         "name": "two of a kind",
-        "text": "first sk_l<fake>ive_51H8xQ<fake>2pLw9Tk7fZmR4vN, again sk_l<fake>ive_51H8xQ<fake>2pLw9Tk7fZmR4vN and mail a.b@acme.io",
-        "redacted": "first [REDACTED:STRIPE_KEY], again [REDACTED:STRIPE_KEY] and mail [REDACTED:EMAIL]",
+        "text_base64": "Zmlyc3Qgc2tfbDxmYWtlPml2ZV81MUg4eFE8ZmFrZT4ycEx3OVRrN2ZabVI0dk4sIGFnYWluIHNrX2w8ZmFrZT5pdmVfNTFIOHhRPGZha2U+MnBMdzlUazdmWm1SNHZOIGFuZCBtYWlsIGEuYkBhY21lLmlv",
+        "redacted_base64": "Zmlyc3QgW1JFREFDVEVEOlNUUklQRV9LRVldLCBhZ2FpbiBbUkVEQUNURUQ6U1RSSVBFX0tFWV0gYW5kIG1haWwgW1JFREFDVEVEOkVNQUlMXQ==",
         "types": [
             "STRIPE_KEY",
             "STRIPE_KEY",
@@ -294,8 +294,8 @@
     },
     {
         "name": "presigned storage link",
-        "text": "send --upload=\"https://0123456789abcdef.r2.cloudflarestorage.com/coders-talk/cloud-uploads/abc.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=a1b2<fake>c3<fake>d4e5f6%2F20260929%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=20260929T100000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=0123<fake>456789abcdef0123456789abcdef<fake>0123456789abcdef0123456789abcdef\"",
-        "redacted": "send --upload=\"https://0123456789abcdef.r2.cloudflarestorage.com/coders-talk/cloud-uploads/abc.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=[REDACTED:SIGNED_URL]&X-Amz-Date=20260929T100000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=host&X-Amz-Signature=[REDACTED:SIGNED_URL]\"",
+        "text_base64": "c2VuZCAtLXVwbG9hZD0iaHR0cHM6Ly8wMTIzNDU2Nzg5YWJjZGVmLnIyLmNsb3VkZmxhcmVzdG9yYWdlLmNvbS9jb2RlcnMtdGFsay9jbG91ZC11cGxvYWRzL2FiYy5qc29uP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9YTFiMjxmYWtlPmMzPGZha2U+ZDRlNWY2JTJGMjAyNjA5MjklMkZhdXRvJTJGczMlMkZhd3M0X3JlcXVlc3QmWC1BbXotRGF0ZT0yMDI2MDkyOVQxMDAwMDBaJlgtQW16LUV4cGlyZXM9OTAwJlgtQW16LVNpZ25lZEhlYWRlcnM9aG9zdCZYLUFtei1TaWduYXR1cmU9MDEyMzxmYWtlPjQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY8ZmFrZT4wMTIzNDU2Nzg5YWJjZGVmMDEyMzQ1Njc4OWFiY2RlZiI=",
+        "redacted_base64": "c2VuZCAtLXVwbG9hZD0iaHR0cHM6Ly8wMTIzNDU2Nzg5YWJjZGVmLnIyLmNsb3VkZmxhcmVzdG9yYWdlLmNvbS9jb2RlcnMtdGFsay9jbG91ZC11cGxvYWRzL2FiYy5qc29uP1gtQW16LUFsZ29yaXRobT1BV1M0LUhNQUMtU0hBMjU2JlgtQW16LUNyZWRlbnRpYWw9W1JFREFDVEVEOlNJR05FRF9VUkxdJlgtQW16LURhdGU9MjAyNjA5MjlUMTAwMDAwWiZYLUFtei1FeHBpcmVzPTkwMCZYLUFtei1TaWduZWRIZWFkZXJzPWhvc3QmWC1BbXotU2lnbmF0dXJlPVtSRURBQ1RFRDpTSUdORURfVVJMXSI=",
         "types": [
             "SIGNED_URL",
             "SIGNED_URL"

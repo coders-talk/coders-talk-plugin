@@ -113,7 +113,7 @@
     },
     {
         "name": "postgres url",
-        "text": "DATABASE_URL=postgres://app:s3cr<fake>3tP<fake>assw0rd@db.internal:5432/app",
+        "text": "DATABASE_URL=postgres:<fake>//app:s3cr<fake>3tP<fake>assw0rd@db.internal:5432/app",
         "redacted": "DATABASE_URL=[REDACTED:DATABASE_URL]",
         "types": [
             "DATABASE_URL"
@@ -121,7 +121,7 @@
     },
     {
         "name": "mongodb url",
-        "text": "mongodb+srv://admin:hunt<fake>er2<fake>hunter2@cluster0.ab1cd.mongodb.net/prod",
+        "text": "mongodb+srv:<fake>//admin:hunt<fake>er2<fake>hunter2@cluster0.ab1cd.mongodb.net/prod",
         "redacted": "[REDACTED:DATABASE_URL]",
         "types": [
             "DATABASE_URL"
@@ -197,14 +197,14 @@
     },
     {
         "name": "aws documentation keys",
-        "text": "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        "redacted": "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "text": "aws_access_key_id = AKIA<fake>IOSFODNN7EXAMPLE\naws_secret_access_key = wJalr<fake>XUtnFEMI/K7MDENG/bPxRf<fake>iCYEXAMPLEKEY",
+        "redacted": "aws_access_key_id = AKIA<fake>IOSFODNN7EXAMPLE\naws_secret_access_key = wJalr<fake>XUtnFEMI/K7MDENG/bPxRf<fake>iCYEXAMPLEKEY",
         "types": []
     },
     {
         "name": "masked in docs",
-        "text": "OPENAI_API_KEY=sk-…, GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "redacted": "OPENAI_API_KEY=sk-…, GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "text": "OPENAI_API_KEY=sk-…, GITHUB_TOKEN=ghp_<fake>xxxxxxxxxxxxxxxxxx<fake>xxxxxxxxxxxxxxxxxx",
+        "redacted": "OPENAI_API_KEY=sk-…, GITHUB_TOKEN=ghp_<fake>xxxxxxxxxxxxxxxxxx<fake>xxxxxxxxxxxxxxxxxx",
         "types": []
     },
     {
@@ -215,8 +215,8 @@
     },
     {
         "name": "user part of a url",
-        "text": "https://mara:ghp_secret@github.com/mara/shop.git and ftp://deploy@files.acme.io/",
-        "redacted": "https://mara:ghp_secret@github.com/mara/shop.git and ftp://deploy@files.acme.io/",
+        "text": "https:<fake>//mara:ghp_<fake>secret@github.com/mara/shop.git and ftp://deploy@files.acme.io/",
+        "redacted": "https:<fake>//mara:ghp_<fake>secret@github.com/mara/shop.git and ftp://deploy@files.acme.io/",
         "types": []
     },
     {
@@ -236,7 +236,7 @@
     },
     {
         "name": "url password and redis",
-        "text": "Clone https://mara:Tk7f<fake>Q<fake>2pLw9@git.acme.io/shop.git. Redis is at redis://:s3cr<fake><fake>3tPw@10.0.0.9:6379.",
+        "text": "Clone https:<fake>//mara:Tk7f<fake>Q<fake>2pLw9@git.acme.io/shop.git. Redis is at redis:<fake>//:s3cr<fake><fake>3tPw@10.0.0.9:6379.",
         "redacted": "Clone https://mara:[REDACTED:URL_PASSWORD]@git.acme.io/shop.git. Redis is at [REDACTED:DATABASE_URL].",
         "types": [
             "DATABASE_URL",

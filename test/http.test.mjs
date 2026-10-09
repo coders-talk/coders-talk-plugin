@@ -2,15 +2,21 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request as forward } from 'node:http';
 import { createServer as createTlsServer } from 'node:https';
+import { execFileSync } from 'node:child_process';
 import { connect, createServer as createTcpServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { proxyFor, request, trusted } from '../scripts/lib/http.mjs';
 
-const fixtures = join(fileURLToPath(new URL('.', import.meta.url)), 'fixtures');
-const ca = readFileSync(join(fixtures, 'tls-cert.pem'));
+// A self-signed certificate for localhost, made for this run: the plugin ships no private key, not even a test one.
+const tls = mkdtempSync(join(tmpdir(), 'ct-tls-'));
+execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
+    '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1',
+    '-keyout', join(tls, 'key.pem'), '-out', join(tls, 'cert.pem'),
+], { stdio: 'ignore', env: { ...process.env, MSYS_NO_PATHCONV: '1' } });
+const ca = readFileSync(join(tls, 'cert.pem'));
 
 /** What the site got: method, path, content type and the body's size and first bytes. */
 const handler = (req, res) => {
@@ -24,7 +30,7 @@ const handler = (req, res) => {
         }));
     });
 };
-const site = createTlsServer({ key: readFileSync(join(fixtures, 'tls-key.pem')), cert: ca }, handler);
+const site = createTlsServer({ key: readFileSync(join(tls, 'key.pem')), cert: ca }, handler);
 const plainSite = createServer(handler);
 
 /** A forward proxy: CONNECT tunnels and absolute-form requests; with `auth` set it wants those credentials. */
@@ -119,7 +125,10 @@ before(async () => {
     plainUrl = `http://127.0.0.1:${plainSite.address().port}`;
     proxyUrl = `http://127.0.0.1:${proxy.address().port}`;
 });
-after(() => [site, plainSite, proxy, socks].forEach((s) => s.close()));
+after(() => {
+    [site, plainSite, proxy, socks].forEach((s) => s.close());
+    rmSync(tls, { recursive: true, force: true });
+});
 
 const upload = (size) => {
     const form = new FormData();
@@ -239,7 +248,7 @@ test('proxy credentials from the URL are sent, and a refusal names the proxy wit
 });
 
 test('a proxy that looks inside TLS is trusted through the CA file the environment names', async () => {
-    const cert = join(fixtures, 'tls-cert.pem');
+    const cert = join(tls, 'cert.pem');
     const env = { HTTPS_PROXY: proxyUrl };
     // The test site's own certificate stands in for the proxy's CA: without it the tunnel does not trust the site.
     const untrusted = await request(`${siteUrl}/api/v1/me`, {}, { env }).catch((e) => e);
